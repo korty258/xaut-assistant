@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.0.0.pre1-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.0.0.pre2-brightgreen" alt="Version">
   <img src="https://img.shields.io/badge/Flutter-3.47+-02569B?logo=flutter&logoColor=white" alt="Flutter">
   <img src="https://img.shields.io/badge/Platform-Android%20|%20Windows-green" alt="Platform">
   <img src="https://img.shields.io/badge/Architecture-arm64--v8a%20(17MB)-blue" alt="Architecture">
