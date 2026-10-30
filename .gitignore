@@ -1,0 +1,49 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# Android
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+**/android/local.properties
+**/android/.gradle/
+**/android/captures/
+**/android/gradleBuild/
+**/android/**/build/
+**/android/app/build/
+**/key.properties
+*.keystore
+*.jks
+
+# Windows
+**/windows/flutter/ephemeral/
+**/windows/flutter/generated_plugin_registrant.cc
+**/windows/flutter/generated_plugin_registrant.h
+**/windows/flutter/generated_plugins.cmake
+**/build/windows/
+*.exe
+*.dll
+
+# IDE & OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+*.swp
+*.bak
+*~
+
+# Scratch, Logs & Local Research Notes
+*.log
+scratch/
+.system_generated/
+PROJECT_HANDOVER.md
+强智api/
+docs/
