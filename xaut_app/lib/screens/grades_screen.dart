@@ -6,6 +6,47 @@ import 'webview_login_screen.dart';
 class GradesScreen extends StatelessWidget {
   const GradesScreen({super.key});
 
+  static ({Color bg, Color fg}) _resolveScoreColors(ThemeData theme, String rawScore) {
+    final isDark = theme.brightness == Brightness.dark;
+    final s = rawScore.trim();
+    final scoreNum = double.tryParse(s);
+
+    final isExcellent = (scoreNum != null && scoreNum >= 90) || s == '优' || s == '优秀';
+    final isGood = (scoreNum != null && scoreNum >= 80 && scoreNum < 90) ||
+        s == '良' ||
+        s == '良好' ||
+        s == '合格' ||
+        s == '通过' ||
+        s == '免修';
+    final isFail = (scoreNum != null && scoreNum < 60) ||
+        s == '不及格' ||
+        s == '不合格' ||
+        s == '未通过';
+
+    if (isExcellent) {
+      return (
+        bg: Colors.green.withValues(alpha: isDark ? 0.22 : 0.12),
+        fg: isDark ? const Color(0xFF81C784) : const Color(0xFF2E7D32),
+      );
+    }
+    if (isGood) {
+      return (
+        bg: Colors.blue.withValues(alpha: isDark ? 0.22 : 0.12),
+        fg: isDark ? const Color(0xFF64B5F6) : const Color(0xFF1565C0),
+      );
+    }
+    if (isFail) {
+      return (
+        bg: theme.colorScheme.errorContainer.withValues(alpha: isDark ? 0.55 : 0.7),
+        fg: theme.colorScheme.onErrorContainer,
+      );
+    }
+    return (
+      bg: theme.colorScheme.surfaceContainerHighest.withValues(alpha: isDark ? 0.65 : 0.75),
+      fg: theme.colorScheme.onSurface,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -35,13 +76,13 @@ class GradesScreen extends StatelessWidget {
               }
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'clear',
                 child: Row(
                   children: [
-                    Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('清空成绩数据', style: TextStyle(color: Colors.red)),
+                    Icon(Icons.delete_outline, size: 18, color: theme.colorScheme.error),
+                    const SizedBox(width: 8),
+                    Text('清空成绩数据', style: TextStyle(color: theme.colorScheme.error)),
                   ],
                 ),
               ),
@@ -59,7 +100,11 @@ class GradesScreen extends StatelessWidget {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.auto_graph_rounded, size: 64, color: Colors.grey[400]),
+                        Icon(
+                          Icons.auto_graph_rounded,
+                          size: 64,
+                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                        ),
                         const SizedBox(height: 16),
                         const Text(
                           '本地暂无成绩数据',
@@ -69,7 +114,10 @@ class GradesScreen extends StatelessWidget {
                         Text(
                           '登录强智教务系统后，可一键同步学业成绩与绩点 (GPA)',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontSize: 13,
+                          ),
                         ),
                         const SizedBox(height: 24),
                         FilledButton.icon(
@@ -88,7 +136,7 @@ class GradesScreen extends StatelessWidget {
               : CustomScrollView(
                   physics: const BouncingScrollPhysics(),
                   slivers: [
-                    // 顶部绩点学分统计卡片
+                    // 顶部绩点学分统计卡片（随所选学期实时重算）
                     if (summary != null)
                       SliverToBoxAdapter(
                         child: Container(
@@ -118,13 +166,28 @@ class GradesScreen extends StatelessWidget {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  const Text(
-                                    '累计学业表现',
-                                    style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                    ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        provider.isAllSemesters
+                                            ? Icons.workspace_premium_rounded
+                                            : Icons.filter_alt_rounded,
+                                        size: 15,
+                                        color: Colors.white70,
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        provider.isAllSemesters
+                                            ? '累计学业表现'
+                                            : '${provider.selectedSemester} 学期表现',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -170,7 +233,9 @@ class GradesScreen extends StatelessWidget {
                                   label: Text(sem),
                                   selected: isSelected,
                                   onSelected: (_) => provider.setSemester(sem),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
                                 ),
                               );
                             }).toList(),
@@ -181,10 +246,13 @@ class GradesScreen extends StatelessWidget {
 
                     // 成绩列表
                     if (grades.isEmpty)
-                      const SliverFillRemaining(
+                      SliverFillRemaining(
                         hasScrollBody: false,
                         child: Center(
-                          child: Text('当前筛选学期暂无成绩', style: TextStyle(color: Colors.grey)),
+                          child: Text(
+                            '当前筛选学期暂无成绩',
+                            style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                          ),
                         ),
                       )
                     else
@@ -194,24 +262,17 @@ class GradesScreen extends StatelessWidget {
                           delegate: SliverChildBuilderDelegate(
                             (context, index) {
                               final item = grades[index];
-                              final scoreNum = double.tryParse(item.score);
-                              final isHigh = scoreNum != null && scoreNum >= 90;
-                              final isMedium = scoreNum != null && scoreNum >= 80 && scoreNum < 90;
+                              final scoreStyle = _resolveScoreColors(theme, item.score);
 
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 10),
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
-                                  color: theme.colorScheme.surface,
+                                  color: theme.colorScheme.surfaceContainerLow,
                                   borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.02),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
+                                  border: Border.all(
+                                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+                                  ),
                                 ),
                                 child: Row(
                                   children: [
@@ -221,34 +282,48 @@ class GradesScreen extends StatelessWidget {
                                         children: [
                                           Text(
                                             item.courseName,
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontSize: 14,
                                               fontWeight: FontWeight.bold,
+                                              color: theme.colorScheme.onSurface,
                                             ),
                                           ),
                                           const SizedBox(height: 6),
-                                          Row(
+                                          Wrap(
+                                            spacing: 12,
+                                            runSpacing: 4,
+                                            crossAxisAlignment: WrapCrossAlignment.center,
                                             children: [
                                               Text(
                                                 '学分: ${item.credit}',
-                                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: theme.colorScheme.onSurfaceVariant,
+                                                ),
                                               ),
-                                              const SizedBox(width: 12),
                                               Text(
                                                 '绩点: ${item.gpa}',
-                                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: theme.colorScheme.onSurfaceVariant,
+                                                ),
                                               ),
-                                              const SizedBox(width: 12),
                                               if (item.category.isNotEmpty)
                                                 Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                                  padding: const EdgeInsets.symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 1.5,
+                                                  ),
                                                   decoration: BoxDecoration(
-                                                    color: Colors.grey.withValues(alpha: 0.1),
+                                                    color: theme.colorScheme.surfaceContainerHighest,
                                                     borderRadius: BorderRadius.circular(4),
                                                   ),
                                                   child: Text(
                                                     item.category,
-                                                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      color: theme.colorScheme.onSurfaceVariant,
+                                                    ),
                                                   ),
                                                 ),
                                             ],
@@ -256,26 +331,19 @@ class GradesScreen extends StatelessWidget {
                                         ],
                                       ),
                                     ),
+                                    const SizedBox(width: 10),
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                                       decoration: BoxDecoration(
-                                        color: isHigh
-                                            ? Colors.green.withValues(alpha: 0.12)
-                                            : isMedium
-                                                ? Colors.blue.withValues(alpha: 0.12)
-                                                : Colors.grey.withValues(alpha: 0.1),
+                                        color: scoreStyle.bg,
                                         borderRadius: BorderRadius.circular(12),
                                       ),
                                       child: Text(
                                         item.score,
                                         style: TextStyle(
-                                          fontSize: 18,
+                                          fontSize: 17,
                                           fontWeight: FontWeight.bold,
-                                          color: isHigh
-                                              ? Colors.green[700]
-                                              : isMedium
-                                                  ? Colors.blue[700]
-                                                  : Colors.grey[800],
+                                          color: scoreStyle.fg,
                                         ),
                                       ),
                                     ),
@@ -324,10 +392,11 @@ class GradesScreen extends StatelessWidget {
       return;
     }
 
+    final theme = Theme.of(context);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        icon: const Icon(Icons.delete_forever_rounded, color: Colors.red, size: 36),
+        icon: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error, size: 36),
         title: const Text('确认清空成绩数据？'),
         content: const Text('此操作将清空本地已保存的全部成绩与绩点统计。清空后可随时点击同步按钮重新登录教务系统进行同步。'),
         actions: [
@@ -336,7 +405,7 @@ class GradesScreen extends StatelessWidget {
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
             onPressed: () async {
               Navigator.of(ctx).pop();
               await provider.clearAll();
@@ -346,7 +415,7 @@ class GradesScreen extends StatelessWidget {
                 );
               }
             },
-            child: const Text('确认清空'),
+            child: Text('确认清空', style: TextStyle(color: theme.colorScheme.onError)),
           ),
         ],
       ),

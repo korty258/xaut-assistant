@@ -78,7 +78,7 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
                     decoration: BoxDecoration(
                       color: isCurrent
                           ? color.withValues(alpha: 0.15)
-                          : Colors.grey.withValues(alpha: 0.15),
+                          : theme.colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
@@ -86,7 +86,7 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
-                        color: isCurrent ? color : Colors.grey[700],
+                        color: isCurrent ? color : theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ),
@@ -221,7 +221,7 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
               Text(
                 '活跃周次一览',
                 style: theme.textTheme.labelMedium?.copyWith(
-                  color: Colors.grey[600],
+                  color: theme.colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -243,7 +243,7 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
                           ? color
                           : hasClass
                               ? color.withValues(alpha: 0.18)
-                              : Colors.grey.withValues(alpha: 0.08),
+                              : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
                       borderRadius: BorderRadius.circular(6),
                       border: isSelected
                           ? Border.all(color: color, width: 2)
@@ -258,7 +258,7 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
                             ? Colors.white
                             : hasClass
                                 ? color
-                                : Colors.grey[400],
+                                : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
                       ),
                     ),
                   );
@@ -292,16 +292,17 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
     required String value,
     Color? valueColor,
   }) {
+    final theme = Theme.of(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 20, color: Colors.grey[600]),
+        Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
         const SizedBox(width: 10),
         SizedBox(
           width: 70,
           child: Text(
             label,
-            style: TextStyle(color: Colors.grey[600], fontSize: 13.5),
+            style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13.5),
           ),
         ),
         Expanded(
@@ -310,7 +311,7 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
             style: TextStyle(
               fontSize: 13.5,
               fontWeight: FontWeight.w600,
-              color: valueColor ?? Theme.of(context).textTheme.bodyLarge?.color,
+              color: valueColor ?? theme.colorScheme.onSurface,
             ),
           ),
         ),

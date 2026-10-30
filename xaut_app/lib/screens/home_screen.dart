@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/schedule_provider.dart';
+import '../providers/exams_provider.dart';
 import 'schedule_screen.dart';
 import 'grades_screen.dart';
 import 'exams_screen.dart';
@@ -37,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
       context.read<ScheduleProvider>().refreshForDateChange();
+      context.read<ExamsProvider>().refreshCountdown();
     }
   }
 

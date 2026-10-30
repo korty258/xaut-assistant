@@ -180,8 +180,10 @@ class CourseCard extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 1.5),
                   decoration: BoxDecoration(
-                    color: (isCurrent ? highContrastBrandColor : Colors.grey[700]!)
-                        .withValues(alpha: 0.88),
+                    color: (isCurrent
+                            ? hsl.withLightness(hsl.lightness.clamp(0.28, 0.42)).toColor()
+                            : (isDark ? const Color(0xFF546E7A) : const Color(0xFF616161)))
+                        .withValues(alpha: 0.90),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Row(

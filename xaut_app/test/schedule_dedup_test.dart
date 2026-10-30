@@ -1,6 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/models/course.dart';
+import 'package:xaut_app/models/exam.dart';
+import 'package:xaut_app/models/grade.dart';
+import 'package:xaut_app/providers/exams_provider.dart';
+import 'package:xaut_app/providers/grades_provider.dart';
 import 'package:xaut_app/providers/schedule_provider.dart';
 import 'package:xaut_app/services/parser_service.dart';
 
@@ -272,5 +276,146 @@ void main() {
     expect(courseRes.courses.length, 1);
     expect(courseRes.detectedWeek, 9);
     expect(courseRes.detectedSemester, '2026-2027-1');
+  });
+
+  test('GradesProvider dynamically recalculates single-semester GPA and supports 5-level/pass-fail grades', () async {
+    final provider = GradesProvider();
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    final sampleGrades = [
+      const GradeItem(
+        semester: '2025-2026-2',
+        courseCode: 'M01',
+        courseName: '高等数学(下)',
+        score: '90',
+        credit: 4.0,
+        gpa: 4.0,
+        category: '必修',
+        examType: '考试',
+      ),
+      const GradeItem(
+        semester: '2026-2027-1',
+        courseCode: 'E01',
+        courseName: '工程训练 B',
+        score: '优',
+        credit: 2.0,
+        gpa: 4.5,
+        category: '实践',
+        examType: '考查',
+      ),
+      const GradeItem(
+        semester: '2026-2027-1',
+        courseCode: 'P01',
+        courseName: '大学物理(下)',
+        score: '85',
+        credit: 4.0,
+        gpa: 3.5,
+        category: '必修',
+        examType: '考试',
+      ),
+      const GradeItem(
+        semester: '2026-2027-1',
+        courseCode: 'S01',
+        courseName: '军事技能',
+        score: '合格',
+        credit: 2.0,
+        gpa: 0.0, // 二级制无绩点课程：计入总修学分，但不拉低平均GPA
+        category: '必修',
+        examType: '考查',
+      ),
+    ];
+
+    await provider.updateGrades(sampleGrades);
+
+    // 1. 默认「全部」：总学分 = 4+2+4+2 = 12.0；GPA = (4*4 + 4.5*2 + 3.5*4) / 10 = 39 / 10 = 3.9
+    final allSum = provider.summary!;
+    expect(provider.isAllSemesters, true);
+    expect(allSum.totalCourses, 4);
+    expect(allSum.totalCredits, 12.0);
+    expect(allSum.averageGpa, 3.9);
+    // 加权平均分 = (90*4 + 95*2 + 85*4) / 10 = 890 / 10 = 89.0
+    expect(allSum.averageScore, 89.0);
+
+    // 2. 切换单学期「2026-2027-1」：顶部卡片动态重算该学期 3 门课
+    provider.setSemester('2026-2027-1');
+    final semSum = provider.summary!;
+    expect(provider.isAllSemesters, false);
+    expect(semSum.totalCourses, 3);
+    expect(semSum.totalCredits, 8.0);
+    // 单学期 GPA = (4.5*2 + 3.5*4) / 6 = 23 / 6 = 3.83
+    expect(semSum.averageGpa, 3.83);
+    // 单学期加权均分 = (95*2 + 85*4) / 6 = 530 / 6 = 88.33
+    expect(semSum.averageScore, 88.33);
+  });
+
+  test('ExamsProvider sorts upcoming exams first with accurate countdown badges and sinks finished exams', () async {
+    final fakeNow = DateTime(2026, 11, 15, 10, 0);
+    final provider = ExamsProvider(nowProvider: () => fakeNow);
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    await provider.updateExams([
+      const ExamItem(
+        campus: '曲江校区',
+        batch: '期中考试',
+        courseCode: 'C1',
+        courseName: '已考完科目',
+        teacher: '王老师',
+        examTime: '2026-11-10 09:00-11:00',
+        room: '教10-201',
+      ),
+      const ExamItem(
+        campus: '曲江校区',
+        batch: '期末考试',
+        courseCode: 'C2',
+        courseName: '时间待定科目',
+        teacher: '',
+        examTime: '',
+        room: '',
+      ),
+      const ExamItem(
+        campus: '曲江校区',
+        batch: '期末考试',
+        courseCode: 'C3',
+        courseName: '五天后科目',
+        teacher: '李老师',
+        examTime: '2026-11-20(09:00-11:00)',
+        room: '教10-305',
+      ),
+      const ExamItem(
+        campus: '曲江校区',
+        batch: '期末考试',
+        courseCode: 'C4',
+        courseName: '明天科目',
+        teacher: '张老师',
+        examTime: '2026-11-16 14:30~16:30',
+        room: '教8-102',
+      ),
+      const ExamItem(
+        campus: '曲江校区',
+        batch: '期末考试',
+        courseCode: 'C5',
+        courseName: '今天下午科目',
+        teacher: '赵老师',
+        examTime: '2026-11-15 14:00-16:00',
+        room: '教9-401',
+      ),
+    ]);
+
+    final sorted = provider.exams;
+    expect(provider.upcomingCount, 3);
+    expect(sorted.map((e) => e.courseName).toList(), [
+      '今天下午科目',
+      '明天科目',
+      '五天后科目',
+      '时间待定科目',
+      '已考完科目',
+    ]);
+
+    expect(sorted[0].evaluateStatus(fakeNow).badgeText, '今天');
+    expect(sorted[1].evaluateStatus(fakeNow).badgeText, '明天');
+    expect(sorted[2].evaluateStatus(fakeNow).badgeText, '还有 5 天');
+    expect(sorted[3].evaluateStatus(fakeNow).badgeText, '时间待定');
+    expect(sorted[4].evaluateStatus(fakeNow).badgeText, '已结束');
+    expect(sorted[4].evaluateStatus(fakeNow).isFinished, true);
   });
 }

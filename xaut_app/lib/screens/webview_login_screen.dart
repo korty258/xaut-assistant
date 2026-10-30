@@ -427,12 +427,13 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     required String detail,
     required bool isSuccess,
   }) {
+    final theme = Theme.of(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(
           isSuccess ? Icons.check_circle : Icons.remove_circle_outline,
-          color: isSuccess ? Colors.green : Colors.grey,
+          color: isSuccess ? Colors.green : theme.colorScheme.onSurfaceVariant,
           size: 18,
         ),
         const SizedBox(width: 8),
@@ -442,14 +443,20 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
             children: [
               Text(
                 title,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: theme.colorScheme.onSurface,
+                ),
               ),
               const SizedBox(height: 2),
               Text(
                 detail,
                 style: TextStyle(
                   fontSize: 12,
-                  color: isSuccess ? Colors.black87 : Colors.grey[600],
+                  color: isSuccess
+                      ? theme.colorScheme.onSurface
+                      : theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
@@ -862,17 +869,17 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
           // 当前地址提示
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            color: Colors.grey.withValues(alpha: 0.08),
+            color: theme.colorScheme.surfaceContainerLow,
             child: Row(
               children: [
-                Icon(Icons.link, size: 14, color: Colors.grey[600]),
+                Icon(Icons.link, size: 14, color: theme.colorScheme.onSurfaceVariant),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     _currentUrl,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
                   ),
                 ),
               ],
