@@ -228,7 +228,7 @@ function parseWeeks(weekStr) {
 
 function calculateSections(sectionIndex, weekStr) {
   let startSection = (sectionIndex - 1) * 2 + 1;
-  let stepCount = 2;
+  let stepCount = (sectionIndex === 6) ? 3 : 2;
 
   // 兼容多节连排格式: [01-02节], [07-08-09-10节], [01-04节] 等
   const bracketMatch = weekStr.match(/\[(.*?)节?\]/);

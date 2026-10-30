@@ -1,12 +1,58 @@
 import 'package:flutter/material.dart';
 
 class Course {
+  /// 西安理工大学强智教务官方每日总小节数 (6大节 / 13小节)
+  static const int totalSections = 13;
+
+  /// 各小节官方上课开始时间 (1..13 小节)
+  /// 第一大节 (01,02): 08:00-09:50
+  /// 第二大节 (03,04): 10:10-12:00
+  /// 第三大节 (05,06): 12:10-14:00
+  /// 第四大节 (07,08): 14:10-16:00
+  /// 第五大节 (09,10): 16:10-18:00
+  /// 第六大节 (11,12,13): 19:00-21:50
+  static const List<String> sectionStartTimes = [
+    '08:00', // 1
+    '09:00', // 2
+    '10:10', // 3
+    '11:10', // 4
+    '12:10', // 5
+    '13:10', // 6
+    '14:10', // 7
+    '15:10', // 8
+    '16:10', // 9
+    '17:10', // 10
+    '19:00', // 11
+    '20:00', // 12
+    '21:00', // 13
+  ];
+
+  /// 各小节官方下课结束时间 (1..13 小节)
+  static const List<String> sectionEndTimes = [
+    '08:50', // 1
+    '09:50', // 2
+    '11:00', // 3
+    '12:00', // 4
+    '13:00', // 5
+    '14:00', // 6
+    '15:00', // 7
+    '16:00', // 8
+    '17:00', // 9
+    '18:00', // 10
+    '19:50', // 11
+    '20:50', // 12
+    '21:50', // 13
+  ];
+
+  /// 各大节末尾小节编号 (用于绘制大节分隔线)
+  static const Set<int> majorPeriodEndSections = {2, 4, 6, 8, 10, 13};
+
   final String name;
   final String teacher;
   final String room;
   final int day; // 1: 星期一, ..., 7: 星期日
-  final int startSection; // 1-based, e.g. 1, 3, 5, 7, 9
-  final int stepCount; // e.g. 2
+  final int startSection; // 1-based, e.g. 1, 3, 5, 7, 9, 11
+  final int stepCount; // e.g. 2, 3, 4
   final List<int> weeks; // e.g. [1, 2, 3, 4, 5, 6, 7, 8]
   final String rawWeekStr; // e.g. "1-16(周)[01-02节]"
 
@@ -29,6 +75,13 @@ class Course {
 
   /// 节次文本描述
   String get sectionStr => '$startSection-$endSection节';
+
+  /// 对应官方上下课时间区间文本，如 "08:00-09:50"
+  String get timeRangeStr {
+    final sIdx = (startSection - 1).clamp(0, totalSections - 1);
+    final eIdx = (endSection - 1).clamp(0, totalSections - 1);
+    return '${sectionStartTimes[sIdx]}-${sectionEndTimes[eIdx]}';
+  }
 
   /// 星期名称
   String get dayOfWeekStr {

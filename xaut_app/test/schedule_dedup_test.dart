@@ -158,4 +158,25 @@ void main() {
     expect(result.exams.length, 1);
     expect(result.exams.first.courseName, '大学物理');
   });
+
+  test('Course.timeRangeStr matches XAUT official 6 major periods / 13 sections', () {
+    Course make(int start, int step) => Course(
+          name: 'Test',
+          teacher: '',
+          room: '',
+          day: 1,
+          startSection: start,
+          stepCount: step,
+          weeks: const [1],
+          rawWeekStr: '',
+        );
+
+    expect(Course.totalSections, 13);
+    expect(make(1, 2).timeRangeStr, '08:00-09:50'); // 第一大节
+    expect(make(3, 2).timeRangeStr, '10:10-12:00'); // 第二大节
+    expect(make(5, 2).timeRangeStr, '12:10-14:00'); // 第三大节
+    expect(make(7, 2).timeRangeStr, '14:10-16:00'); // 第四大节
+    expect(make(9, 2).timeRangeStr, '16:10-18:00'); // 第五大节
+    expect(make(11, 3).timeRangeStr, '19:00-21:50'); // 第六大节 (11,12,13)
+  });
 }

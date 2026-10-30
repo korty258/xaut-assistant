@@ -10,7 +10,7 @@ class ScheduleScreen extends StatelessWidget {
   const ScheduleScreen({super.key});
 
   static const double _sectionHeight = 64.0;
-  static const int _totalSections = 12;
+  static const int _totalSections = Course.totalSections;
 
   @override
   Widget build(BuildContext context) {
@@ -330,6 +330,8 @@ class ScheduleScreen extends StatelessWidget {
   Widget _buildWeekdayHeader(BuildContext context, int todayWeekday) {
     const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     final theme = Theme.of(context);
+    final isWide = MediaQuery.sizeOf(context).width >= 720;
+    final timelineWidth = isWide ? 56.0 : 46.0;
 
     return Container(
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
@@ -338,13 +340,13 @@ class ScheduleScreen extends StatelessWidget {
         children: [
           // 左上角月份标识
           SizedBox(
-            width: 44,
+            width: timelineWidth,
             child: Center(
               child: Text(
                 '${DateTime.now().month}月',
                 style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
+                  fontSize: isWide ? 13 : 12,
+                  fontWeight: FontWeight.w600,
                   color: theme.colorScheme.primary,
                 ),
               ),
@@ -369,11 +371,11 @@ class ScheduleScreen extends StatelessWidget {
                     child: Text(
                       days[index],
                       style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: isToday ? FontWeight.bold : FontWeight.w500,
+                        fontSize: isWide ? 13 : 12,
+                        fontWeight: isToday ? FontWeight.w600 : FontWeight.w500,
                         color: isToday
                             ? theme.colorScheme.onPrimary
-                            : theme.textTheme.bodyMedium?.color,
+                            : theme.colorScheme.onSurface,
                       ),
                     ),
                   ),
@@ -386,16 +388,14 @@ class ScheduleScreen extends StatelessWidget {
     );
   }
 
-  /// 左侧节次栏 (1..12 节及对应作息时间)
+  /// 左侧节次栏 (1..13 小节及西安理工大学官方上下课时间)
   Widget _buildSectionTimeline(BuildContext context) {
-    const sectionTimes = [
-      '08:00', '08:50', '10:10', '11:00',
-      '14:00', '14:50', '16:00', '16:50',
-      '19:00', '19:50', '20:40', '21:30'
-    ];
+    final theme = Theme.of(context);
+    final isWide = MediaQuery.sizeOf(context).width >= 720;
+    final timelineWidth = isWide ? 56.0 : 46.0;
 
     return Container(
-      width: 44,
+      width: timelineWidth,
       decoration: BoxDecoration(
         border: Border(
           right: BorderSide(color: Colors.grey.withValues(alpha: 0.2), width: 0.8),
@@ -404,7 +404,9 @@ class ScheduleScreen extends StatelessWidget {
       child: Column(
         children: List.generate(_totalSections, (index) {
           final sectionNum = index + 1;
-          final time = sectionTimes[index];
+          final startTime = Course.sectionStartTimes[index];
+          final endTime = Course.sectionEndTimes[index];
+          final isMajorEnd = Course.majorPeriodEndSections.contains(sectionNum);
 
           return Container(
             height: _sectionHeight,
@@ -412,8 +414,8 @@ class ScheduleScreen extends StatelessWidget {
             decoration: BoxDecoration(
               border: Border(
                 bottom: BorderSide(
-                  color: Colors.grey.withValues(alpha: 0.12),
-                  width: sectionNum % 2 == 0 ? 1.0 : 0.5,
+                  color: Colors.grey.withValues(alpha: isMajorEnd ? 0.22 : 0.10),
+                  width: isMajorEnd ? 1.2 : 0.5,
                 ),
               ),
             ),
@@ -422,16 +424,29 @@ class ScheduleScreen extends StatelessWidget {
               children: [
                 Text(
                   '$sectionNum',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
+                  style: TextStyle(
+                    fontSize: isWide ? 13 : 12,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface,
+                    height: 1.15,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  startTime,
+                  style: TextStyle(
+                    fontSize: isWide ? 10.0 : 9.0,
+                    fontWeight: FontWeight.w500,
+                    color: theme.colorScheme.onSurfaceVariant,
+                    height: 1.15,
                   ),
                 ),
                 Text(
-                  time,
+                  endTime,
                   style: TextStyle(
-                    fontSize: 9,
-                    color: Colors.grey[500],
+                    fontSize: isWide ? 9.5 : 8.5,
+                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.72),
+                    height: 1.15,
                   ),
                 ),
               ],
@@ -467,13 +482,14 @@ class ScheduleScreen extends StatelessWidget {
               // 背景参考网格线
               Column(
                 children: List.generate(_totalSections, (s) {
+                  final isMajorEnd = Course.majorPeriodEndSections.contains(s + 1);
                   return Container(
                     height: _sectionHeight,
                     decoration: BoxDecoration(
                       border: Border(
                         bottom: BorderSide(
-                          color: Colors.grey.withValues(alpha: 0.1),
-                          width: (s + 1) % 2 == 0 ? 1.0 : 0.5,
+                          color: Colors.grey.withValues(alpha: isMajorEnd ? 0.18 : 0.08),
+                          width: isMajorEnd ? 1.0 : 0.5,
                         ),
                       ),
                     ),

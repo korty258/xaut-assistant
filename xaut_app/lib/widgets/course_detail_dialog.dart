@@ -203,7 +203,7 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
                 context,
                 icon: Icons.access_time_outlined,
                 label: '上课时间',
-                value: '${course.dayOfWeekStr}  ${course.sectionStr}',
+                value: '${course.dayOfWeekStr}  ${course.sectionStr} (${course.timeRangeStr})',
               ),
               const SizedBox(height: 10),
               _buildInfoRow(
