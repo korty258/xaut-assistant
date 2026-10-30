@@ -1,0 +1,664 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/course.dart';
+import '../providers/schedule_provider.dart';
+import '../widgets/course_card.dart';
+import '../widgets/week_selector_sheet.dart';
+import 'webview_login_screen.dart';
+
+class ScheduleScreen extends StatelessWidget {
+  const ScheduleScreen({super.key});
+
+  static const double _sectionHeight = 64.0;
+  static const int _totalSections = 12;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final provider = context.watch<ScheduleProvider>();
+
+    if (provider.isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    final todayWeekday = DateTime.now().weekday; // 1: Mon, 7: Sun
+
+    return Scaffold(
+      backgroundColor: theme.colorScheme.surface,
+      appBar: AppBar(
+        titleSpacing: 12,
+        elevation: 0.5,
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.school_rounded,
+                size: 18,
+                color: theme.colorScheme.onPrimaryContainer,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Flexible(
+              child: Text(
+                '西理工课表',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          // 周次切换药丸按钮
+          InkWell(
+            onTap: () {
+              WeekSelectorSheet.show(
+                context,
+                currentWeek: provider.currentWeek,
+                totalWeeks: provider.maxWeeks,
+                onWeekSelected: (w) => provider.setCurrentWeek(w),
+              );
+            },
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.secondaryContainer,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    '第 ${provider.currentWeek} 周',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.onSecondaryContainer,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Icon(
+                    Icons.arrow_drop_down,
+                    size: 18,
+                    color: theme.colorScheme.onSecondaryContainer,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+
+          // 核心切换按钮: 仅本周 / 所有周
+          InkWell(
+            onTap: () => provider.toggleOnlyCurrentWeek(),
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: provider.onlyCurrentWeek
+                    ? theme.colorScheme.primaryContainer
+                    : theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: provider.onlyCurrentWeek
+                      ? theme.colorScheme.primary.withValues(alpha: 0.6)
+                      : Colors.grey.withValues(alpha: 0.3),
+                  width: 1.2,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    provider.onlyCurrentWeek
+                        ? Icons.filter_alt_rounded
+                        : Icons.date_range_rounded,
+                    size: 13,
+                    color: provider.onlyCurrentWeek
+                        ? theme.colorScheme.onPrimaryContainer
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    provider.onlyCurrentWeek ? '仅本周' : '所有周',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: provider.onlyCurrentWeek
+                          ? theme.colorScheme.onPrimaryContainer
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+
+          // 导入/同步按钮
+          IconButton(
+            icon: const Icon(Icons.sync_rounded),
+            tooltip: '强智教务登录与一键同步',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const WebViewLoginScreen()),
+              );
+            },
+          ),
+
+          // 更多菜单
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: '更多操作',
+            onSelected: (val) {
+              if (val == 'toggle_mode') {
+                provider.toggleOnlyCurrentWeek();
+              } else if (val == 'clear') {
+                _showClearScheduleDialog(context, provider);
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'toggle_mode',
+                child: Row(
+                  children: [
+                    Icon(
+                      provider.onlyCurrentWeek
+                          ? Icons.date_range_rounded
+                          : Icons.filter_alt_rounded,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(provider.onlyCurrentWeek ? '切换至所有周' : '切换至仅本周'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'clear',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('清空课表数据', style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 4),
+        ],
+      ),
+      body: provider.courses.isEmpty
+          ? _buildFirstLaunchGuide(context)
+          : Column(
+              children: [
+                // 星期表头栏
+                _buildWeekdayHeader(context, todayWeekday),
+                const Divider(height: 1, thickness: 1),
+
+                // 课表格子主体
+                Expanded(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: SizedBox(
+                      height: _sectionHeight * _totalSections,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 左侧节次与时间轴
+                          _buildSectionTimeline(context),
+
+                          // 7天课程网格
+                          ...List.generate(7, (dIndex) {
+                            final dayOfWeek = dIndex + 1;
+                            return Expanded(
+                              child: _buildDayColumn(
+                                context,
+                                dayOfWeek: dayOfWeek,
+                                courses: provider.getCoursesForDay(dayOfWeek),
+                                currentWeek: provider.currentWeek,
+                                isToday: dayOfWeek == todayWeekday,
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  /// 首次启动/无课表时的引导界面
+  Widget _buildFirstLaunchGuide(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.calendar_month_rounded,
+                size: 72,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              '欢迎使用西理工课表',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '本地暂无课表数据，请登录强智教务系统进行一键同步',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 32),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const WebViewLoginScreen()),
+                );
+              },
+              icon: const Icon(Icons.cloud_sync_rounded, size: 22),
+              label: const Text(
+                '登录强智教务并导入课表',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '导入指引：',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: theme.colorScheme.primary),
+                  ),
+                  const SizedBox(height: 6),
+                  Text('1. 点击上方按钮打开教务登录页完成统一认证', style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+                  const SizedBox(height: 4),
+                  Text('2. 登录后点击顶部【我的课表】进入课表页面', style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+                  const SizedBox(height: 4),
+                  Text('3. 点击底部【一键同步课表】即可自动穿透解析导入', style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 顶部星期栏 (周一 ~ 周日)
+  Widget _buildWeekdayHeader(BuildContext context, int todayWeekday) {
+    const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    final theme = Theme.of(context);
+
+    return Container(
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          // 左上角月份标识
+          SizedBox(
+            width: 44,
+            child: Center(
+              child: Text(
+                '${DateTime.now().month}月',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ),
+          ),
+          // 7天标题
+          ...List.generate(7, (index) {
+            final day = index + 1;
+            final isToday = day == todayWeekday;
+
+            return Expanded(
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: isToday
+                        ? BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            borderRadius: BorderRadius.circular(12),
+                          )
+                        : null,
+                    child: Text(
+                      days[index],
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: isToday ? FontWeight.bold : FontWeight.w500,
+                        color: isToday
+                            ? theme.colorScheme.onPrimary
+                            : theme.textTheme.bodyMedium?.color,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  /// 左侧节次栏 (1..12 节及对应作息时间)
+  Widget _buildSectionTimeline(BuildContext context) {
+    const sectionTimes = [
+      '08:00', '08:50', '10:10', '11:00',
+      '14:00', '14:50', '16:00', '16:50',
+      '19:00', '19:50', '20:40', '21:30'
+    ];
+
+    return Container(
+      width: 44,
+      decoration: BoxDecoration(
+        border: Border(
+          right: BorderSide(color: Colors.grey.withValues(alpha: 0.2), width: 0.8),
+        ),
+      ),
+      child: Column(
+        children: List.generate(_totalSections, (index) {
+          final sectionNum = index + 1;
+          final time = sectionTimes[index];
+
+          return Container(
+            height: _sectionHeight,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.grey.withValues(alpha: 0.12),
+                  width: sectionNum % 2 == 0 ? 1.0 : 0.5,
+                ),
+              ),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '$sectionNum',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  time,
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: Colors.grey[500],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  /// 单天课程垂直列 (内置 LayoutBuilder 动态分配横向分栏，杜绝重叠堆叠)
+  Widget _buildDayColumn(
+    BuildContext context, {
+    required int dayOfWeek,
+    required List<Course> courses,
+    required int currentWeek,
+    required bool isToday,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isToday ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.03) : null,
+        border: Border(
+          right: BorderSide(color: Colors.grey.withValues(alpha: 0.15), width: 0.5),
+        ),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columnWidth = constraints.maxWidth;
+          final layoutItems = _computeCourseLayout(courses, currentWeek);
+
+          return Stack(
+            children: [
+              // 背景参考网格线
+              Column(
+                children: List.generate(_totalSections, (s) {
+                  return Container(
+                    height: _sectionHeight,
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: Colors.grey.withValues(alpha: 0.1),
+                          width: (s + 1) % 2 == 0 ? 1.0 : 0.5,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+
+              // 课程卡片动态分栏定位，完美并列展示同节次多课程
+              ...layoutItems.map((item) {
+                final colWidth = columnWidth / item.totalSubCols;
+                final left = item.subColIndex * colWidth;
+                final top = (item.course.startSection - 1) * _sectionHeight;
+                final height = item.course.stepCount * _sectionHeight;
+
+                return Positioned(
+                  top: top,
+                  left: left,
+                  width: colWidth,
+                  height: height,
+                  child: CourseCard(
+                    course: item.course,
+                    currentWeek: currentWeek,
+                    isSubColumn: item.totalSubCols > 1,
+                    allClusterCourses: item.allClusterCourses,
+                  ),
+                );
+              }),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// 智能计算多课程排布算法（智能聚类、本周优先、多课折叠、杜绝细条）
+  List<_CourseLayoutItem> _computeCourseLayout(List<Course> dayCourses, int currentWeek) {
+    if (dayCourses.isEmpty) return [];
+
+    // 1. 排序：按起始节次升序；相同时本周有课的优先靠前；持续节次长的优先
+    final sorted = List<Course>.from(dayCourses)
+      ..sort((a, b) {
+        if (a.startSection != b.startSection) {
+          return a.startSection.compareTo(b.startSection);
+        }
+        final aActive = a.isActiveInWeek(currentWeek) ? 1 : 0;
+        final bActive = b.isActiveInWeek(currentWeek) ? 1 : 0;
+        if (aActive != bActive) {
+          return bActive.compareTo(aActive);
+        }
+        return b.stepCount.compareTo(a.stepCount);
+      });
+
+    // 2. 将在时间区间上存在重叠交集的课程聚类成簇 (Cluster)
+    final clusters = <List<Course>>[];
+    List<Course>? currentCluster;
+    int clusterEndSection = 0;
+
+    for (final course in sorted) {
+      if (currentCluster == null || course.startSection > clusterEndSection) {
+        currentCluster = [course];
+        clusterEndSection = course.endSection;
+        clusters.add(currentCluster);
+      } else {
+        currentCluster.add(course);
+        if (course.endSection > clusterEndSection) {
+          clusterEndSection = course.endSection;
+        }
+      }
+    }
+
+    // 3. 针对每个簇，分配互不冲突且移动端友好的展示卡片
+    final result = <_CourseLayoutItem>[];
+
+    for (final cluster in clusters) {
+      if (cluster.length == 1) {
+        result.add(_CourseLayoutItem(
+          course: cluster.first,
+          subColIndex: 0,
+          totalSubCols: 1,
+          allClusterCourses: cluster,
+        ));
+        continue;
+      }
+
+      // 簇内存在多门课程在时间区间上重叠或跨周轮替
+      final activeCourses = cluster.where((c) => c.isActiveInWeek(currentWeek)).toList();
+
+      if (activeCourses.isNotEmpty) {
+        // A. 本周有上课的课程
+        if (activeCourses.length == 1) {
+          // 最普遍场景：本周有 1 门正课，其他周次有其他课程轮替 -> 本周正课独占 100% 宽度，附带 +N 角标
+          result.add(_CourseLayoutItem(
+            course: activeCourses.first,
+            subColIndex: 0,
+            totalSubCols: 1,
+            allClusterCourses: cluster,
+          ));
+        } else {
+          // 极少数场景：同一周同一时段确实存在多门课冲突（如重修/跨专业选修） -> 最多并列 2 栏（各 50% 宽度），杜绝挤压成不可读细条
+          final displayCount = activeCourses.length > 2 ? 2 : activeCourses.length;
+          for (int i = 0; i < displayCount; i++) {
+            result.add(_CourseLayoutItem(
+              course: activeCourses[i],
+              subColIndex: i,
+              totalSubCols: displayCount,
+              allClusterCourses: cluster,
+            ));
+          }
+        }
+      } else {
+        // B. 本周无课（该时段的所有课程均为非本周）
+        // 关键体验优化：在手机端不再强行拆分成 5 根不可读细条！
+        // 智能挑选与当前教学周最贴近的一门课程作为代表卡片展示（独占 100% 宽度，灰色半透明，带 +N 角标）
+        final sortedByProximity = List<Course>.from(cluster)
+          ..sort((a, b) {
+            final distA = a.weeks.isEmpty
+                ? 999
+                : a.weeks.map((w) => (w - currentWeek).abs()).reduce((x, y) => x < y ? x : y);
+            final distB = b.weeks.isEmpty
+                ? 999
+                : b.weeks.map((w) => (w - currentWeek).abs()).reduce((x, y) => x < y ? x : y);
+            if (distA != distB) return distA.compareTo(distB);
+            return a.startSection.compareTo(b.startSection);
+          });
+
+        result.add(_CourseLayoutItem(
+          course: sortedByProximity.first,
+          subColIndex: 0,
+          totalSubCols: 1,
+          allClusterCourses: cluster,
+        ));
+      }
+    }
+
+    return result;
+  }
+
+  void _showClearScheduleDialog(BuildContext context, ScheduleProvider provider) {
+    if (provider.courses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('当前暂无课表数据可清空')),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.delete_forever_rounded, color: Colors.red, size: 36),
+        title: const Text('确认清空课表数据？'),
+        content: const Text('此操作将清空本地已保存的全部课程表。清空后可随时点击同步按钮重新登录强智教务一键导入。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await provider.clearAll();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已清空本地课表数据')),
+                );
+              }
+            },
+            child: const Text('确认清空'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CourseLayoutItem {
+  final Course course;
+  final int subColIndex;
+  final int totalSubCols;
+  final List<Course> allClusterCourses;
+
+  const _CourseLayoutItem({
+    required this.course,
+    required this.subColIndex,
+    required this.totalSubCols,
+    this.allClusterCourses = const [],
+  });
+}
