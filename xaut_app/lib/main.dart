@@ -5,14 +5,19 @@ import 'providers/schedule_provider.dart';
 import 'providers/grades_provider.dart';
 import 'providers/exams_provider.dart';
 import 'screens/home_screen.dart';
+import 'screens/legal_gate_screen.dart';
+import 'services/legal_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const XautApp());
+  final isLegalAccepted = await LegalService.isAccepted();
+  runApp(XautApp(isLegalAccepted: isLegalAccepted));
 }
 
 class XautApp extends StatelessWidget {
-  const XautApp({super.key});
+  final bool isLegalAccepted;
+
+  const XautApp({super.key, this.isLegalAccepted = false});
 
   static ThemeData _buildTheme(Brightness brightness) {
     final isWindows = defaultTargetPlatform == TargetPlatform.windows;
@@ -60,7 +65,7 @@ class XautApp extends StatelessWidget {
         theme: _buildTheme(Brightness.light),
         darkTheme: _buildTheme(Brightness.dark),
         themeMode: ThemeMode.system,
-        home: const HomeScreen(),
+        home: isLegalAccepted ? const HomeScreen() : const LegalGateScreen(),
       ),
     );
   }

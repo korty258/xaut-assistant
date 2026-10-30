@@ -63,6 +63,8 @@ flutter:
 
   assets:
     - assets/js/qiangzhi_parser.js
+    - assets/logo.png
+    - assets/legal/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
