@@ -14,15 +14,96 @@ class ParserService {
     return _cachedJsCode!;
   }
 
-  /// 构建课表解析注入代码
-  static Future<String> buildCourseInjectionScript() async {
+  /// 跨页面补充探测周次与校历开学日的公共 JS 片段
+  static const String _xhrWeekFallbackJs = '''
+    function resolveTeachingWeekWithFallback(doc, currentUrl) {
+      var allowSelect = currentUrl.indexOf('/jsxsd/xskb/') === -1;
+      var info = parseQiangZhiTeachingWeek(doc, allowSelect);
+      if (info && info.currentWeek) {
+        return info;
+      }
+
+      var probeUrls = [
+        '/jsxsd/framework/xsMain_new.jsp?t1=1',
+        '/jsxsd/framework/xsMain.jsp',
+        '/jsxsd/framework/xsMain_10700.htmlx'
+      ];
+      for (var i = 0; i < probeUrls.length; i++) {
+        var html = fetchHtmlSync(probeUrls[i]);
+        if (html) {
+          var pDoc = new DOMParser().parseFromString(html, 'text/html');
+          var subInfo = parseQiangZhiTeachingWeek(pDoc, true);
+          if (subInfo) {
+            if (!info.semester && subInfo.semester) info.semester = subInfo.semester;
+            if (subInfo.currentWeek) {
+              info.currentWeek = subInfo.currentWeek;
+              return info;
+            }
+          }
+        }
+      }
+
+      // 终极保底：从强智教学周历 (/jsxsd/jxzl/jxzl_query) 提取第 1 周周一公历日期
+      var calHtml = fetchHtmlSync('/jsxsd/jxzl/jxzl_query');
+      if (calHtml) {
+        var calDoc = new DOMParser().parseFromString(calHtml, 'text/html');
+        var startStr = parseQiangZhiCalendarStart(calDoc);
+        if (startStr) {
+          info.semesterStartDate = startStr;
+        }
+        if (!info.semester) {
+          var calSem = parseQiangZhiTeachingWeek(calDoc, false);
+          if (calSem && calSem.semester) info.semester = calSem.semester;
+        }
+      }
+
+      return info;
+    }
+  ''';
+
+  /// 构建轻量级当前教学周被动嗅探脚本（供教务主页加载完成时静默捕获右上角「2026-2027-1 第9周」）
+  static Future<String> buildWeekDetectScript() async {
     final jsCode = await loadParserJs();
     return '''
       (function() {
         try {
           $jsCode
-          var res = parseQiangZhiCourses(document);
-          return JSON.stringify(res);
+          var allowSelect = window.location.href.indexOf('/jsxsd/xskb/') === -1;
+          var info = parseQiangZhiTeachingWeek(document, allowSelect);
+          return JSON.stringify(info);
+        } catch(e) {
+          return JSON.stringify({ error: e.toString() });
+        }
+      })();
+    ''';
+  }
+
+  /// 构建课表解析注入代码（顺带提取当前教学周次与学期）
+  static Future<String> buildCourseInjectionScript() async {
+    final jsCode = await loadParserJs();
+    return '''
+      (function() {
+        function fetchHtmlSync(url) {
+          try {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', url, false);
+            xhr.send(null);
+            if (xhr.status >= 200 && xhr.status < 300) {
+              return xhr.responseText;
+            }
+          } catch(e) {}
+          return null;
+        }
+
+        try {
+          $jsCode
+          $_xhrWeekFallbackJs
+          var courses = parseQiangZhiCourses(document);
+          var weekInfo = resolveTeachingWeekWithFallback(document, window.location.href);
+          return JSON.stringify({
+            courses: courses,
+            weekInfo: weekInfo
+          });
         } catch(e) {
           return JSON.stringify({ error: e.toString() });
         }
@@ -62,7 +143,7 @@ class ParserService {
     ''';
   }
 
-  /// 构建全量一键同步脚本 (课表 + 成绩 + 考试 跨模块一次性同步)
+  /// 构建全量一键同步脚本 (课表 + 成绩 + 考试 + 当前教学周 跨模块一次性同步)
   static Future<String> buildSyncAllInjectionScript() async {
     final jsCode = await loadParserJs();
     return '''
@@ -94,11 +175,13 @@ class ParserService {
 
         try {
           $jsCode
+          $_xhrWeekFallbackJs
 
           var result = {
             courses: [],
             gradesData: { grades: [], summary: {} },
             exams: [],
+            weekInfo: { currentWeek: null, semester: '', semesterStartDate: '' },
             status: {
               courses: false,
               grades: false,
@@ -107,6 +190,11 @@ class ParserService {
           };
 
           var currentUrl = window.location.href;
+
+          // 0. 提取当前教学周与学年学期（教务主页右上角天然带有 "2026-2027-1 第9周"）
+          try {
+            result.weekInfo = resolveTeachingWeekWithFallback(document, currentUrl);
+          } catch(e) {}
 
           // 1. 课表解析
           try {
@@ -117,6 +205,12 @@ class ParserService {
               if (kbHtml) {
                 var kbDoc = new DOMParser().parseFromString(kbHtml, 'text/html');
                 result.courses = parseQiangZhiCourses(kbDoc);
+                if (!result.weekInfo.semester) {
+                  var kbSem = parseQiangZhiTeachingWeek(kbDoc, false);
+                  if (kbSem && kbSem.semester) {
+                    result.weekInfo.semester = kbSem.semester;
+                  }
+                }
               }
             }
             if (result.courses && result.courses.length > 0) {
@@ -173,7 +267,10 @@ class ParserService {
                 }
               }
 
-              // 备用学期获取：从已抓到的成绩数据中提取最新学期
+              // 备用学期获取：从已识别学期或成绩数据中提取最新学期
+              if (!xnxqid && result.weekInfo && result.weekInfo.semester) {
+                xnxqid = result.weekInfo.semester;
+              }
               if (!xnxqid && result.gradesData && result.gradesData.grades && result.gradesData.grades.length > 0) {
                 xnxqid = result.gradesData.grades[0].semester || '';
               }
@@ -227,6 +324,66 @@ class ParserService {
     ''';
   }
 
+  static dynamic _unwrapJson(dynamic rawResult) {
+    if (rawResult == null) return null;
+    dynamic data = rawResult;
+    if (data is String) {
+      data = jsonDecode(data);
+      if (data is String) {
+        data = jsonDecode(data);
+      }
+    }
+    return data;
+  }
+
+  /// 解析当前教学周识别结果
+  static ({int? currentWeek, String? semester, DateTime? semesterStartDate}) parseWeekInfoResult(dynamic rawResult) {
+    if (rawResult == null) {
+      return (currentWeek: null, semester: null, semesterStartDate: null);
+    }
+
+    dynamic data = rawResult;
+    try {
+      data = _unwrapJson(rawResult);
+    } catch (_) {
+      return (currentWeek: null, semester: null, semesterStartDate: null);
+    }
+
+    if (data is Map) {
+      int? week;
+      final rawWeek = data['currentWeek'];
+      if (rawWeek is int) {
+        week = rawWeek;
+      } else if (rawWeek is num) {
+        week = rawWeek.toInt();
+      } else if (rawWeek is String) {
+        week = int.tryParse(rawWeek.trim());
+      }
+      if (week != null && (week < 1 || week > 30)) {
+        week = null;
+      }
+
+      String? semester;
+      final rawSem = data['semester'];
+      if (rawSem is String && rawSem.trim().isNotEmpty) {
+        semester = rawSem.trim();
+      }
+
+      DateTime? startDate;
+      final rawStart = data['semesterStartDate'];
+      if (rawStart is String && rawStart.trim().isNotEmpty) {
+        final parsed = DateTime.tryParse(rawStart.trim());
+        if (parsed != null) {
+          startDate = DateTime(parsed.year, parsed.month, parsed.day);
+        }
+      }
+
+      return (currentWeek: week, semester: semester, semesterStartDate: startDate);
+    }
+
+    return (currentWeek: null, semester: null, semesterStartDate: null);
+  }
+
   /// 统一处理 WebView 返回的全量同步结果
   static SyncAllResult parseSyncAllResult(dynamic rawResult) {
     if (rawResult == null) {
@@ -241,30 +398,26 @@ class ParserService {
       );
     }
 
-    dynamic data = rawResult;
-    if (data is String) {
-      try {
-        data = jsonDecode(data);
-        if (data is String) {
-          data = jsonDecode(data);
-        }
-      } catch (e) {
-        return SyncAllResult(
-          courses: const [],
-          grades: const [],
-          exams: const [],
-          hasCourses: false,
-          hasGrades: false,
-          hasExams: false,
-          error: 'JSON反序列化失败: $e',
-        );
-      }
+    dynamic data;
+    try {
+      data = _unwrapJson(rawResult);
+    } catch (e) {
+      return SyncAllResult(
+        courses: const [],
+        grades: const [],
+        exams: const [],
+        hasCourses: false,
+        hasGrades: false,
+        hasExams: false,
+        error: 'JSON反序列化失败: $e',
+      );
     }
 
     if (data is Map) {
       final courses = parseCoursesResult(data['courses']);
       final gradesResult = parseGradesResult(data['gradesData']);
       final exams = parseExamsResult(data['exams']);
+      final weekInfo = parseWeekInfoResult(data['weekInfo']);
 
       return SyncAllResult(
         courses: courses,
@@ -274,6 +427,9 @@ class ParserService {
         hasCourses: courses.isNotEmpty,
         hasGrades: gradesResult.grades.isNotEmpty,
         hasExams: exams.isNotEmpty,
+        detectedWeek: weekInfo.currentWeek,
+        detectedSemester: weekInfo.semester,
+        detectedSemesterStart: weekInfo.semesterStartDate,
         error: data['error'] as String?,
       );
     }
@@ -288,20 +444,66 @@ class ParserService {
     );
   }
 
-  /// 统一处理 WebView 返回的执行结果为 Course 列表
+  /// 统一处理单页课表同步结果（同时包含课程列表与自动识别的周次）
+  static ({
+    List<Course> courses,
+    int? detectedWeek,
+    String? detectedSemester,
+    DateTime? detectedSemesterStart,
+  }) parseCourseSyncResult(dynamic rawResult) {
+    if (rawResult == null) {
+      return (
+        courses: <Course>[],
+        detectedWeek: null,
+        detectedSemester: null,
+        detectedSemesterStart: null,
+      );
+    }
+
+    dynamic data;
+    try {
+      data = _unwrapJson(rawResult);
+    } catch (_) {
+      return (
+        courses: <Course>[],
+        detectedWeek: null,
+        detectedSemester: null,
+        detectedSemesterStart: null,
+      );
+    }
+
+    if (data is Map) {
+      final courses = parseCoursesResult(data['courses']);
+      final weekInfo = parseWeekInfoResult(data['weekInfo']);
+      return (
+        courses: courses,
+        detectedWeek: weekInfo.currentWeek,
+        detectedSemester: weekInfo.semester,
+        detectedSemesterStart: weekInfo.semesterStartDate,
+      );
+    }
+
+    return (
+      courses: parseCoursesResult(data),
+      detectedWeek: null,
+      detectedSemester: null,
+      detectedSemesterStart: null,
+    );
+  }
+
+  /// 统一处理 WebView 返回的执行结果为 Course 列表（兼容数组或带 courses 字段的对象）
   static List<Course> parseCoursesResult(dynamic rawResult) {
     if (rawResult == null) return [];
 
-    dynamic data = rawResult;
-    if (data is String) {
-      try {
-        data = jsonDecode(data);
-        if (data is String) {
-          data = jsonDecode(data);
-        }
-      } catch (e) {
-        return [];
-      }
+    dynamic data;
+    try {
+      data = _unwrapJson(rawResult);
+    } catch (_) {
+      return [];
+    }
+
+    if (data is Map && data['courses'] is List) {
+      data = data['courses'];
     }
 
     if (data is List) {
@@ -322,16 +524,11 @@ class ParserService {
   static ({List<GradeItem> grades, GradeSummary? summary}) parseGradesResult(dynamic rawResult) {
     if (rawResult == null) return (grades: <GradeItem>[], summary: null);
 
-    dynamic data = rawResult;
-    if (data is String) {
-      try {
-        data = jsonDecode(data);
-        if (data is String) {
-          data = jsonDecode(data);
-        }
-      } catch (e) {
-        return (grades: <GradeItem>[], summary: null);
-      }
+    dynamic data;
+    try {
+      data = _unwrapJson(rawResult);
+    } catch (_) {
+      return (grades: <GradeItem>[], summary: null);
     }
 
     List<GradeItem> grades = [];
@@ -364,16 +561,11 @@ class ParserService {
   static List<ExamItem> parseExamsResult(dynamic rawResult) {
     if (rawResult == null) return [];
 
-    dynamic data = rawResult;
-    if (data is String) {
-      try {
-        data = jsonDecode(data);
-        if (data is String) {
-          data = jsonDecode(data);
-        }
-      } catch (e) {
-        return [];
-      }
+    dynamic data;
+    try {
+      data = _unwrapJson(rawResult);
+    } catch (_) {
+      return [];
     }
 
     if (data is List) {
@@ -399,6 +591,9 @@ class SyncAllResult {
   final bool hasCourses;
   final bool hasGrades;
   final bool hasExams;
+  final int? detectedWeek;
+  final String? detectedSemester;
+  final DateTime? detectedSemesterStart;
   final String? error;
 
   const SyncAllResult({
@@ -409,6 +604,9 @@ class SyncAllResult {
     required this.hasCourses,
     required this.hasGrades,
     required this.hasExams,
+    this.detectedWeek,
+    this.detectedSemester,
+    this.detectedSemesterStart,
     this.error,
   });
 

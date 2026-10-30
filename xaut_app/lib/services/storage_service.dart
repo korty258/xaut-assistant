@@ -7,6 +7,8 @@ class StorageService {
   static const String _keyCurrentWeek = 'xaut_current_week';
   static const String _keyOnlyCurrentWeek = 'xaut_only_current_week';
   static const String _keyLastSync = 'xaut_last_sync';
+  static const String _keySemesterStartDate = 'xaut_semester_start_date';
+  static const String _keySemesterName = 'xaut_semester_name';
 
   /// 保存课表
   static Future<bool> saveCourses(List<Course> courses) async {
@@ -55,6 +57,36 @@ class StorageService {
     return prefs.getBool(_keyOnlyCurrentWeek) ?? true;
   }
 
+  /// 保存本学期第 1 周周一基准日期 (YYYY-MM-DD)
+  static Future<bool> saveSemesterStartDate(DateTime mondayDate) async {
+    final prefs = await SharedPreferences.getInstance();
+    final isoDate =
+        '${mondayDate.year.toString().padLeft(4, '0')}-${mondayDate.month.toString().padLeft(2, '0')}-${mondayDate.day.toString().padLeft(2, '0')}';
+    return prefs.setString(_keySemesterStartDate, isoDate);
+  }
+
+  /// 加载本学期第 1 周周一基准日期
+  static Future<DateTime?> loadSemesterStartDate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final dateStr = prefs.getString(_keySemesterStartDate);
+    if (dateStr == null || dateStr.isEmpty) return null;
+    final parsed = DateTime.tryParse(dateStr);
+    if (parsed == null) return null;
+    return DateTime(parsed.year, parsed.month, parsed.day);
+  }
+
+  /// 保存当前学年学期名称 (如 2026-2027-1)
+  static Future<bool> saveSemesterName(String semester) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.setString(_keySemesterName, semester.trim());
+  }
+
+  /// 加载当前学年学期名称
+  static Future<String> loadSemesterName() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keySemesterName) ?? '';
+  }
+
   /// 获取上次同步时间
   static Future<DateTime?> loadLastSyncTime() async {
     final prefs = await SharedPreferences.getInstance();
@@ -68,5 +100,7 @@ class StorageService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyCourses);
     await prefs.remove(_keyLastSync);
+    await prefs.remove(_keySemesterStartDate);
+    await prefs.remove(_keySemesterName);
   }
 }

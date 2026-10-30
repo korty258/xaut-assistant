@@ -390,6 +390,185 @@ function findTableByKeywords(doc, keywords) {
   return null;
 }
 
+// ==================== 4. 当前教学周与学期基准自动识别模块 ====================
+
+function collectDocsAcrossFrames(doc) {
+  const docs = [];
+  function walk(d) {
+    if (!d || docs.includes(d)) return;
+    docs.push(d);
+    try {
+      const iframes = d.querySelectorAll("iframe, frame");
+      for (const frame of iframes) {
+        try {
+          const subDoc = frame.contentDocument || frame.contentWindow?.document;
+          if (subDoc) walk(subDoc);
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+  walk(doc || (typeof document !== "undefined" ? document : null));
+  return docs;
+}
+
+function parseQiangZhiTeachingWeek(doc = document, allowSelectFallback = true) {
+  const info = {
+    currentWeek: null,
+    semester: "",
+    semesterStartDate: ""
+  };
+
+  const docs = collectDocsAcrossFrames(doc);
+  const noticeBlacklist = /(通知|公告|选课|调课|停课|缓考|补考|考试|讲座|报名|重修|评教)/;
+
+  // 1. 最高优先级：顶部状态栏「2026-2027-1 第9周」或「2026-2027学年第一学期 第9周」
+  for (const d of docs) {
+    try {
+      const candidates = d.querySelectorAll("span, div, li, a, p, em, strong, b, td");
+      for (const el of candidates) {
+        if (el.children && el.children.length > 5) continue;
+        if (typeof el.closest === "function" && el.closest("#timetable, #kbtable, #dataList, .kbcontent, .kbcontent1")) {
+          continue;
+        }
+        const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
+        if (!txt || txt.length > 55 || noticeBlacklist.test(txt)) continue;
+
+        const mSem = txt.match(/(\d{4}-\d{4}-[12])\s*第\s*(\d{1,2})\s*周(?![\d\-~,，])/);
+        if (mSem) {
+          const w = parseInt(mSem[2], 10);
+          if (w >= 1 && w <= 30) {
+            info.semester = mSem[1];
+            info.currentWeek = w;
+            return info;
+          }
+        }
+
+        const mCn = txt.match(/(\d{4}-\d{4}学年[^第\n]{0,12})\s*第\s*(\d{1,2})\s*周(?![\d\-~,，])/);
+        if (mCn) {
+          const w = parseInt(mCn[2], 10);
+          if (w >= 1 && w <= 30) {
+            info.semester = mCn[1].trim();
+            info.currentWeek = w;
+            return info;
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 2. 次高优先级：强智顶栏专用周次容器 (#li_showWeek 等)
+  for (const d of docs) {
+    try {
+      const weekEls = d.querySelectorAll("#li_showWeek, #showWeek, .top_week, .main_week, .header_week, [id*='showWeek']");
+      for (const el of weekEls) {
+        const txt = (el.textContent || "").replace(/\s+/g, " ").trim();
+        if (!txt || txt.length > 60 || noticeBlacklist.test(txt)) continue;
+        const m = txt.match(/第\s*(\d{1,2})\s*周(?![\d\-~,，])/);
+        if (m) {
+          const w = parseInt(m[1], 10);
+          if (w >= 1 && w <= 30) {
+            info.currentWeek = w;
+            break;
+          }
+        }
+      }
+      if (info.currentWeek) break;
+    } catch (e) {}
+  }
+
+  // 3. 门户主页「我的桌面 -> 我的课表」默认选中周次下拉框（如 "第9周"）
+  if (!info.currentWeek && allowSelectFallback) {
+    for (const d of docs) {
+      try {
+        // 标准 <select>
+        const selects = d.querySelectorAll("select");
+        for (const sel of selects) {
+          const selectedOpt =
+            (typeof sel.selectedIndex === "number" && sel.selectedIndex >= 0 && sel.options
+              ? sel.options[sel.selectedIndex]
+              : null) || sel.querySelector("option[selected]");
+          if (selectedOpt) {
+            const optTxt = (selectedOpt.textContent || "").trim();
+            const m = optTxt.match(/^第\s*(\d{1,2})\s*周$/);
+            if (m) {
+              const w = parseInt(m[1], 10);
+              if (w >= 1 && w <= 30) {
+                info.currentWeek = w;
+                break;
+              }
+            }
+          }
+        }
+        if (info.currentWeek) break;
+
+        // Layui 渲染下拉框
+        const layuiSelected = d.querySelectorAll(".layui-form-select .layui-select-title input, .layui-form-select dl dd.layui-this");
+        for (const item of layuiSelected) {
+          const val = ((item.value !== undefined ? item.value : item.textContent) || "").trim();
+          const m = val.match(/^第\s*(\d{1,2})\s*周$/);
+          if (m) {
+            const w = parseInt(m[1], 10);
+            if (w >= 1 && w <= 30) {
+              info.currentWeek = w;
+              break;
+            }
+          }
+        }
+        if (info.currentWeek) break;
+      } catch (e) {}
+    }
+  }
+
+  // 4. 补充提取当前学年学期标识 (如 2026-2027-1)
+  if (!info.semester) {
+    for (const d of docs) {
+      try {
+        const semSel = d.querySelector("select[name='xnxq01id'], select[name='xnxqid'], #xnxq01id, #xnxqid");
+        if (semSel) {
+          const opt =
+            (typeof semSel.selectedIndex === "number" && semSel.selectedIndex >= 0 && semSel.options
+              ? semSel.options[semSel.selectedIndex]
+              : null) || semSel.querySelector("option[selected]");
+          if (opt) {
+            const v = (opt.value || opt.textContent || "").trim();
+            if (/^\d{4}-\d{4}-[12]$/.test(v)) {
+              info.semester = v;
+              break;
+            }
+          }
+        }
+      } catch (e) {}
+    }
+  }
+
+  return info;
+}
+
+function parseQiangZhiCalendarStart(doc = document) {
+  if (!doc) return "";
+  try {
+    const rows = doc.querySelectorAll("tr");
+    for (const row of rows) {
+      const cells = row.querySelectorAll("td, th");
+      if (cells.length < 7) continue;
+      const firstTxt = (cells[0].textContent || "").replace(/\s+/g, "").trim();
+      if (firstTxt === "1" || firstTxt === "01" || firstTxt === "第1周" || firstTxt === "第一周") {
+        for (let i = 1; i < cells.length; i++) {
+          const attrText = (cells[i].getAttribute("title") || "") + " " + (cells[i].getAttribute("val") || "") + " " + (cells[i].textContent || "");
+          const m = attrText.match(/(\d{4})[-年\/](\d{1,2})[-月\/](\d{1,2})/);
+          if (m) {
+            const y = m[1];
+            const mo = m[2].padStart(2, "0");
+            const da = m[3].padStart(2, "0");
+            return `${y}-${mo}-${da}`;
+          }
+        }
+      }
+    }
+  } catch (e) {}
+  return "";
+}
+
 // 导出模块 (兼容 Node 与 浏览器)
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
@@ -397,6 +576,8 @@ if (typeof module !== "undefined" && module.exports) {
     parseWeeks,
     calculateSections,
     parseQiangZhiGrades,
-    parseQiangZhiExams
+    parseQiangZhiExams,
+    parseQiangZhiTeachingWeek,
+    parseQiangZhiCalendarStart
   };
 }

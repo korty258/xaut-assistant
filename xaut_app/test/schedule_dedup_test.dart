@@ -179,4 +179,98 @@ void main() {
     expect(make(9, 2).timeRangeStr, '16:10-18:00'); // 第五大节
     expect(make(11, 3).timeRangeStr, '19:00-21:50'); // 第六大节 (11,12,13)
   });
+
+  test('Teaching week auto-calculates Week 1 Monday, daily dates, cold-start & overnight progression, and back-to-current', () async {
+    DateTime simulatedNow = DateTime(2026, 10, 30, 16, 30); // 周五 (第9周)
+    final provider = ScheduleProvider(nowProvider: () => simulatedNow);
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    // 1. 模拟一键同步识别到 "2026-2027-1 第9周"
+    await provider.calibrateFromCurrentWeek(9, semester: '2026-2027-1');
+
+    expect(provider.hasSemesterStart, true);
+    expect(provider.semesterName, '2026-2027-1');
+    // 2026-10-30 所在周周一为 10-26，往前推 8 周 = 2026-08-31
+    expect(provider.semesterStartDate, DateTime(2026, 8, 31));
+    expect(provider.currentWeek, 9);
+    expect(provider.actualCurrentWeek, 9);
+    expect(provider.isViewingActualWeek, true);
+
+    // 验证第9周周一~周日公历日期 (10/26 ~ 11/01)
+    expect(provider.getDateForWeekAndDay(9, 1), DateTime(2026, 10, 26));
+    expect(provider.getDateForWeekAndDay(9, 5), DateTime(2026, 10, 30));
+    expect(provider.getDateForWeekAndDay(9, 7), DateTime(2026, 11, 1));
+    expect(provider.isDateToday(provider.getDateForWeekAndDay(9, 5)), true);
+    expect(provider.isDateToday(provider.getDateForWeekAndDay(10, 5)), false);
+
+    // 2. 浏览非当前周 (第14周) -> 支持一键「回到本周」
+    await provider.setCurrentWeek(14);
+    expect(provider.currentWeek, 14);
+    expect(provider.actualCurrentWeek, 9);
+    expect(provider.isViewingActualWeek, false);
+
+    await provider.resetToActualCurrentWeek();
+    expect(provider.currentWeek, 9);
+    expect(provider.isViewingActualWeek, true);
+
+    // 3. 浏览第15周后关闭应用，等到下周一 (2026-11-02) 重新冷启动 -> 打开即自动对齐第10周！
+    await provider.setCurrentWeek(15);
+    DateTime nextMondayNow = DateTime(2026, 11, 2, 8, 0);
+    final relaunchedProvider = ScheduleProvider(nowProvider: () => nextMondayNow);
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    expect(relaunchedProvider.currentWeek, 10);
+    expect(relaunchedProvider.actualCurrentWeek, 10);
+    expect(relaunchedProvider.isViewingActualWeek, true);
+    expect(relaunchedProvider.getDateForWeekAndDay(10, 1), DateTime(2026, 11, 2));
+
+    // 4. 应用后台常驻跨过周日午夜进入第11周周一 (2026-11-09) -> 唤醒自动推进至第11周
+    nextMondayNow = DateTime(2026, 11, 9, 7, 30);
+    relaunchedProvider.refreshForDateChange();
+    expect(relaunchedProvider.currentWeek, 11);
+    expect(relaunchedProvider.actualCurrentWeek, 11);
+
+    // 5. 开学前负天数边界校验 (2026-08-30 周日应为第0周而非第1周)
+    expect(
+      ScheduleProvider.calculateRawWeek(DateTime(2026, 8, 31), DateTime(2026, 8, 30)),
+      0,
+    );
+  });
+
+  test('ParserService deserializes weekInfo in both full sync and single schedule sync', () {
+    final fullRes = ParserService.parseSyncAllResult({
+      'courses': [],
+      'gradesData': {'grades': [], 'summary': {}},
+      'exams': [],
+      'weekInfo': {
+        'currentWeek': 9,
+        'semester': '2026-2027-1',
+        'semesterStartDate': '',
+      },
+    });
+    expect(fullRes.detectedWeek, 9);
+    expect(fullRes.detectedSemester, '2026-2027-1');
+
+    final courseRes = ParserService.parseCourseSyncResult({
+      'courses': [
+        {
+          'name': '工程力学A',
+          'teacher': '刘嘉',
+          'room': '曲江10-208',
+          'day': 3,
+          'startSection': 7,
+          'stepCount': 2,
+          'weeks': [1, 2, 3],
+          'rawWeekStr': '1-3(周)[07-08节]',
+        }
+      ],
+      'weekInfo': {
+        'currentWeek': 9,
+        'semester': '2026-2027-1',
+      },
+    });
+    expect(courseRes.courses.length, 1);
+    expect(courseRes.detectedWeek, 9);
+    expect(courseRes.detectedSemester, '2026-2027-1');
+  });
 }

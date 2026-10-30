@@ -25,7 +25,8 @@ class ScheduleScreen extends StatelessWidget {
       );
     }
 
-    final todayWeekday = DateTime.now().weekday; // 1: Mon, 7: Sun
+    final todayWeekday = provider.todayDate.weekday; // 1: Mon, 7: Sun
+    final isViewingActual = provider.isViewingActualWeek;
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
@@ -58,22 +59,29 @@ class ScheduleScreen extends StatelessWidget {
           ],
         ),
         actions: [
-          // 周次切换药丸按钮
+          // 周次切换药丸按钮（浏览非本周时高亮提示）
           InkWell(
             onTap: () {
               WeekSelectorSheet.show(
                 context,
-                currentWeek: provider.currentWeek,
-                totalWeeks: provider.maxWeeks,
-                onWeekSelected: (w) => provider.setCurrentWeek(w),
+                provider: provider,
+                onCalibrateRequested: () => SemesterCalibrateDialog.show(context, provider),
               );
             },
             borderRadius: BorderRadius.circular(20),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
               decoration: BoxDecoration(
-                color: theme.colorScheme.secondaryContainer,
+                color: isViewingActual
+                    ? theme.colorScheme.secondaryContainer
+                    : theme.colorScheme.tertiaryContainer,
                 borderRadius: BorderRadius.circular(20),
+                border: isViewingActual
+                    ? null
+                    : Border.all(
+                        color: theme.colorScheme.tertiary.withValues(alpha: 0.55),
+                        width: 1.1,
+                      ),
               ),
               child: Row(
                 children: [
@@ -82,14 +90,18 @@ class ScheduleScreen extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.onSecondaryContainer,
+                      color: isViewingActual
+                          ? theme.colorScheme.onSecondaryContainer
+                          : theme.colorScheme.onTertiaryContainer,
                     ),
                   ),
                   const SizedBox(width: 2),
                   Icon(
                     Icons.arrow_drop_down,
                     size: 18,
-                    color: theme.colorScheme.onSecondaryContainer,
+                    color: isViewingActual
+                        ? theme.colorScheme.onSecondaryContainer
+                        : theme.colorScheme.onTertiaryContainer,
                   ),
                 ],
               ),
@@ -160,13 +172,38 @@ class ScheduleScreen extends StatelessWidget {
             icon: const Icon(Icons.more_vert),
             tooltip: '更多操作',
             onSelected: (val) {
-              if (val == 'toggle_mode') {
+              if (val == 'calibrate') {
+                SemesterCalibrateDialog.show(context, provider);
+              } else if (val == 'back_to_current') {
+                provider.resetToActualCurrentWeek();
+              } else if (val == 'toggle_mode') {
                 provider.toggleOnlyCurrentWeek();
               } else if (val == 'clear') {
                 _showClearScheduleDialog(context, provider);
               }
             },
             itemBuilder: (context) => [
+              if (!isViewingActual)
+                PopupMenuItem(
+                  value: 'back_to_current',
+                  child: Row(
+                    children: [
+                      Icon(Icons.today_rounded, size: 18, color: theme.colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Text('回到本周 (第 ${provider.actualCurrentWeek} 周)'),
+                    ],
+                  ),
+                ),
+              const PopupMenuItem(
+                value: 'calibrate',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_calendar_rounded, size: 18),
+                    SizedBox(width: 8),
+                    Text('校准开学日期 / 当前周'),
+                  ],
+                ),
+              ),
               PopupMenuItem(
                 value: 'toggle_mode',
                 child: Row(
@@ -202,8 +239,11 @@ class ScheduleScreen extends StatelessWidget {
           ? _buildFirstLaunchGuide(context)
           : Column(
               children: [
-                // 星期表头栏
-                _buildWeekdayHeader(context, todayWeekday),
+                // 非本周一键「回到本周」或未校准提示条
+                _buildWeekStatusBanner(context, provider),
+
+                // 星期与日期表头栏
+                _buildWeekdayHeader(context, provider, todayWeekday),
                 const Divider(height: 1, thickness: 1),
 
                 // 课表格子主体
@@ -221,13 +261,19 @@ class ScheduleScreen extends StatelessWidget {
                           // 7天课程网格
                           ...List.generate(7, (dIndex) {
                             final dayOfWeek = dIndex + 1;
+                            final cellDate =
+                                provider.getDateForWeekAndDay(provider.currentWeek, dayOfWeek);
+                            final isColToday = provider.hasSemesterStart
+                                ? provider.isDateToday(cellDate)
+                                : (dayOfWeek == todayWeekday);
+
                             return Expanded(
                               child: _buildDayColumn(
                                 context,
                                 dayOfWeek: dayOfWeek,
                                 courses: provider.getCoursesForDay(dayOfWeek),
                                 currentWeek: provider.currentWeek,
-                                isToday: dayOfWeek == todayWeekday,
+                                isToday: isColToday,
                               ),
                             );
                           }),
@@ -326,60 +372,237 @@ class ScheduleScreen extends StatelessWidget {
     );
   }
 
-  /// 顶部星期栏 (周一 ~ 周日)
-  Widget _buildWeekdayHeader(BuildContext context, int todayWeekday) {
+  /// 非本周状态提示条（一键回到本周）与未校准开学日期轻量引导条
+  Widget _buildWeekStatusBanner(BuildContext context, ScheduleProvider provider) {
+    final theme = Theme.of(context);
+
+    // 1. 已校准开学日期，且当前正在浏览非本周 -> 展示一键「回到本周」条
+    if (provider.hasSemesterStart && !provider.isViewingActualWeek) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.65),
+          border: Border(
+            bottom: BorderSide(
+              color: theme.colorScheme.tertiary.withValues(alpha: 0.25),
+              width: 0.8,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.event_note_rounded,
+              size: 15,
+              color: theme.colorScheme.onTertiaryContainer,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '正在浏览第 ${provider.currentWeek} 周（本周为第 ${provider.actualCurrentWeek} 周）',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: theme.colorScheme.onTertiaryContainer,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: () => provider.resetToActualCurrentWeek(),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.today_rounded,
+                      size: 13,
+                      color: theme.colorScheme.onPrimary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '回到本周',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.onPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 2. 历史缓存升级用户尚未设置开学基准日 -> 提供一键校准入口
+    if (!provider.hasSemesterStart) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.45),
+          border: Border(
+            bottom: BorderSide(
+              color: theme.colorScheme.primary.withValues(alpha: 0.2),
+              width: 0.8,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.edit_calendar_rounded,
+              size: 15,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '校准当前周次后，可随日期自动递增周次并展示每日日期',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: () => SemesterCalibrateDialog.show(context, provider),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(
+                  '立即校准',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.onPrimary,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  /// 顶部星期与公历日期栏 (周一 ~ 周日 + MM/dd)
+  Widget _buildWeekdayHeader(
+    BuildContext context,
+    ScheduleProvider provider,
+    int todayWeekday,
+  ) {
     const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     final theme = Theme.of(context);
     final isWide = MediaQuery.sizeOf(context).width >= 720;
     final timelineWidth = isWide ? 56.0 : 46.0;
 
+    final weekMonday = provider.getDateForWeekAndDay(provider.currentWeek, 1);
+    final headerMonth = weekMonday?.month ?? provider.todayDate.month;
+
     return Container(
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
-          // 左上角月份标识
+          // 左上角月份标识（点击亦可快速打开校准弹窗）
           SizedBox(
             width: timelineWidth,
-            child: Center(
-              child: Text(
-                '${DateTime.now().month}月',
-                style: TextStyle(
-                  fontSize: isWide ? 13 : 12,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.primary,
+            child: InkWell(
+              onTap: () => SemesterCalibrateDialog.show(context, provider),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Center(
+                  child: Text(
+                    '$headerMonth月',
+                    style: TextStyle(
+                      fontSize: isWide ? 13 : 12,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-          // 7天标题
+          // 7天标题 + 对应公历日期 (如 10/26)
           ...List.generate(7, (index) {
             final day = index + 1;
-            final isToday = day == todayWeekday;
+            final cellDate = provider.getDateForWeekAndDay(provider.currentWeek, day);
+            final isToday = provider.hasSemesterStart
+                ? provider.isDateToday(cellDate)
+                : (day == todayWeekday);
+            final dateText = cellDate != null
+                ? '${cellDate.month.toString().padLeft(2, '0')}/${cellDate.day.toString().padLeft(2, '0')}'
+                : null;
 
             return Expanded(
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: isToday
-                        ? BoxDecoration(
-                            color: theme.colorScheme.primary,
-                            borderRadius: BorderRadius.circular(12),
-                          )
-                        : null,
-                    child: Text(
-                      days[index],
-                      style: TextStyle(
-                        fontSize: isWide ? 13 : 12,
-                        fontWeight: isToday ? FontWeight.w600 : FontWeight.w500,
-                        color: isToday
-                            ? theme.colorScheme.onPrimary
-                            : theme.colorScheme.onSurface,
-                      ),
+              child: Center(
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isWide ? 10 : 5,
+                    vertical: dateText != null ? 3 : 4,
+                  ),
+                  decoration: isToday
+                      ? BoxDecoration(
+                          color: theme.colorScheme.primary,
+                          borderRadius: BorderRadius.circular(10),
+                        )
+                      : null,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          days[index],
+                          style: TextStyle(
+                            fontSize: isWide ? 13 : 12,
+                            fontWeight: isToday ? FontWeight.w600 : FontWeight.w500,
+                            color: isToday
+                                ? theme.colorScheme.onPrimary
+                                : theme.colorScheme.onSurface,
+                            height: 1.15,
+                          ),
+                        ),
+                        if (dateText != null) ...[
+                          const SizedBox(height: 1),
+                          Text(
+                            dateText,
+                            style: TextStyle(
+                              fontSize: isWide ? 11 : 9.5,
+                              fontWeight: isToday ? FontWeight.w600 : FontWeight.normal,
+                              color: isToday
+                                  ? theme.colorScheme.onPrimary.withValues(alpha: 0.92)
+                                  : theme.colorScheme.onSurfaceVariant,
+                              height: 1.1,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                ],
+                ),
               ),
             );
           }),

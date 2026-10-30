@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v1.0.2-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v1.1.0-brightgreen" alt="Version">
   <img src="https://img.shields.io/badge/Flutter-3.47+-02569B?logo=flutter&logoColor=white" alt="Flutter">
   <img src="https://img.shields.io/badge/Platform-Android%20|%20Windows-green" alt="Platform">
   <img src="https://img.shields.io/badge/Architecture-arm64--v8a%20(17MB)-blue" alt="Architecture">
@@ -26,7 +26,8 @@
 ## 🌟 项目亮点
 
 - 🔒 **零第三方服务端 / 隐私安全**：完全在本地设备运行，直连西安理工大学强智教务系统，不收集、不上报任何账号、密码或个人敏感信息。
-- ⚡ **一键全量同步**：在教务主页即可通过原生 WebView 注入解析引擎，一键并发拉取 **课表 + 成绩 + 考试** 三大模块，告别逐页手动点击。
+- ⚡ **一键全量同步 & 周次自动校准**：在教务主页即可通过原生 WebView 注入解析引擎，一键并发拉取 **课表 + 成绩 + 考试** 三大模块，并自动识别顶栏当前教学周（如 `2026-2027-1 第9周`）反推本学期第 1 周周一基准日期。
+- 🗓️ **教学周随日期自动递增 & 每日日期对齐**：每次启动与跨日唤醒均根据系统日期自动计算并跳转至最新教学周，表头「周一 ~ 周日」下方实时展示对应公历日期（如 `10/26`），浏览其他周次时支持一键「回到本周」，同时支持双模式手动校准开学日。
 - 📅 **智能排课引擎与「所有周」聚合**：
   - **仅本周模式**：过滤非本周课程，本周有课时段 100% 独占显示，清爽无干扰。
   - **所有周模式**：同一节次多门课程智能叠层，当前周课程优先满宽展示，配备 `+N` 叠层角标与弹窗即时周次轮播切换，杜绝挤压成乱码细条。

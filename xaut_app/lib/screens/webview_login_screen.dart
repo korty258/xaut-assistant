@@ -32,6 +32,11 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
   bool _isLoading = true;
   String _currentUrl = _defaultUrl;
 
+  // 被动嗅探缓存：用户登录后经过教务主页时，自动记住右上角「2026-2027-1 第9周」
+  int? _cachedDetectedWeek;
+  String? _cachedDetectedSemester;
+  DateTime? _cachedDetectedStart;
+
   // Windows WebView 控制器
   final win.WebviewController _winController = win.WebviewController();
 
@@ -96,6 +101,68 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     }
   }
 
+  /// 当教务页面加载完成时，静默嗅探右上角「2026-2027-1 第X周」标识并缓存
+  Future<void> _tryCaptureWeekInfoSilently() async {
+    if (!mounted || !_currentUrl.toLowerCase().contains('jwgl.xaut.edu.cn')) return;
+    try {
+      final script = await ParserService.buildWeekDetectScript();
+      dynamic raw;
+      if (_isWindows) {
+        raw = await _winController.executeScript(script);
+      } else {
+        raw = await _mobileController.runJavaScriptReturningResult(script);
+      }
+      final info = ParserService.parseWeekInfoResult(raw);
+      if (info.currentWeek != null) {
+        _cachedDetectedWeek = info.currentWeek;
+      }
+      if (info.semester != null && info.semester!.isNotEmpty) {
+        _cachedDetectedSemester = info.semester;
+      }
+      if (info.semesterStartDate != null) {
+        _cachedDetectedStart = info.semesterStartDate;
+      }
+    } catch (_) {}
+  }
+
+  void _scheduleSilentWeekCapture() {
+    _tryCaptureWeekInfoSilently();
+    // 兼顾部分门户页通过异步 AJAX 填充顶栏周次的场景
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (mounted) _tryCaptureWeekInfoSilently();
+    });
+  }
+
+  /// 应用同步时识别到的教学周或开学基准日，返回用于展示的说明文案
+  Future<String?> _applyDetectedWeekCalibration(
+    ScheduleProvider scheduleProvider, {
+    int? detectedWeek,
+    String? detectedSemester,
+    DateTime? detectedStart,
+  }) async {
+    final week = detectedWeek ?? _cachedDetectedWeek;
+    final semester = (detectedSemester != null && detectedSemester.isNotEmpty)
+        ? detectedSemester
+        : _cachedDetectedSemester;
+    final start = detectedStart ?? _cachedDetectedStart;
+
+    if (week != null) {
+      await scheduleProvider.calibrateFromCurrentWeek(week, semester: semester);
+      final monday = scheduleProvider.semesterStartDate;
+      final monStr = monday != null
+          ? '${monday.year}-${monday.month.toString().padLeft(2, '0')}-${monday.day.toString().padLeft(2, '0')}'
+          : '';
+      return '已自动对齐第 $week 周${monStr.isNotEmpty ? " (第1周周一: $monStr)" : ""}';
+    } else if (start != null) {
+      await scheduleProvider.calibrateFromStartDate(start, semester: semester);
+      final w = scheduleProvider.actualCurrentWeek;
+      final monStr =
+          '${start.year}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}';
+      return '已按校历对齐第 $w 周 (第1周周一: $monStr)';
+    }
+    return null;
+  }
+
   Future<void> _initWindowsWebView() async {
     try {
       await _winController.initialize();
@@ -108,9 +175,13 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
       });
       _winController.loadingState.listen((state) {
         if (mounted) {
+          final nowLoading = state == win.LoadingState.loading;
           setState(() {
-            _isLoading = state == win.LoadingState.loading;
+            _isLoading = nowLoading;
           });
+          if (!nowLoading) {
+            _scheduleSilentWeekCapture();
+          }
         }
       });
       await _winController.loadUrl(_defaultUrl);
@@ -147,6 +218,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                 _isLoading = false;
                 _currentUrl = url;
               });
+              _scheduleSilentWeekCapture();
             }
           },
           onWebResourceError: (err) {
@@ -200,6 +272,12 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
         if (result.hasCourses) {
           await scheduleProvider.updateCourses(result.courses);
         }
+        final weekDetail = await _applyDetectedWeekCalibration(
+          scheduleProvider,
+          detectedWeek: result.detectedWeek,
+          detectedSemester: result.detectedSemester,
+          detectedStart: result.detectedSemesterStart,
+        );
         if (result.hasGrades) {
           await gradesProvider.updateGrades(result.grades, result.gradeSummary);
         }
@@ -223,6 +301,13 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                   title: '课表数据',
                   detail: result.hasCourses ? '成功导入 ${result.courses.length} 门课程' : '未查询到课表数据',
                   isSuccess: result.hasCourses,
+                ),
+                const SizedBox(height: 10),
+                _buildSyncResultRow(
+                  icon: Icons.today_rounded,
+                  title: '教学周校准',
+                  detail: weekDetail ?? '未识别到顶栏周次，可在课表页手动校准开学日',
+                  isSuccess: weekDetail != null,
                 ),
                 const SizedBox(height: 10),
                 _buildSyncResultRow(
@@ -389,12 +474,19 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
         rawResult = await _mobileController.runJavaScriptReturningResult(script);
       }
 
-      final List<Course> parsed = ParserService.parseCoursesResult(rawResult);
+      final syncRes = ParserService.parseCourseSyncResult(rawResult);
+      final List<Course> parsed = syncRes.courses;
 
       if (!mounted) return;
 
       if (parsed.isNotEmpty) {
         await scheduleProvider.updateCourses(parsed);
+        final weekDetail = await _applyDetectedWeekCalibration(
+          scheduleProvider,
+          detectedWeek: syncRes.detectedWeek,
+          detectedSemester: syncRes.detectedSemester,
+          detectedStart: syncRes.detectedSemesterStart,
+        );
         if (!mounted) return;
         showDialog(
           context: context,
@@ -406,7 +498,10 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                 Text('课表同步成功'),
               ],
             ),
-            content: Text('成功解析并导入 ${parsed.length} 门课程！'),
+            content: Text(
+              '成功解析并导入 ${parsed.length} 门课程！'
+              '${weekDetail != null ? "\n$weekDetail" : ""}',
+            ),
             actions: [
               FilledButton(
                 onPressed: () {
