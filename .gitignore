@@ -39,7 +39,9 @@ Thumbs.db
 *.bak
 *~
 
-# Scratch & Logs
+# Scratch, Logs & Local Research Notes
 *.log
 scratch/
 .system_generated/
+PROJECT_HANDOVER.md
+强智api/

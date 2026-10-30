@@ -1,7 +1,7 @@
 # 西理工小助手 (XAUT Assistant)
 
 <p align="center">
-  <img src="xaut_app/web/icons/Icon-192.png" alt="Logo" width="108" height="108" />
+  <img src="xaut_app/assets/logo.png" alt="Logo" width="108" height="108" />
 </p>
 
 <p align="center">
@@ -48,18 +48,17 @@
 ## 🛠️ 技术架构
 
 ```text
-教务app/
-├── 强智api/                     # 强智系统接口逆向分析与 DOM 解析验证脚本
-│   ├── qiangzhi_parser.js      # 生产级通用解析脚本 (DOM 遍历/标签清洗/正则剥离)
-│   └── test_verify.js          # Node.js 独立单元测试
-└── xaut_app/                   # Flutter 跨平台主工程
+xaut-assistant/
+└── xaut_app/                   # Flutter 跨平台主工程 (Android & Windows)
     ├── lib/
     │   ├── models/             # 课程 (Course)、成绩 (Grade)、考试 (Exam) 数据模型
     │   ├── services/           # WebView 注入服务 (ParserService) 与 本地持久化 (StorageService)
     │   ├── providers/          # ScheduleProvider, GradesProvider, ExamsProvider
     │   ├── screens/            # 课表、成绩、考试、WebView 登录同步容器
     │   └── widgets/            # 智能课程卡片、课程详情弹窗、教学周选择抽屉
-    └── assets/js/              # 内置打包注入的解析脚本资产
+    ├── assets/js/              # 内置打包注入的强智教务解析脚本 (qiangzhi_parser.js)
+    ├── android/                # Android 宿主配置与原生资源
+    └── windows/                # Windows C++ 宿主与 Edge WebView2 集成
 ```
 
 ---
