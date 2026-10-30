@@ -1,16 +1,16 @@
-# 西理工小助手 (XAUT Assistant)
+# 金花助手 (Jinhua Assistant)
 
 <p align="center">
   <img src="xaut_app/assets/logo.png" alt="Logo" width="108" height="108" />
 </p>
 
 <p align="center">
-  <strong>基于 Flutter 3 的西安理工大学现代化跨端原生助手客户端</strong><br>
+  <strong>基于 Flutter 3 的现代化跨端原生教务助手客户端</strong><br>
   课表智能日程 · 成绩学分分析 · 考试安排速查
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v1.2.0-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.0.0.pre1-brightgreen" alt="Version">
   <img src="https://img.shields.io/badge/Flutter-3.47+-02569B?logo=flutter&logoColor=white" alt="Flutter">
   <img src="https://img.shields.io/badge/Platform-Android%20|%20Windows-green" alt="Platform">
   <img src="https://img.shields.io/badge/Architecture-arm64--v8a%20(17MB)-blue" alt="Architecture">

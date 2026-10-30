@@ -27,8 +27,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  // Explicit Unicode codepoints for "西理工小助手" to prevent codepage mojibake.
-  if (!window.Create(L"\u897f\u7406\u5de5\u5c0f\u52a9\u624b", origin, size)) {
+  // Explicit Unicode codepoints for "金花助手" to prevent codepage mojibake.
+  if (!window.Create(L"\u91d1\u82b1\u52a9\u624b", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

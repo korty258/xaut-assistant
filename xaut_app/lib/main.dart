@@ -55,7 +55,7 @@ class XautApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ExamsProvider()),
       ],
       child: MaterialApp(
-        title: '西理工小助手',
+        title: '金花助手',
         debugShowCheckedModeBanner: false,
         theme: _buildTheme(Brightness.light),
         darkTheme: _buildTheme(Brightness.dark),

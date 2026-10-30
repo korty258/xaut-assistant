@@ -105,7 +105,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             const SizedBox(width: 8),
             const Flexible(
               child: Text(
-                '西理工课表',
+                '金花课表',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -497,7 +497,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             ),
             const SizedBox(height: 24),
             Text(
-              '欢迎使用西理工课表',
+              '欢迎使用金花课表',
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
