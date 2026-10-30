@@ -17,6 +17,10 @@
   <img src="https://img.shields.io/badge/License-GPL--3.0-blue.svg" alt="License">
 </p>
 
+<p align="center">
+  <a href="https://github.com/korty258/xaut-assistant/releases/latest"><strong>📥 前往 Releases 下载最新安装包 (Android APK / Windows 绿色版)</strong></a>
+</p>
+
 ---
 
 ## 🌟 项目亮点
@@ -70,7 +74,7 @@
 
 ### 1. 克隆工程并拉取依赖
 ```bash
-git clone https://github.com/your-username/xaut-assistant.git
+git clone https://github.com/korty258/xaut-assistant.git
 cd xaut-assistant/xaut_app
 flutter pub get
 ```

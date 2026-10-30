@@ -9,6 +9,7 @@
 ## 一、项目核心概况
 
 * **项目名称**：西理工小助手 (`xaut-assistant`)
+* **开源仓库**：`https://github.com/korty258/xaut-assistant`
 * **项目版本**：`v1.0.1` (Build 2)
 * **开源协议**：GNU General Public License v3.0 (GPL-3.0)
 * **应用图标**：西安理工大学官方紫色圆形校徽（已精准裁切居中并适配 Android 多分率 mipmap、Windows .ico 与 Web 全规格图标）
