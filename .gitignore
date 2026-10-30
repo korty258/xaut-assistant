@@ -17,6 +17,7 @@ build/
 **/android/gradleBuild/
 **/android/**/build/
 **/android/app/build/
+**/key.properties
 *.keystore
 *.jks
 
