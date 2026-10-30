@@ -6,6 +6,7 @@ import '../providers/schedule_provider.dart';
 import '../widgets/course_card.dart';
 import '../widgets/week_selector_sheet.dart';
 import 'webview_login_screen.dart';
+import 'legal_gate_screen.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -188,6 +189,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 provider.toggleOnlyCurrentWeek();
               } else if (val == 'clear') {
                 _showClearScheduleDialog(context, provider);
+              } else if (val == 'about_legal') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: false)),
+                );
               }
             },
             itemBuilder: (context) => [
@@ -235,6 +240,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     Icon(Icons.delete_outline, size: 18, color: theme.colorScheme.error),
                     const SizedBox(width: 8),
                     Text('清空课表数据', style: TextStyle(color: theme.colorScheme.error)),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'about_legal',
+                child: Row(
+                  children: [
+                    Icon(Icons.policy_outlined, size: 18),
+                    SizedBox(width: 8),
+                    Text('关于与法律条款'),
                   ],
                 ),
               ),

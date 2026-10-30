@@ -7,6 +7,7 @@ import 'package:xaut_app/providers/exams_provider.dart';
 import 'package:xaut_app/providers/grades_provider.dart';
 import 'package:xaut_app/providers/schedule_provider.dart';
 import 'package:xaut_app/services/parser_service.dart';
+import 'package:xaut_app/services/legal_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -417,5 +418,29 @@ void main() {
     expect(sorted[3].evaluateStatus(fakeNow).badgeText, '时间待定');
     expect(sorted[4].evaluateStatus(fakeNow).badgeText, '已结束');
     expect(sorted[4].evaluateStatus(fakeNow).isFinished, true);
+  });
+
+  test('LegalService state transitions: check, accept, record timestamp, and revoke', () async {
+    // 1. 初始未同意状态
+    expect(await LegalService.isAccepted(), false);
+    expect(await LegalService.getAcceptedAt(), isNull);
+    expect(await LegalService.getAcceptedVersion(), isNull);
+
+    // 2. 签署同意并记录时间戳
+    final before = DateTime.now().subtract(const Duration(seconds: 1));
+    await LegalService.accept();
+    final after = DateTime.now().add(const Duration(seconds: 1));
+
+    expect(await LegalService.isAccepted(), true);
+    expect(await LegalService.getAcceptedVersion(), LegalService.currentVersion);
+    final acceptedTime = await LegalService.getAcceptedAt();
+    expect(acceptedTime, isNotNull);
+    expect(acceptedTime!.isAfter(before), true);
+    expect(acceptedTime.isBefore(after), true);
+
+    // 3. 依据《个人信息保护法》第 15 条撤回同意并清空数据
+    await LegalService.revokeAndClearAll();
+    expect(await LegalService.isAccepted(), false);
+    expect(await LegalService.getAcceptedAt(), isNull);
   });
 }
