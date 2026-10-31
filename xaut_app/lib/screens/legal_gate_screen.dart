@@ -36,6 +36,7 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
   String? _acceptedVersion;
 
   final Map<int, String> _docTexts = {};
+  late final List<ScrollController> _scrollControllers;
 
   final List<({String title, String assetPath})> _docs = const [
     (title: '用户协议', assetPath: 'assets/legal/terms_of_service.md'),
@@ -47,7 +48,16 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
   void initState() {
     super.initState();
     _selectedDoc = widget.initialDocIndex.clamp(0, _docs.length - 1);
+    _scrollControllers = List.generate(_docs.length, (_) => ScrollController());
     _initData();
+  }
+
+  @override
+  void dispose() {
+    for (final ctrl in _scrollControllers) {
+      ctrl.dispose();
+    }
+    super.dispose();
   }
 
   Future<void> _initData() async {
@@ -348,10 +358,29 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
     );
   }
 
-  /// 本地 Markdown 格式化排版滚动阅读器
-  Widget _buildDocReader(ThemeData theme) {
-    final text = _docTexts[_selectedDoc] ?? '加载中...';
+  /// 预处理 Markdown 源码中中文标点与加粗语法冲突的边界情况
+  /// 将形如 **“文字”** 或 **"文字"** 自动转换为 “**文字**”，避免 CommonMark 将 ** 识别为纯字符
+  static String _sanitizeMarkdown(String raw) {
+    // 1. 处理紧随括号说明的情况：**“文字”（注记）** -> “**文字**”（注记）
+    var text = raw.replaceAllMapped(
+      RegExp(r'\*\*([“"「『])(.*?)([”"」』])([（\(].*?[）\)])\*\*'),
+      (m) => '${m[1]}**${m[2]}**${m[3]}${m[4]}',
+    );
+    // 2. 处理标准成对引号：**“文字”** -> “**文字**”
+    text = text.replaceAllMapped(
+      RegExp(r'\*\*([“"「『])(.*?)([”"」』])\*\*'),
+      (m) => '${m[1]}**${m[2]}**${m[3]}',
+    );
+    // 3. 处理中文字符紧贴 **“ 的情况：字**“ -> 字 “**
+    text = text.replaceAllMapped(
+      RegExp(r'([\u4e00-\u9fa5])\*\*([“"「『])'),
+      (m) => '${m[1]} ${m[2]}**',
+    );
+    return text;
+  }
 
+  /// 本地 Markdown 格式化排版多文档独立滚动阅读器
+  Widget _buildDocReader(ThemeData theme) {
     final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     final fallbackFonts = isWindows
         ? const ['Microsoft YaHei', 'Segoe UI', 'sans-serif']
@@ -447,16 +476,34 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
           color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
         ),
       ),
-      child: Scrollbar(
-        thumbVisibility: true,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.only(right: 8),
-          child: SelectionArea(
-            child: MarkdownBody(
-              data: text,
-              selectable: false, // SelectionArea handles selection
-              styleSheet: markdownStyle,
-            ),
+      child: IndexedStack(
+        index: _selectedDoc,
+        children: [
+          for (int i = 0; i < _docs.length; i++)
+            _buildSingleDocReader(i, theme, markdownStyle),
+        ],
+      ),
+    );
+  }
+
+  /// 单个文档的独立渲染器，具备独立的 ScrollController，各 Tab 翻动互不干扰
+  Widget _buildSingleDocReader(int index, ThemeData theme, MarkdownStyleSheet markdownStyle) {
+    final rawText = _docTexts[index] ?? '加载中...';
+    final sanitizedText = _sanitizeMarkdown(rawText);
+    final controller = _scrollControllers[index];
+
+    return Scrollbar(
+      controller: controller,
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        key: PageStorageKey<String>('legal_doc_scroll_$index'),
+        controller: controller,
+        padding: const EdgeInsets.only(right: 8),
+        child: SelectionArea(
+          child: MarkdownBody(
+            data: sanitizedText,
+            selectable: false, // SelectionArea handles selection
+            styleSheet: markdownStyle,
           ),
         ),
       ),

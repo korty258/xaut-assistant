@@ -63,13 +63,13 @@ IDI_APP_ICON            ICON                    "resources\\app_icon.ico"
 #if defined(FLUTTER_VERSION_MAJOR) && defined(FLUTTER_VERSION_MINOR) && defined(FLUTTER_VERSION_PATCH) && defined(FLUTTER_VERSION_BUILD)
 #define VERSION_AS_NUMBER FLUTTER_VERSION_MAJOR,FLUTTER_VERSION_MINOR,FLUTTER_VERSION_PATCH,FLUTTER_VERSION_BUILD
 #else
-#define VERSION_AS_NUMBER 2,0,0,3
+#define VERSION_AS_NUMBER 2,0,0,4
 #endif
 
 #if defined(FLUTTER_VERSION)
 #define VERSION_AS_STRING FLUTTER_VERSION
 #else
-#define VERSION_AS_STRING "2.0.0.pre3"
+#define VERSION_AS_STRING "2.0.0.pre4"
 #endif
 
 VS_VERSION_INFO VERSIONINFO
@@ -92,9 +92,9 @@ BEGIN
             VALUE "CompanyName", "Jinhua Assistant OpenSource Community" "\0"
             VALUE "FileDescription", "金花助手 (Jinhua Assistant)" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "xaut_app" "\0"
+            VALUE "InternalName", "jinhua_assistant" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 Jinhua Assistant Contributors (GPL-3.0)" "\0"
-            VALUE "OriginalFilename", "xaut_app.exe" "\0"
+            VALUE "OriginalFilename", "jinhua_assistant.exe" "\0"
             VALUE "ProductName", "金花助手" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
