@@ -2,6 +2,7 @@ import 'dart:io' show Platform, exit;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../services/legal_service.dart';
 import 'home_screen.dart';
@@ -347,9 +348,94 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
     );
   }
 
-  /// 纯本地 Markdown 文本滚动阅读器
+  /// 本地 Markdown 格式化排版滚动阅读器
   Widget _buildDocReader(ThemeData theme) {
     final text = _docTexts[_selectedDoc] ?? '加载中...';
+
+    final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final fallbackFonts = isWindows
+        ? const ['Microsoft YaHei', 'Segoe UI', 'sans-serif']
+        : const ['PingFang SC', 'sans-serif'];
+
+    final markdownStyle = MarkdownStyleSheet.fromTheme(theme).copyWith(
+      h1: theme.textTheme.titleLarge?.copyWith(
+        fontWeight: FontWeight.bold,
+        color: theme.colorScheme.onSurface,
+        fontSize: 18,
+        fontFamilyFallback: fallbackFonts,
+      ),
+      h2: theme.textTheme.titleMedium?.copyWith(
+        fontWeight: FontWeight.bold,
+        color: theme.colorScheme.primary,
+        fontSize: 15,
+        fontFamilyFallback: fallbackFonts,
+      ),
+      h3: theme.textTheme.titleSmall?.copyWith(
+        fontWeight: FontWeight.w600,
+        color: theme.colorScheme.onSurface,
+        fontSize: 13.5,
+        fontFamilyFallback: fallbackFonts,
+      ),
+      p: theme.textTheme.bodyMedium?.copyWith(
+        fontSize: 13,
+        height: 1.6,
+        color: theme.colorScheme.onSurface,
+        fontFamilyFallback: fallbackFonts,
+      ),
+      strong: TextStyle(
+        fontWeight: FontWeight.bold,
+        color: theme.colorScheme.onSurface,
+        fontFamilyFallback: fallbackFonts,
+      ),
+      blockquote: theme.textTheme.bodySmall?.copyWith(
+        fontSize: 12.5,
+        height: 1.5,
+        color: theme.colorScheme.onSurfaceVariant,
+        fontStyle: FontStyle.normal,
+        fontFamilyFallback: fallbackFonts,
+      ),
+      blockquotePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      blockquoteDecoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(6),
+        border: Border(
+          left: BorderSide(
+            color: theme.colorScheme.primary,
+            width: 3.5,
+          ),
+        ),
+      ),
+      tableBorder: TableBorder.all(
+        color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
+        width: 0.8,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      tableHead: TextStyle(
+        fontWeight: FontWeight.bold,
+        fontSize: 12,
+        color: theme.colorScheme.onSurface,
+        fontFamilyFallback: fallbackFonts,
+      ),
+      tableBody: TextStyle(
+        fontSize: 12,
+        height: 1.4,
+        color: theme.colorScheme.onSurface,
+        fontFamilyFallback: fallbackFonts,
+      ),
+      tableCellsPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      horizontalRuleDecoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+            width: 1,
+          ),
+        ),
+      ),
+      listBullet: TextStyle(
+        color: theme.colorScheme.primary,
+        fontSize: 13,
+      ),
+    );
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 6, 16, 8),
@@ -365,13 +451,11 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
         thumbVisibility: true,
         child: SingleChildScrollView(
           padding: const EdgeInsets.only(right: 8),
-          child: SelectableText(
-            text,
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.6,
-              color: theme.colorScheme.onSurface,
-              fontFamilyFallback: const ['Microsoft YaHei', 'PingFang SC', 'sans-serif'],
+          child: SelectionArea(
+            child: MarkdownBody(
+              data: text,
+              selectable: false, // SelectionArea handles selection
+              styleSheet: markdownStyle,
             ),
           ),
         ),
