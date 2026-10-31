@@ -60,6 +60,21 @@ function parseQiangZhiCourses(doc = document) {
     const cells = row.querySelectorAll("td");
     if (cells.length === 0) continue;
 
+    // 关键防坑 1: 忽略表尾的备注/实践教学环节/未排时间课程等汇总说明行
+    const rowText = (row.innerText || "").trim();
+    if (/^(备注|实践环节|实践教学|未排时间|调课)/.test(rowText) || rowText.includes("实践教学环节") || (rowText.includes(";") && rowText.includes("周"))) {
+      continue;
+    }
+    const hasBroadColspan = Array.from(cells).some(td => (parseInt(td.getAttribute("colspan") || "1", 10) >= 5));
+    if (hasBroadColspan && cells.length <= 3) {
+      continue;
+    }
+
+    // 关键防坑 2: 西安理工大学官方每日至多 6 个大节 (1-2, 3-4, 5-6, 7-8, 9-10, 11-13)，节次索引绝不能超过 6！
+    if (sectionIndex >= 6) {
+      break;
+    }
+
     sectionIndex++;
     let startIndex = 0;
     if (cells.length >= 8) {
@@ -68,6 +83,7 @@ function parseQiangZhiCourses(doc = document) {
 
     for (let c = startIndex; c < cells.length; c++) {
       const dayOfWeek = (c - startIndex) + 1; // 1: 星期一, 7: 星期日
+      if (dayOfWeek > 7) break;
       const cell = cells[c];
       
       // 关键防坑: 强智教务系统每个单元格内部同时存在详细版 .kbcontent 与简略隐藏版 .kbcontent1
@@ -84,7 +100,11 @@ function parseQiangZhiCourses(doc = document) {
         });
       } else {
         if (cell.innerText && cell.innerText.trim() && cell.innerText.trim() !== "" && cell.innerText.trim() !== "&nbsp;") {
-          extractFromDiv(cell, dayOfWeek, sectionIndex, result);
+          const t = cell.innerText.trim();
+          // 只有具备常规课表格式且非分号拼接的备注时才尝试降级提取
+          if (!t.includes(";") && !/^(备注|实践)/.test(t)) {
+            extractFromDiv(cell, dayOfWeek, sectionIndex, result);
+          }
         }
       }
     }
@@ -96,6 +116,10 @@ function parseQiangZhiCourses(doc = document) {
 
   for (const c of result) {
     if (!c.name || /^[-—_~.\s]+$/.test(c.name)) continue;
+    // 彻底剔除伪课程（包含分号拼接多门课或节次超出 13 小节）
+    if (c.name.includes(";") && (c.name.includes("周") || c.name.includes("实验") || c.name.includes("训练"))) continue;
+    if (c.startSection > 13 || c.day < 1 || c.day > 7) continue;
+    if (!c.weeks || c.weeks.length === 0) continue;
 
     const weekKey = (c.weeks || []).join(",");
     const key = `${c.day}_${c.startSection}_${c.stepCount}_${c.name.trim()}_${weekKey}`;
@@ -165,6 +189,11 @@ function extractFromDiv(kbDiv, dayOfWeek, sectionIndex, result) {
     let courseName = validLines[0] || "未知课程";
     // 过滤纯横杠或无意义占位符（如 "-" 或 "--"）
     if (/^[-—_~.\s]+$/.test(courseName)) return;
+
+    // 关键过滤：若课程名中包含分号且包含周次 (如 "工程训练 B 夏春莉 7-15周;工程训练 B...")，属于强智底部表格备注误入，严禁当作单门课程解析
+    if (courseName.includes(";") && (courseName.includes("周") || courseName.includes("实验") || courseName.includes("训练"))) return;
+    if (/^(备注|实践教学|实践环节|未排时间)/.test(courseName)) return;
+
     let teacher = "";
     let weeksStr = "";
     let room = "";
@@ -183,7 +212,11 @@ function extractFromDiv(kbDiv, dayOfWeek, sectionIndex, result) {
     }
 
     const parsedWeeks = parseWeeks(weeksStr);
+    // 过滤无有效周次的异常条目
+    if (parsedWeeks.length === 0 && (!weeksStr || !weeksStr.includes("周"))) return;
+
     const { startSection, stepCount } = calculateSections(sectionIndex, weeksStr);
+    if (startSection > 13) return;
 
     result.push({
       name: courseName,

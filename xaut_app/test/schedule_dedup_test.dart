@@ -443,4 +443,50 @@ void main() {
     expect(await LegalService.isAccepted(), false);
     expect(await LegalService.getAcceptedAt(), isNull);
   });
+
+  test('ScheduleProvider purges table remarks pseudo-courses', () async {
+    final provider = ScheduleProvider();
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    // 模拟强智系统底部备注栏误解析出的伪课程（多课分号拼接、节次超出 13 等）
+    final mixedList = [
+      const Course(
+        name: '工程训练 B 夏春莉 7-15周;工程训练 B 夏春莉 11-14周;电路基础实验 郭庆吉,严骅 14周',
+        teacher: '',
+        room: '',
+        day: 1,
+        startSection: 13,
+        stepCount: 2,
+        weeks: [],
+        rawWeekStr: '',
+      ),
+      const Course(
+        name: '实践教学环节：电子实习',
+        teacher: '',
+        room: '',
+        day: 1,
+        startSection: 14,
+        stepCount: 2,
+        weeks: [1, 2],
+        rawWeekStr: '1-2周',
+      ),
+      const Course(
+        name: '高等数学(下)',
+        teacher: '王老师',
+        room: '曲江10-301',
+        day: 1,
+        startSection: 1,
+        stepCount: 2,
+        weeks: [1, 2, 3, 4],
+        rawWeekStr: '1-4(周)[01-02节]',
+      ),
+    ];
+
+    await provider.updateCourses(mixedList);
+
+    final coursesDay1 = provider.getCoursesForDay(1);
+    // 伪课程已被全部过滤自愈，仅保留真实正课
+    expect(coursesDay1.length, 1);
+    expect(coursesDay1.first.name, '高等数学(下)');
+  });
 }

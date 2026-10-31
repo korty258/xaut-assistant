@@ -204,6 +204,22 @@ class ScheduleProvider extends ChangeNotifier {
         continue;
       }
 
+      // 关键自愈清洗：过滤强智教务底部备注/实践教学环节误解析的伪课程（如分号拼接多门课程）
+      if (name.contains(';') && (name.contains('周') || name.contains('实验') || name.contains('训练'))) {
+        continue;
+      }
+      if (RegExp(r'^(备注|实践教学|实践环节|未排时间)').hasMatch(name)) {
+        continue;
+      }
+
+      // 过滤超出官方 13 节次范围、星期越界或无周次的异常杂质数据
+      if (c.startSection > Course.totalSections || c.day < 1 || c.day > 7) {
+        continue;
+      }
+      if (c.weeks.isEmpty && c.rawWeekStr.isEmpty) {
+        continue;
+      }
+
       final sortedWeeks = List<int>.from(c.weeks)..sort();
       final key = '${c.day}_${c.startSection}_${c.stepCount}_${name}_${sortedWeeks.join(',')}';
 

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/main.dart';
+import 'package:xaut_app/models/course.dart';
 import 'package:xaut_app/screens/legal_gate_screen.dart';
+import 'package:xaut_app/widgets/course_detail_dialog.dart';
 
 void main() {
   setUp(() {
@@ -72,5 +74,32 @@ void main() {
 
     // Prompt shows remaining unread docs
     expect(find.textContaining('请完整滑动阅读全部 3 份条款至底部以解锁同意'), findsOneWidget);
+  });
+
+  testWidgets('CourseDetailDialog renders safely even with empty weeks', (WidgetTester tester) async {
+    const emptyWeeksCourse = Course(
+      name: '测试未知课程',
+      teacher: '',
+      room: '',
+      day: 1,
+      startSection: 1,
+      stepCount: 2,
+      weeks: [],
+      rawWeekStr: '',
+    );
+
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: CourseDetailDialog(
+          initialCourse: emptyWeeksCourse,
+          currentWeek: 9,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.text('测试未知课程'), findsOneWidget);
+    expect(find.text('未排具体周次/待定'), findsOneWidget);
+    expect(find.text('我知道了'), findsOneWidget);
   });
 }

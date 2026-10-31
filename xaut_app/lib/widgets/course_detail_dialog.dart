@@ -210,9 +210,11 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
                 context,
                 icon: Icons.calendar_month_outlined,
                 label: '周次安排',
-                value: course.rawWeekStr.isEmpty
-                    ? '${course.weeks.first}-${course.weeks.last}周'
-                    : course.rawWeekStr,
+                value: course.rawWeekStr.isNotEmpty
+                    ? course.rawWeekStr
+                    : (course.weeks.isNotEmpty
+                        ? '${course.weeks.first}-${course.weeks.last}周'
+                        : '未排具体周次/待定'),
               ),
 
               const SizedBox(height: 18),
