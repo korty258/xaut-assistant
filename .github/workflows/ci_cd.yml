@@ -103,14 +103,23 @@ jobs:
         run: |
           cp xaut_app/build/app/outputs/flutter-apk/app-release.apk jinhua_assistant-android-arm64.apk
           if [ "$IS_RELEASE_TAG" = "true" ]; then
-            echo "Inspecting release APK signing certificate..."
-            CERT_INFO=$(keytool -printcert -jarfile jinhua_assistant-android-arm64.apk)
-            echo "$CERT_INFO"
-            if echo "$CERT_INFO" | grep -qi "Android Debug"; then
+            echo "Locating Android SDK apksigner tool..."
+            APKSIGNER=$(find "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools" -name apksigner -type f | sort -V | tail -n1)
+            if [ -z "$APKSIGNER" ] || [ ! -f "$APKSIGNER" ]; then
+              echo "::error::[BUILD ERROR] apksigner tool not found in Android build-tools!"
+              exit 1
+            fi
+            echo "Using apksigner at: $APKSIGNER"
+
+            echo "Verifying APK cryptographic integrity and signature schemes (v1, v2, v3, v4)..."
+            "$APKSIGNER" verify --print-certs --verbose jinhua_assistant-android-arm64.apk > cert_info.txt
+            cat cert_info.txt
+
+            if grep -qi "Android Debug" cert_info.txt; then
               echo "::error::[SECURITY ALERT] The generated APK was signed with Android Debug certificate! Aborting release."
               exit 1
             fi
-            echo "Official release signature verified successfully."
+            echo "Official release signature verified successfully via apksigner."
           fi
 
       - name: Upload Android Artifact
