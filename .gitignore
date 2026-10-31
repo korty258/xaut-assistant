@@ -6,6 +6,8 @@
 .pub-cache/
 .pub/
 build/
+coverage/
+**/coverage/
 
 # Android
 **/android/app/debug/

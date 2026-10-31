@@ -11,6 +11,9 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Version-v2.0.0.pre2-brightgreen" alt="Version">
+  <a href="https://github.com/korty258/xaut-assistant/actions/workflows/ci_cd.yml">
+    <img src="https://github.com/korty258/xaut-assistant/actions/workflows/ci_cd.yml/badge.svg" alt="CI/CD Status">
+  </a>
   <img src="https://img.shields.io/badge/Flutter-3.47+-02569B?logo=flutter&logoColor=white" alt="Flutter">
   <img src="https://img.shields.io/badge/Platform-Android%20|%20Windows-green" alt="Platform">
   <img src="https://img.shields.io/badge/Architecture-arm64--v8a%20(17MB)-blue" alt="Architecture">
