@@ -6,15 +6,16 @@
 
 ---
 
-## 1. Dawn-Course
+## 1. Dawn-Course (破晓课程表)
 
-* **项目名称**：Dawn-Course
+* **项目名称**：Dawn-Course (破晓课程表)
+* **上游代码仓库**：[https://github.com/HF-CYGG/Dawn-Course](https://github.com/HF-CYGG/Dawn-Course)
 * **开源许可证**：GNU General Public License v3.0 (GPL-3.0)
-* **版权所有**：Copyright (C) Dawn-Course Contributors
-* **参考范围说明**：
-  金花助手在移动端教学课表布局设计、单节次多课程叠层折叠策略、本周与所有周视图切换算法，以及课程详情弹窗与状态展示的设计模式上，参考了 Dawn-Course 的架构设计思想与用户交互实践。
+* **版权所有**：Copyright (C) 2021-2026 HF-CYGG & Dawn-Course Contributors
+* **参考范围与声明**：
+  金花助手在移动端教学课表布局设计、单节次多课程叠层折叠策略、本周与所有周视图切换算法，以及课程详情弹窗与状态展示的设计模式上，参考了 Dawn-Course 的架构设计思想与用户交互实践。金花助手为基于 Flutter/Dart 的跨平台独立代码实现，未直接复制上游 Kotlin/Compose 源代码。
 
-### 许可证全文 (GPL-3.0)
+### 许可证说明与序言 (GPL-3.0，完整条款见根目录 LICENSE)
 
 ```text
                     GNU GENERAL PUBLIC LICENSE
@@ -85,25 +86,27 @@ make it effectively proprietary.  To prevent this, the GPL assures that
 patents cannot be used to render the program non-free.
 
   The precise terms and conditions for copying, distribution and
-modification follow.
+modification are provided in the LICENSE file located at the root of
+this repository.
 ```
 
 ---
 
-## 2. NJUST-JWC-Enhance
+## 2. NJUST-JWC-Enhance (南理工教务增强助手)
 
 * **项目名称**：NJUST-JWC-Enhance
+* **上游代码仓库**：[https://github.com/NJUST-OpenLib/NJUST-JWC-Enhance](https://github.com/NJUST-OpenLib/NJUST-JWC-Enhance)
 * **开源许可证**：The MIT License (MIT)
-* **版权所有**：Copyright (c) NJUST-JWC-Enhance Contributors
-* **参考范围说明**：
-  金花助手在针对湖南强智新学分制系统页面前端 DOM 结构的清洗策略、课表单元格标签文本智能提取、教学周次嗅探推算，以及纯本地无中间服务器解析架构的构建上，参考了 NJUST-JWC-Enhance 的技术经验与解决方案。
+* **版权所有**：Copyright (c) 2021-2026 NJUST-OpenLib & NJUST-JWC-Enhance Contributors
+* **参考范围与声明**：
+  金花助手在针对湖南强智新学分制系统前端页面 DOM 结构的识别清洗、课表单元格标签文本提取规范、教学周次嗅探推算，以及纯本地无中间服务器解析架构的构建上，参考了 NJUST-JWC-Enhance 的技术经验与解决方案。金花助手解析套件为独立编写的纯本地 JS 脚本。
 
 ### 许可证全文 (MIT)
 
 ```text
 The MIT License (MIT)
 
-Copyright (c) NJUST-JWC-Enhance Contributors
+Copyright (c) 2021-2026 NJUST-OpenLib & NJUST-JWC-Enhance Contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

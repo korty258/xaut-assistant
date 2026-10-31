@@ -37,6 +37,29 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
   String? _cachedDetectedSemester;
   DateTime? _cachedDetectedStart;
 
+  // 同步操作冷却时间戳（防频刷限流保护）
+  DateTime? _lastSyncAttemptTime;
+
+  /// 同步防连击保护：限制 3 秒冷却，避免被教务系统识别为高频异常脚本
+  bool _isSyncCoolingDown() {
+    final now = DateTime.now();
+    if (_lastSyncAttemptTime != null && now.difference(_lastSyncAttemptTime!) < const Duration(seconds: 3)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('同步请求过于频繁，请稍候 3 秒后再试'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return true;
+    }
+    _lastSyncAttemptTime = now;
+    return false;
+  }
+
   // Windows WebView 控制器
   final win.WebviewController _winController = win.WebviewController();
 
@@ -295,6 +318,8 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
 
   /// 执行一键全量同步（同时同步 课表 + 成绩 + 考试 3大模块）
   Future<void> _syncAll() async {
+    if (_isSyncCoolingDown()) return;
+
     final scheduleProvider = context.read<ScheduleProvider>();
     final gradesProvider = context.read<GradesProvider>();
     final examsProvider = context.read<ExamsProvider>();
@@ -419,6 +444,8 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
 
   /// 自动识别当前网页并执行对应同步
   Future<void> _syncCurrentPage() async {
+    if (_isSyncCoolingDown()) return;
+
     final dest = _getActiveDestination();
     switch (dest) {
       case _NavDestination.timetable:

@@ -119,7 +119,17 @@ jobs:
               echo "::error::[SECURITY ALERT] The generated APK was signed with Android Debug certificate! Aborting release."
               exit 1
             fi
-            echo "Official release signature verified successfully via apksigner."
+
+            EXPECTED_SHA256="${{ secrets.OFFICIAL_CERT_SHA256 }}"
+            if [ -z "$EXPECTED_SHA256" ]; then
+              EXPECTED_SHA256="a6ae494170718040fe68e2ec41d6d528d027b56da08aeb6d6cdb3fb7a8f1618f"
+            fi
+
+            if ! grep -qi "$EXPECTED_SHA256" cert_info.txt; then
+              echo "::error::[SECURITY ALERT] Certificate SHA-256 fingerprint mismatch! The APK was signed with an unauthorized certificate. Expected: $EXPECTED_SHA256"
+              exit 1
+            fi
+            echo "Official release certificate SHA-256 fingerprint verified successfully ($EXPECTED_SHA256)."
           fi
 
       - name: Upload Android Artifact

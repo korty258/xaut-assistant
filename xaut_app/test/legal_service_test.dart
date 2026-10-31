@@ -68,5 +68,10 @@ void main() {
       expect(await LegalService.getAcceptedAt(), isNull);
       expect(prefs.getKeys(), isEmpty);
     });
+
+    test('LegalService registers upstream licenses and exposes v3 version', () {
+      expect(LegalService.currentVersion, equals('2026-10-31.v3'));
+      expect(() => LegalService.registerCustomLicenses(), returnsNormally);
+    });
   });
 }

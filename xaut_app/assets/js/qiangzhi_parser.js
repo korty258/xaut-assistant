@@ -1,12 +1,17 @@
 /**
- * 西安理工大学 (XAUT) 强智教务系统 (jsxsd) 完整生产级解析套件
- * 核心升级: 具备自动穿透同源 iframe 能力，无论在主页、内嵌页还是独立页均可一键执行！
- * 修复: 自动清理二维码弹窗 (.item-box / ewmck) 干扰，精准获取纯净课程名！
+ * 金花助手 (Jinhua Assistant) - 西安理工大学 (XAUT) 强智教务系统 (jsxsd) 生产级解析套件
+ * 
+ * 开源与实现声明:
+ *   本脚本为针对西安理工大学强智教务页面 DOM 结构的独立代码实现。
+ *   整体解析架构思路与单元格数据清洗策略参考了开源社区项目 NJUST-JWC-Enhance 与 Dawn-Course 的实践，
+ *   详细许可协议与开源致谢声明请参见项目根目录 THIRD_PARTY_NOTICES.md。
+ *   本脚本不包含任何来自上游受保护作品的直接复制或衍生代码。
  * 
  * 模块覆盖:
  *   1. 课表解析 (parseQiangZhiCourses)
  *   2. 成绩解析与绩点学分统计 (parseQiangZhiGrades)
  *   3. 考试安排日程解析 (parseQiangZhiExams)
+ *   4. 当前教学周与开学基准嗅探 (parseQiangZhiTeachingWeek)
  */
 
 // ==================== 0. 核心工具: 自动跨 iframe 表格定位 ====================

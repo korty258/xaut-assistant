@@ -186,9 +186,10 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
       builder: (ctx) => AlertDialog(
         icon: Icon(Icons.delete_forever_rounded, size: 36, color: Theme.of(ctx).colorScheme.error),
         title: const Text('撤回同意并清空数据？'),
-        content: const Text(
+        content: Text(
           '依据《个人信息保护法》第 15 条，您有权撤回同意。\n\n'
-          '撤回同意后，本软件将彻底清除保存在本机设备上的所有课表、成绩、考试数据以及授权凭证，并退回首次启动法律门禁。\n\n'
+          '撤回同意后，本软件将清除保存在本机设备上的所有课表、成绩、考试数据以及授权凭证，并退回首次启动法律门禁。\n\n'
+          '${!kIsWeb && defaultTargetPlatform == TargetPlatform.windows ? "【Windows 提示】由于便携版及 WebView2 进程特性，彻底清除内嵌网页缓存请在退出软件后手动删除程序同级目录下的 *.WebView2 文件夹及 %APPDATA%\\io.github.korty258.jinhua_assistant 目录。\n\n" : ""}'
           '此操作不可撤销，确定撤回吗？',
         ),
         actions: [

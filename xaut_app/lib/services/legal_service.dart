@@ -1,4 +1,4 @@
-import 'dart:io' show Directory, Platform;
+import 'dart:io' show Directory, File, Platform;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -10,21 +10,23 @@ import 'package:webview_flutter/webview_flutter.dart';
 class LegalService {
   /// 当前合规文本版本。当协议有实质性变更时必须递增此常量，
   /// 系统检测到本地记录与该版本不一致时会自动重新唤起同意页面。
-  static const String currentVersion = '2026-10-31.v2';
+  static const String currentVersion = '2026-10-31.v3';
 
   /// 注册第三方开源许可证，使 Flutter showLicensePage 能完整展示 Dawn-Course、NJUST-JWC-Enhance 等致谢
   static void registerCustomLicenses() {
     LicenseRegistry.addLicense(() async* {
       yield const LicenseEntryWithLineBreaks(
         ['Dawn-Course'],
-        'Copyright (C) Dawn-Course Contributors\n\n'
-        'Licensed under the GNU General Public License v3.0 (GPL-3.0).\n\n'
+        'Copyright (C) 2021-2026 HF-CYGG & Dawn-Course Contributors\n\n'
+        'Licensed under the GNU General Public License v3.0 (GPL-3.0).\n'
+        'Repository: https://github.com/HF-CYGG/Dawn-Course\n\n'
         'Reference: Modern mobile course timetable scheduling layout, multi-week layering algorithms, and course card interaction patterns.',
       );
       yield const LicenseEntryWithLineBreaks(
         ['NJUST-JWC-Enhance'],
-        'Copyright (c) NJUST-JWC-Enhance Contributors\n\n'
-        'Licensed under the MIT License.\n\n'
+        'Copyright (c) 2021-2026 NJUST-OpenLib & NJUST-JWC-Enhance Contributors\n\n'
+        'Licensed under the MIT License.\n'
+        'Repository: https://github.com/NJUST-OpenLib/NJUST-JWC-Enhance\n\n'
         'Reference: QiangZhi Educational Administration System DOM structure parsing, cell text extraction strategies, and teaching week inference algorithms.',
       );
       yield const LicenseEntryWithLineBreaks(
@@ -88,6 +90,20 @@ class LegalService {
             await dir.delete(recursive: true);
           }
         }
+        // 尝试清理可执行文件同级目录下的 *.WebView2 缓存文件夹
+        try {
+          final exeDir = File(Platform.resolvedExecutable).parent;
+          if (await exeDir.exists()) {
+            final entries = exeDir.listSync();
+            for (final entry in entries) {
+              if (entry is Directory && entry.path.toLowerCase().contains('webview2')) {
+                try {
+                  await entry.delete(recursive: true);
+                } catch (_) {}
+              }
+            }
+          }
+        } catch (_) {}
       }
     } catch (_) {}
   }
