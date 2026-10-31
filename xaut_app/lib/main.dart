@@ -10,6 +10,7 @@ import 'services/legal_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  LegalService.registerCustomLicenses();
   final isLegalAccepted = await LegalService.isAccepted();
   runApp(XautApp(isLegalAccepted: isLegalAccepted));
 }

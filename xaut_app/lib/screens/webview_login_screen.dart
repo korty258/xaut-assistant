@@ -875,7 +875,12 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                 );
                 if (confirm == true) {
                   try {
-                    if (!_isWindows) {
+                    if (_isWindows) {
+                      if (_winController.value.isInitialized) {
+                        await _winController.clearCookies();
+                        await _winController.clearCache();
+                      }
+                    } else {
                       await af.WebViewCookieManager().clearCookies();
                     }
                     await _navigateTo(_defaultUrl);

@@ -44,15 +44,23 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
   bool get _allDocsRead => _docsRead.every((r) => r);
   int get _unreadCount => _docsRead.where((r) => !r).length;
 
-  final List<({String title, String assetPath})> _docs = const [
-    (title: '用户协议', assetPath: 'assets/legal/terms_of_service.md'),
-    (title: '隐私政策', assetPath: 'assets/legal/privacy_policy.md'),
-    (title: '免责声明', assetPath: 'assets/legal/disclaimer.md'),
-  ];
+  late final List<({String title, String assetPath})> _docs;
 
   @override
   void initState() {
     super.initState();
+    _docs = widget.isGate
+        ? const [
+            (title: '用户协议', assetPath: 'assets/legal/terms_of_service.md'),
+            (title: '隐私政策', assetPath: 'assets/legal/privacy_policy.md'),
+            (title: '免责声明', assetPath: 'assets/legal/disclaimer.md'),
+          ]
+        : const [
+            (title: '用户协议', assetPath: 'assets/legal/terms_of_service.md'),
+            (title: '隐私政策', assetPath: 'assets/legal/privacy_policy.md'),
+            (title: '免责声明', assetPath: 'assets/legal/disclaimer.md'),
+            (title: '开源致谢', assetPath: 'assets/legal/third_party_notices.md'),
+          ];
     _selectedDoc = widget.initialDocIndex.clamp(0, _docs.length - 1);
     _docsRead = List.generate(_docs.length, (_) => !widget.isGate);
     _scrollControllers = List.generate(_docs.length, (index) {
@@ -223,6 +231,26 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
               title: const Text('法律条款与合规声明'),
               centerTitle: false,
               actions: [
+                TextButton.icon(
+                  onPressed: () {
+                    showLicensePage(
+                      context: context,
+                      applicationName: '金花助手',
+                      applicationVersion: 'v2.0.0.beta1',
+                      applicationIcon: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Image.asset('assets/logo.png', width: 44, height: 44),
+                      ),
+                      applicationLegalese: 'Copyright (C) 2026 Jinhua Assistant Contributors\n'
+                          '基于 GNU General Public License v3.0 (GPL-3.0) 授权',
+                    );
+                  },
+                  icon: const Icon(Icons.policy_outlined, size: 18),
+                  label: const Text(
+                    '开源许可库',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                ),
                 TextButton.icon(
                   onPressed: _onRevokeConsent,
                   icon: Icon(Icons.delete_outline, size: 18, color: theme.colorScheme.error),
@@ -568,6 +596,28 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
               const SizedBox(height: 24),
               _buildDocBottomReaderCard(index, theme),
               const SizedBox(height: 16),
+            ] else if (index == 3) ...[
+              const SizedBox(height: 24),
+              Center(
+                child: FilledButton.tonalIcon(
+                  onPressed: () {
+                    showLicensePage(
+                      context: context,
+                      applicationName: '金花助手',
+                      applicationVersion: 'v2.0.0.beta1',
+                      applicationIcon: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Image.asset('assets/logo.png', width: 44, height: 44),
+                      ),
+                      applicationLegalese: 'Copyright (C) 2026 Jinhua Assistant Contributors\n'
+                          '基于 GNU General Public License v3.0 (GPL-3.0) 授权',
+                    );
+                  },
+                  icon: const Icon(Icons.policy_outlined),
+                  label: const Text('打开全量开源组件许可证页面 (LicensePage)'),
+                ),
+              ),
+              const SizedBox(height: 32),
             ],
           ],
         ),
