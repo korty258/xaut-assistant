@@ -71,6 +71,7 @@ void main() {
 
     test('LegalService registers upstream licenses and exposes v3 version', () {
       expect(LegalService.currentVersion, equals('2026-10-31.v3'));
+      expect(LegalService.appVersion, equals('v2.0.1'));
       expect(() => LegalService.registerCustomLicenses(), returnsNormally);
     });
   });

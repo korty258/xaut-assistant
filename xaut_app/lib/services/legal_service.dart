@@ -8,6 +8,9 @@ import 'package:webview_flutter/webview_flutter.dart';
 /// 遵循《个人信息保护法》与《民法典》关于知情同意与格式条款提示的要求。
 /// 文本内容与 assets/legal/*.md 严格对应。
 class LegalService {
+  /// 当前客户端对外统一发布版本号
+  static const String appVersion = 'v2.0.1';
+
   /// 当前合规文本版本。当协议有实质性变更时必须递增此常量，
   /// 系统检测到本地记录与该版本不一致时会自动重新唤起同意页面。
   static const String currentVersion = '2026-10-31.v3';

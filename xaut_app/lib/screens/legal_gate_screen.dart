@@ -237,7 +237,7 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                     showLicensePage(
                       context: context,
                       applicationName: '金花助手',
-                      applicationVersion: 'v2.0.0.beta1',
+                      applicationVersion: LegalService.appVersion,
                       applicationIcon: Padding(
                         padding: const EdgeInsets.all(8.0),
                         child: Image.asset('assets/logo.png', width: 44, height: 44),
@@ -605,7 +605,7 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                     showLicensePage(
                       context: context,
                       applicationName: '金花助手',
-                      applicationVersion: 'v2.0.0.beta1',
+                      applicationVersion: LegalService.appVersion,
                       applicationIcon: Padding(
                         padding: const EdgeInsets.all(8.0),
                         child: Image.asset('assets/logo.png', width: 44, height: 44),
