@@ -153,11 +153,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: android-apk
+          path: ./
 
       - name: Download Windows Artifact
         uses: actions/download-artifact@v4
         with:
           name: windows-zip
+          path: ./
 
       - name: Upload Assets to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -165,4 +167,5 @@ jobs:
           files: |
             jinhua_assistant-android-arm64.apk
             jinhua_assistant-windows-x64.zip
+          prerelease: ${{ contains(github.ref, 'pre') || contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
           generate_release_notes: true
