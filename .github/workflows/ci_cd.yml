@@ -204,5 +204,6 @@ jobs:
           files: |
             jinhua_assistant-android-arm64.apk
             jinhua_assistant-windows-x64.zip
-          prerelease: ${{ contains(github.ref, 'pre') || contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          prerelease: false
+          make_latest: true
           generate_release_notes: true
