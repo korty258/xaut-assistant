@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.0.0.pre4-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.0.0.pre5-brightgreen" alt="Version">
   <a href="https://github.com/korty258/xaut-assistant/actions/workflows/ci_cd.yml">
     <img src="https://github.com/korty258/xaut-assistant/actions/workflows/ci_cd.yml/badge.svg" alt="CI/CD Status">
   </a>

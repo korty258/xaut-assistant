@@ -38,6 +38,12 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
   final Map<int, String> _docTexts = {};
   late final List<ScrollController> _scrollControllers;
 
+  /// 记录各文书是否已滑动阅读完毕（门禁模式下需 3 份全部读完）
+  late final List<bool> _docsRead;
+
+  bool get _allDocsRead => _docsRead.every((r) => r);
+  int get _unreadCount => _docsRead.where((r) => !r).length;
+
   final List<({String title, String assetPath})> _docs = const [
     (title: '用户协议', assetPath: 'assets/legal/terms_of_service.md'),
     (title: '隐私政策', assetPath: 'assets/legal/privacy_policy.md'),
@@ -48,8 +54,42 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
   void initState() {
     super.initState();
     _selectedDoc = widget.initialDocIndex.clamp(0, _docs.length - 1);
-    _scrollControllers = List.generate(_docs.length, (_) => ScrollController());
+    _docsRead = List.generate(_docs.length, (_) => !widget.isGate);
+    _scrollControllers = List.generate(_docs.length, (index) {
+      final ctrl = ScrollController();
+      if (widget.isGate) {
+        ctrl.addListener(() => _checkScrollProgress(index));
+      }
+      return ctrl;
+    });
     _initData();
+  }
+
+  void _checkScrollProgress(int index) {
+    if (!widget.isGate || _docsRead[index]) return;
+    if (index >= _scrollControllers.length) return;
+    final controller = _scrollControllers[index];
+    if (!controller.hasClients) return;
+
+    final position = controller.position;
+    // 当文档高度不需要滚动（内容全部展示），或已滑动到接近末尾（距底 <= 32 像素）时标记为读完
+    if (position.maxScrollExtent <= 10 || position.pixels >= position.maxScrollExtent - 32) {
+      if (mounted) {
+        setState(() {
+          _docsRead[index] = true;
+        });
+      }
+    }
+  }
+
+  void _switchDoc(int newIndex) {
+    setState(() {
+      _selectedDoc = newIndex;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _checkScrollProgress(newIndex);
+    });
   }
 
   @override
@@ -78,6 +118,12 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
     if (mounted) {
       setState(() {
         _isLoading = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        for (int i = 0; i < _docs.length; i++) {
+          _checkScrollProgress(i);
+        }
       });
     }
   }
@@ -336,7 +382,7 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
     );
   }
 
-  /// 文档切换 Tab
+  /// 文档切换 Tab（门禁模式展示已读状态绿色圆点）
   Widget _buildDocSelector(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -345,15 +391,24 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
           for (int i = 0; i < _docs.length; i++)
             ButtonSegment<int>(
               value: i,
-              label: Text(_docs[i].title),
+              label: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_docs[i].title),
+                  if (widget.isGate) ...[
+                    const SizedBox(width: 4),
+                    Icon(
+                      _docsRead[i] ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+                      size: 13,
+                      color: _docsRead[i] ? Colors.green : theme.colorScheme.outline.withValues(alpha: 0.6),
+                    ),
+                  ],
+                ],
+              ),
             ),
         ],
         selected: {_selectedDoc},
-        onSelectionChanged: (val) {
-          setState(() {
-            _selectedDoc = val.first;
-          });
-        },
+        onSelectionChanged: (val) => _switchDoc(val.first),
       ),
     );
   }
@@ -499,13 +554,80 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
         key: PageStorageKey<String>('legal_doc_scroll_$index'),
         controller: controller,
         padding: const EdgeInsets.only(right: 8),
-        child: SelectionArea(
-          child: MarkdownBody(
-            data: sanitizedText,
-            selectable: false, // SelectionArea handles selection
-            styleSheet: markdownStyle,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SelectionArea(
+              child: MarkdownBody(
+                data: sanitizedText,
+                selectable: false, // SelectionArea handles selection
+                styleSheet: markdownStyle,
+              ),
+            ),
+            if (widget.isGate) ...[
+              const SizedBox(height: 24),
+              _buildDocBottomReaderCard(index, theme),
+              const SizedBox(height: 16),
+            ],
+          ],
         ),
+      ),
+    );
+  }
+
+  /// 文档底部滑动阅读状态卡片与快捷下一份跳转
+  Widget _buildDocBottomReaderCard(int index, ThemeData theme) {
+    final isRead = _docsRead[index];
+    final nextUnread = _docsRead.indexWhere((r) => !r);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isRead
+            ? Colors.green.withValues(alpha: 0.08)
+            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isRead
+              ? Colors.green.withValues(alpha: 0.35)
+              : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                isRead ? Icons.check_circle_rounded : Icons.arrow_downward_rounded,
+                size: 18,
+                color: isRead ? Colors.green : theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isRead
+                    ? '已完整阅读《${_docs[index].title}》'
+                    : '请继续向下滑动至文档最末尾以完成阅读',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isRead ? Colors.green : theme.colorScheme.primary,
+                ),
+              ),
+            ],
+          ),
+          if (isRead && nextUnread != -1 && nextUnread != index) ...[
+            const SizedBox(height: 8),
+            FilledButton.tonalIcon(
+              onPressed: () => _switchDoc(nextUnread),
+              icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+              label: Text('继续阅读下一份：《${_docs[nextUnread].title}》'),
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -525,13 +647,62 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 显式勾选框（默认未勾选）
+          // 阅读进度提示条
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: _allDocsRead
+                  ? Colors.green.withValues(alpha: 0.1)
+                  : theme.colorScheme.primaryContainer.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _allDocsRead
+                    ? Colors.green.withValues(alpha: 0.4)
+                    : theme.colorScheme.primary.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  _allDocsRead ? Icons.verified_rounded : Icons.info_outline_rounded,
+                  size: 16,
+                  color: _allDocsRead ? Colors.green : theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _allDocsRead
+                        ? '全部文书已完整阅读完毕，请勾选下方确认后开始使用'
+                        : '请完整滑动阅读全部 3 份条款至底部以解锁同意（还剩 $_unreadCount 份待阅读）',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: _allDocsRead ? Colors.green : theme.colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 显式勾选框（全部文书滑动阅读完毕后方可勾选）
           InkWell(
-            onTap: () {
-              setState(() {
-                _agreed = !_agreed;
-              });
-            },
+            onTap: _allDocsRead
+                ? () {
+                    setState(() {
+                      _agreed = !_agreed;
+                    });
+                  }
+                : () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('请先完整滑动阅读全部 3 份条款至底部（还剩 $_unreadCount 份待阅读）'),
+                        duration: const Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -540,19 +711,23 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                 children: [
                   Checkbox(
                     value: _agreed,
-                    onChanged: (val) {
-                      setState(() {
-                        _agreed = val ?? false;
-                      });
-                    },
+                    onChanged: _allDocsRead
+                        ? (val) {
+                            setState(() {
+                              _agreed = val ?? false;
+                            });
+                          }
+                        : null,
                   ),
                   Expanded(
                     child: Text(
-                      '我已阅读并同意《用户协议》《隐私政策》与《免责声明》，并充分理解其中的免责与责任限制条款。',
+                      '我已完整阅读并同意《用户协议》《隐私政策》与《免责声明》，并充分理解其中的免责与责任限制条款。',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.onSurface,
+                        color: _allDocsRead
+                            ? theme.colorScheme.onSurface
+                            : theme.colorScheme.onSurface.withValues(alpha: 0.5),
                         height: 1.3,
                       ),
                     ),
@@ -576,7 +751,7 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
               Expanded(
                 flex: 3,
                 child: FilledButton(
-                  onPressed: _agreed ? _onAgree : null,
+                  onPressed: (_agreed && _allDocsRead) ? _onAgree : null,
                   child: const Text('同意并继续'),
                 ),
               ),

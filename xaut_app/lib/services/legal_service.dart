@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 /// 法律门禁与用户授权状态服务
 ///
@@ -41,9 +43,18 @@ class LegalService {
   }
 
   /// 撤回同意（依据《个人信息保护法》第 15 条赋予的撤回权）
-  /// 撤回后清除所有本地业务缓存与授权记录，回归初始未授权状态
+  /// 撤回后物理销毁所有本地业务缓存与授权记录，回归初始未授权状态；
+  /// 同时执行防御性加固：清除内嵌 WebView 登录会话 Cookie，杜绝凭据残留。
   static Future<void> revokeAndClearAll() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
+
+    // 纵深防御加固：清除 Android/移动端 WebView 登录会话 Cookie
+    try {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        final cookieManager = WebViewCookieManager();
+        await cookieManager.clearCookies();
+      }
+    } catch (_) {}
   }
 }

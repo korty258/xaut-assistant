@@ -163,10 +163,46 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     return null;
   }
 
+  /// 校验目标域名是否属于西安理工大学校内合法域名（防钓鱼与外部重定向安全加固）
+  static bool isAllowedUrl(String url) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty || trimmed == 'about:blank') return true;
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null) return false;
+    final host = uri.host.toLowerCase();
+    return host.isEmpty || host == 'xaut.edu.cn' || host.endsWith('.xaut.edu.cn');
+  }
+
+  void _showBlockedUrlDialog(String url) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.security_rounded, color: Colors.red, size: 36),
+        title: const Text('校外域名安全拦截'),
+        content: Text(
+          '金花助手已阻止跳转至非校内域名：\n\n$url\n\n'
+          '为了保障您的学号、密码与隐私安全，本软件内置防钓鱼白名单，严格禁止在内嵌浏览器中跳转至西安理工大学以外的校外网站。',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('我知道了'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _initWindowsWebView() async {
     try {
       await _winController.initialize();
       _winController.url.listen((url) {
+        if (!isAllowedUrl(url)) {
+          _showBlockedUrlDialog(url);
+          _winController.loadUrl(_defaultUrl);
+          return;
+        }
         if (mounted) {
           setState(() {
             _currentUrl = url;
@@ -204,6 +240,13 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
       ..setJavaScriptMode(af.JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         af.NavigationDelegate(
+          onNavigationRequest: (request) {
+            if (isAllowedUrl(request.url)) {
+              return af.NavigationDecision.navigate;
+            }
+            _showBlockedUrlDialog(request.url);
+            return af.NavigationDecision.prevent;
+          },
           onPageStarted: (url) {
             if (mounted) {
               setState(() {
@@ -218,8 +261,8 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                 _isLoading = false;
                 _currentUrl = url;
               });
-              _scheduleSilentWeekCapture();
             }
+            _scheduleSilentWeekCapture();
           },
           onWebResourceError: (err) {
             if (mounted) {
@@ -239,6 +282,10 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
 
   /// 导航到指定 URL
   Future<void> _navigateTo(String url) async {
+    if (!isAllowedUrl(url)) {
+      _showBlockedUrlDialog(url);
+      return;
+    }
     if (_isWindows) {
       await _winController.loadUrl(url);
     } else {
@@ -806,6 +853,59 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                 _mobileController.reload();
               }
             },
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: '更多安全操作',
+            onSelected: (val) async {
+              if (val == 'clear_cookies') {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    icon: const Icon(Icons.cleaning_services_rounded, color: Colors.orange, size: 36),
+                    title: const Text('清理登录 Cookie'),
+                    content: const Text(
+                      '这将清除内嵌浏览器中缓存的教务系统登录会话（Cookie），重置回未登录状态。适用于在公共设备上使用完毕后安全注销。',
+                    ),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('取消')),
+                      FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('确定清理')),
+                    ],
+                  ),
+                );
+                if (confirm == true) {
+                  try {
+                    if (!_isWindows) {
+                      await af.WebViewCookieManager().clearCookies();
+                    }
+                    await _navigateTo(_defaultUrl);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('已清除浏览器登录会话 Cookie，已重置至统一认证页面')),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('清理 Cookie 失败: $e')),
+                      );
+                    }
+                  }
+                }
+              }
+            },
+            itemBuilder: (ctx) => [
+              const PopupMenuItem(
+                value: 'clear_cookies',
+                child: Row(
+                  children: [
+                    Icon(Icons.cleaning_services_rounded, size: 18),
+                    SizedBox(width: 8),
+                    Text('清除登录会话 Cookie'),
+                  ],
+                ),
+              ),
+            ],
           ),
           IconButton(
             icon: const Icon(Icons.close),
