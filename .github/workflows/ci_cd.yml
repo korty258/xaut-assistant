@@ -70,30 +70,48 @@ jobs:
         working-directory: xaut_app
         run: flutter pub get
 
-      - name: Setup Signing Key (Optional from Secrets)
+      - name: Setup Signing Key & Enforce Release Verification
         working-directory: xaut_app
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          IS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "Injecting keystore and key.properties..."
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "Injecting official release keystore and key.properties..."
             echo "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
             printf "storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=release.keystore\n" \
               "$KEYSTORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > android/key.properties
+            echo "Signing keys injected successfully."
           else
-            echo "No signing secrets detected, falling back to build.gradle.kts debug signing fallback."
+            if [ "$IS_RELEASE_TAG" = "true" ]; then
+              echo "::error::[SECURITY ALERT] Official release tag build requires KEYSTORE_BASE64, STORE_PASSWORD, KEY_ALIAS, and KEY_PASSWORD secrets! Failing build to prevent publishing an APK with debug signature."
+              exit 1
+            fi
+            echo "No signing secrets detected, falling back to build.gradle.kts debug signing fallback for manual/testing workflow_dispatch."
           fi
 
       - name: Build Android Release APK (arm64-v8a)
         working-directory: xaut_app
         run: flutter build apk --release --target-platform android-arm64
 
-      - name: Prepare Artifact
+      - name: Prepare Artifact & Verify Signature
+        env:
+          IS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
           cp xaut_app/build/app/outputs/flutter-apk/app-release.apk jinhua_assistant-android-arm64.apk
+          if [ "$IS_RELEASE_TAG" = "true" ]; then
+            echo "Inspecting release APK signing certificate..."
+            CERT_INFO=$(keytool -printcert -jarfile jinhua_assistant-android-arm64.apk)
+            echo "$CERT_INFO"
+            if echo "$CERT_INFO" | grep -qi "Android Debug"; then
+              echo "::error::[SECURITY ALERT] The generated APK was signed with Android Debug certificate! Aborting release."
+              exit 1
+            fi
+            echo "Official release signature verified successfully."
+          fi
 
       - name: Upload Android Artifact
         uses: actions/upload-artifact@v4
