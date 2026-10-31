@@ -81,6 +81,31 @@ class LegalService {
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
         final cookieManager = WebViewCookieManager();
         await cookieManager.clearCookies();
+
+        // 深度清理 Android 端 WebView 页面缓存、Local Storage 及 Web 存储沙箱
+        for (final path in [
+          '/data/data/io.github.korty258.jinhua_assistant/cache',
+          '/data/data/io.github.korty258.jinhua_assistant/code_cache',
+          '/data/data/io.github.korty258.jinhua_assistant/app_webview/Default/Local Storage',
+          '/data/data/io.github.korty258.jinhua_assistant/app_webview/Default/Session Storage',
+          '/data/data/io.github.korty258.jinhua_assistant/app_webview/Default/Cache',
+          '/data/data/io.github.korty258.jinhua_assistant/app_webview/Default/Code Cache',
+          '/data/data/io.github.korty258.jinhua_assistant/app_webview/Default/WebStorage',
+          '/data/user/0/io.github.korty258.jinhua_assistant/cache',
+          '/data/user/0/io.github.korty258.jinhua_assistant/code_cache',
+          '/data/user/0/io.github.korty258.jinhua_assistant/app_webview/Default/Local Storage',
+          '/data/user/0/io.github.korty258.jinhua_assistant/app_webview/Default/Session Storage',
+          '/data/user/0/io.github.korty258.jinhua_assistant/app_webview/Default/Cache',
+          '/data/user/0/io.github.korty258.jinhua_assistant/app_webview/Default/Code Cache',
+          '/data/user/0/io.github.korty258.jinhua_assistant/app_webview/Default/WebStorage',
+        ]) {
+          try {
+            final dir = Directory(path);
+            if (await dir.exists()) {
+              await dir.delete(recursive: true);
+            }
+          } catch (_) {}
+        }
       } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
         // Windows 桌面端防御：尝试清理本地 AppData 目录下的持久化缓存
         final appData = Platform.environment['APPDATA'];
