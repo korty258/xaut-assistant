@@ -17,6 +17,9 @@ enum _NavDestination { home, timetable, grades, exams, other }
 class WebViewLoginScreen extends StatefulWidget {
   const WebViewLoginScreen({super.key});
 
+  /// 校验目标域名是否属于西安理工大学校内合法域名且强制全链路 HTTPS 加密（防钓鱼、防窃听与防明文降级）
+  static bool isAllowedUrl(String url) => _WebViewLoginScreenState.isAllowedUrl(url);
+
   @override
   State<WebViewLoginScreen> createState() => _WebViewLoginScreenState();
 }
@@ -186,12 +189,14 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     return null;
   }
 
-  /// 校验目标域名是否属于西安理工大学校内合法域名（防钓鱼与外部重定向安全加固）
+  /// 校验目标域名是否属于西安理工大学校内合法域名且强制全链路 HTTPS 加密（防钓鱼、防窃听与防明文降级）
   static bool isAllowedUrl(String url) {
     final trimmed = url.trim();
     if (trimmed.isEmpty || trimmed == 'about:blank') return true;
     final uri = Uri.tryParse(trimmed);
     if (uri == null) return false;
+    // 强制 HTTPS 传输：Windows 桌面端无 usesCleartextTraffic 等价隔离，需在应用层严格拦截明文 HTTP
+    if (uri.scheme != 'https') return false;
     final host = uri.host.toLowerCase();
     return host.isEmpty || host == 'xaut.edu.cn' || host.endsWith('.xaut.edu.cn');
   }
@@ -202,10 +207,10 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         icon: const Icon(Icons.security_rounded, color: Colors.red, size: 36),
-        title: const Text('校外域名安全拦截'),
+        title: const Text('非校内域名或非 HTTPS 请求已拦截'),
         content: Text(
-          '金花助手已阻止跳转至非校内域名：\n\n$url\n\n'
-          '为了保障您的学号、密码与隐私安全，本软件内置防钓鱼白名单，严格禁止在内嵌浏览器中跳转至西安理工大学以外的校外网站。',
+          '金花助手已阻止非安全或非校内请求：\n\n$url\n\n'
+          '为了保障您的学号、密码与隐私安全，本软件强制要求全链路 HTTPS 加密通信并内置防钓鱼白名单，严格禁止在内嵌浏览器中跳转至非 HTTPS 协议或西安理工大学以外的校外网站。',
         ),
         actions: [
           FilledButton(

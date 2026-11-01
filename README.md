@@ -10,13 +10,13 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.0.2-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.0.3-brightgreen" alt="Version">
   <a href="https://github.com/korty258/xaut-assistant/actions/workflows/ci_cd.yml">
     <img src="https://github.com/korty258/xaut-assistant/actions/workflows/ci_cd.yml/badge.svg" alt="CI/CD Status">
   </a>
   <img src="https://img.shields.io/badge/Flutter-3.47+-02569B?logo=flutter&logoColor=white" alt="Flutter">
   <img src="https://img.shields.io/badge/Platform-Android%20|%20Windows-green" alt="Platform">
-  <img src="https://img.shields.io/badge/Architecture-arm64--v8a%20(17MB)-blue" alt="Architecture">
+  <img src="https://img.shields.io/badge/Architecture-arm64--v8a%20(19MB)-blue" alt="Architecture">
   <img src="https://img.shields.io/badge/License-GPL--3.0-blue.svg" alt="License">
 </p>
 
@@ -38,7 +38,7 @@
   - **去重与清洗**：自动剔除强智教务系统隐藏二维码与重复备用容器，精准识别 4 节连排实验课。
 - 📊 **分学期动态 GPA 演算 & 等级制成绩兼容**：切换学期筛选 Chip 即可实时重算**单学期 / 累计**加权平均分、平均绩点 (GPA) 与已修学分；完整兼容西理工实验、实训等 **五级制（优/良/中/及格）** 与 **二级制（合格/通过）** 课程学分绩点统计。
 - 📝 **考试倒计时角标与「待考优先」智能排序**：自动解析考试起止时间，将未考科目按开考时间升序排在最前并展示醒目的 `考试中` / `今天` / `明天` / `还有 X 天` 倒计时角标，已结束科目自动沉底弱化。
-- 🌙 **跨端原生与深浅色自适应**：完整适配系统浅色 / 深色模式 (`ThemeMode.system`)，支持 Windows 桌面端 (MSVC AOT / WebView2 / 微软雅黑清晰渲染) 与 Android 端 (纯 arm64-v8a 极致裁剪优化，包体积仅 ~17 MB)。
+- 🌙 **跨端原生与深浅色自适应**：完整适配系统浅色 / 深色模式 (`ThemeMode.system`)，支持 Windows 桌面端 (MSVC AOT / WebView2 / 微软雅黑清晰渲染) 与 Android 端 (纯 arm64-v8a 极致裁剪优化，包体积约 19.4 MB)。
 
 ---
 

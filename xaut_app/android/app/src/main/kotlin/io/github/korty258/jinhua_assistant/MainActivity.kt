@@ -31,8 +31,9 @@ class MainActivity : FlutterActivity() {
 
                     // 4. 动态清理应用私有目录中的 cache、code_cache 及 app_webview 目录
                     // 动态自适应路径，彻底消除包名硬编码，全面支持多用户与分身空间
-                    context.cacheDir?.deleteRecursively()
-                    context.codeCacheDir?.deleteRecursively()
+                    // 只清空内容，保留目录本身（底层引擎假定该目录在运行期始终存在）
+                    context.cacheDir?.listFiles()?.forEach { it.deleteRecursively() }
+                    context.codeCacheDir?.listFiles()?.forEach { it.deleteRecursively() }
                     val dataDir = context.applicationInfo.dataDir
                     if (dataDir != null) {
                         val appWebviewDir = File(dataDir, "app_webview")

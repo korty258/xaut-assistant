@@ -5,6 +5,7 @@ import 'package:xaut_app/main.dart';
 import 'package:xaut_app/models/course.dart';
 import 'package:xaut_app/screens/legal_gate_screen.dart';
 import 'package:xaut_app/widgets/course_detail_dialog.dart';
+import 'package:xaut_app/screens/webview_login_screen.dart';
 
 void main() {
   setUp(() {
@@ -128,5 +129,18 @@ void main() {
 
     final indexedStack = tester.widget<IndexedStack>(find.byType(IndexedStack));
     expect(indexedStack.index, equals(3));
+  });
+
+  test('WebViewLoginScreen.isAllowedUrl strictly enforces HTTPS and xaut.edu.cn domain', () {
+    expect(WebViewLoginScreen.isAllowedUrl('https://jwgl.xaut.edu.cn/jsxsd/'), isTrue);
+    expect(WebViewLoginScreen.isAllowedUrl('https://ids.xaut.edu.cn/authserver/login'), isTrue);
+    expect(WebViewLoginScreen.isAllowedUrl('https://xaut.edu.cn'), isTrue);
+    expect(WebViewLoginScreen.isAllowedUrl('about:blank'), isTrue);
+    // Plaintext HTTP must be strictly rejected
+    expect(WebViewLoginScreen.isAllowedUrl('http://jwgl.xaut.edu.cn/jsxsd/'), isFalse);
+    expect(WebViewLoginScreen.isAllowedUrl('http://ids.xaut.edu.cn/'), isFalse);
+    // Off-campus domain must be rejected
+    expect(WebViewLoginScreen.isAllowedUrl('https://www.baidu.com'), isFalse);
+    expect(WebViewLoginScreen.isAllowedUrl('https://phishing-xaut.edu.cn.evil.com'), isFalse);
   });
 }
