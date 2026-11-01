@@ -1,6 +1,7 @@
 import 'dart:io' show Directory, File, Platform;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 /// 法律门禁与用户授权状态服务
@@ -9,11 +10,11 @@ import 'package:webview_flutter/webview_flutter.dart';
 /// 文本内容与 assets/legal/*.md 严格对应。
 class LegalService {
   /// 当前客户端对外统一发布版本号
-  static const String appVersion = 'v2.0.1';
+  static const String appVersion = 'v2.0.2';
 
   /// 当前合规文本版本。当协议有实质性变更时必须递增此常量，
   /// 系统检测到本地记录与该版本不一致时会自动重新唤起同意页面。
-  static const String currentVersion = '2026-10-31.v3';
+  static const String currentVersion = '2026-11-01.v4';
 
   /// 注册第三方开源许可证，使 Flutter showLicensePage 能完整展示 Dawn-Course、NJUST-JWC-Enhance 等致谢
   static void registerCustomLicenses() {
@@ -82,32 +83,15 @@ class LegalService {
     // 纵深防御加固：清除 Android/移动端 WebView 登录会话 Cookie 与 Windows 本地缓存
     try {
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-        final cookieManager = WebViewCookieManager();
-        await cookieManager.clearCookies();
-
-        // 深度清理 Android 端 WebView 页面缓存、Local Storage 及 Web 存储沙箱
-        for (final path in [
-          '/data/data/io.github.korty258.jinhua_assistant/cache',
-          '/data/data/io.github.korty258.jinhua_assistant/code_cache',
-          '/data/data/io.github.korty258.jinhua_assistant/app_webview/Default/Local Storage',
-          '/data/data/io.github.korty258.jinhua_assistant/app_webview/Default/Session Storage',
-          '/data/data/io.github.korty258.jinhua_assistant/app_webview/Default/Cache',
-          '/data/data/io.github.korty258.jinhua_assistant/app_webview/Default/Code Cache',
-          '/data/data/io.github.korty258.jinhua_assistant/app_webview/Default/WebStorage',
-          '/data/user/0/io.github.korty258.jinhua_assistant/cache',
-          '/data/user/0/io.github.korty258.jinhua_assistant/code_cache',
-          '/data/user/0/io.github.korty258.jinhua_assistant/app_webview/Default/Local Storage',
-          '/data/user/0/io.github.korty258.jinhua_assistant/app_webview/Default/Session Storage',
-          '/data/user/0/io.github.korty258.jinhua_assistant/app_webview/Default/Cache',
-          '/data/user/0/io.github.korty258.jinhua_assistant/app_webview/Default/Code Cache',
-          '/data/user/0/io.github.korty258.jinhua_assistant/app_webview/Default/WebStorage',
-        ]) {
-          try {
-            final dir = Directory(path);
-            if (await dir.exists()) {
-              await dir.delete(recursive: true);
-            }
-          } catch (_) {}
+        // 优先通过 Android 原生 MethodChannel 调用 WebStorage.deleteAllData()、WebViewDatabase 与动态缓存彻底清除
+        try {
+          const platformChannel = MethodChannel('io.github.korty258.jinhua_assistant/platform');
+          await platformChannel.invokeMethod('clearWebViewData');
+        } catch (e) {
+          debugPrint('Android native clearWebViewData failed or running in test: $e');
+          // 降级兜底：通过 webview_flutter 官方 CookieManager 清除
+          final cookieManager = WebViewCookieManager();
+          await cookieManager.clearCookies();
         }
       } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
         // Windows 桌面端防御：尝试清理本地 AppData 目录下的持久化缓存
