@@ -60,14 +60,13 @@ class GradesProvider extends ChangeNotifier {
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
-    final gradesStr = await AppCryptoService.loadEncryptedString(prefs, _keyGrades);
-
-    if (gradesStr != null && gradesStr.isNotEmpty) {
-      try {
+    try {
+      final gradesStr = await AppCryptoService.loadEncryptedString(prefs, _keyGrades);
+      if (gradesStr != null && gradesStr.isNotEmpty) {
         final List<dynamic> list = jsonDecode(gradesStr);
         _grades = list.map((e) => GradeItem.fromJson(e as Map<String, dynamic>)).toList();
-      } catch (_) {}
-    }
+      }
+    } catch (_) {}
 
     _isLoading = false;
     notifyListeners();

@@ -105,6 +105,30 @@ void main() {
       expect(upgradedRaw!.startsWith(AppCryptoService.envelopePrefix), isTrue);
       expect(upgradedRaw.contains('马克思主义原理'), isFalse);
     });
+
+    test('loadEncryptedString() throws CryptoException when envelope decryption fails', () async {
+      final prefs = await SharedPreferences.getInstance();
+      const testKey = 'tampered_data_key';
+      // 写入损坏的信封格式数据
+      await prefs.setString(testKey, '${AppCryptoService.envelopePrefix}AAAA:BBBB');
+
+      expect(
+        () async => await AppCryptoService.loadEncryptedString(prefs, testKey),
+        throwsA(isA<CryptoException>()),
+      );
+    });
+
+    test('Single-flight getMasterKey() handles concurrent callers cleanly', () async {
+      AppCryptoService.setMockMasterKey(null);
+      final futures = [
+        AppCryptoService.getMasterKey(),
+        AppCryptoService.getMasterKey(),
+        AppCryptoService.getMasterKey(),
+      ];
+      final keys = await Future.wait(futures);
+      expect(keys[0].bytes, equals(keys[1].bytes));
+      expect(keys[1].bytes, equals(keys[2].bytes));
+    });
   });
 
   group('Full Data Layer Encryption Integration Tests', () {

@@ -85,14 +85,13 @@ class ExamsProvider extends ChangeNotifier {
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
-    final examsStr = await AppCryptoService.loadEncryptedString(prefs, _keyExams);
-
-    if (examsStr != null && examsStr.isNotEmpty) {
-      try {
+    try {
+      final examsStr = await AppCryptoService.loadEncryptedString(prefs, _keyExams);
+      if (examsStr != null && examsStr.isNotEmpty) {
         final List<dynamic> list = jsonDecode(examsStr);
         _exams = list.map((e) => ExamItem.fromJson(e as Map<String, dynamic>)).toList();
-      } catch (_) {}
-    }
+      }
+    } catch (_) {}
 
     _isLoading = false;
     notifyListeners();

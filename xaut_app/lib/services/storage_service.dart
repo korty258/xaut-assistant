@@ -23,13 +23,12 @@ class StorageService {
   /// 加载课表
   static Future<List<Course>> loadCourses() async {
     final prefs = await SharedPreferences.getInstance();
-    final jsonStr = await AppCryptoService.loadEncryptedString(prefs, _keyCourses);
-    if (jsonStr == null || jsonStr.isEmpty) return [];
-
     try {
+      final jsonStr = await AppCryptoService.loadEncryptedString(prefs, _keyCourses);
+      if (jsonStr == null || jsonStr.isEmpty) return [];
       final List<dynamic> decoded = jsonDecode(jsonStr);
       return decoded.map((item) => Course.fromJson(item as Map<String, dynamic>)).toList();
-    } catch (e) {
+    } catch (_) {
       return [];
     }
   }

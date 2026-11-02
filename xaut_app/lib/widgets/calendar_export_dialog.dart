@@ -171,7 +171,7 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '生成遵循 RFC 5545 标准的 .ics 日历文件，兼容小米日历、华为日历、OPPO/vivo、苹果日历、Outlook 与 Google 日历，可无缝同步至桌面小组件与智能手表。',
+                '生成遵循 RFC 5545 标准的 .ics 日历文件，当前支持导出课表与期末考试安排，成绩暂不支持导出。\n文件包含课程名称、任课教师、教室、考场等信息；导出后请妥善保管，分享或导入第三方日历时请注意接收方的隐私政策。',
                 style: TextStyle(
                   fontSize: 12.5,
                   color: theme.colorScheme.onSurfaceVariant,

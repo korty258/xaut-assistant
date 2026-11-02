@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -38,26 +39,26 @@ class CalendarExportService {
     final dtStamp = _formatUtcDateTime(now ?? DateTime.now());
 
     // 1. 日历头部与时区定义 (标准中国时区 Asia/Shanghai UTC+8)
-    buffer.write('BEGIN:VCALENDAR\r\n');
-    buffer.write('VERSION:2.0\r\n');
-    buffer.write('PRODID:-//XAUT Assistant//Jinhua Academic Calendar//CN\r\n');
-    buffer.write('CALSCALE:GREGORIAN\r\n');
-    buffer.write('METHOD:PUBLISH\r\n');
-    buffer.write('X-WR-CALNAME:${_escapeText(calendarName)}\r\n');
-    buffer.write('X-WR-TIMEZONE:Asia/Shanghai\r\n');
+    _emit(buffer, 'BEGIN:VCALENDAR');
+    _emit(buffer, 'VERSION:2.0');
+    _emit(buffer, 'PRODID:-//XAUT Assistant//Jinhua Academic Calendar v2.1.0//CN');
+    _emit(buffer, 'CALSCALE:GREGORIAN');
+    _emit(buffer, 'METHOD:PUBLISH');
+    _emit(buffer, 'X-WR-CALNAME:${_escapeText(calendarName)}');
+    _emit(buffer, 'X-WR-TIMEZONE:Asia/Shanghai');
 
     // 写入完整 VTIMEZONE 标准块，确保在各大日历客户端均能准确无漂移解析
-    buffer.write('BEGIN:VTIMEZONE\r\n');
-    buffer.write('TZID:Asia/Shanghai\r\n');
-    buffer.write('TZURL:http://tzurl.org/zoneinfo-outlook/Asia/Shanghai\r\n');
-    buffer.write('X-LIC-LOCATION:Asia/Shanghai\r\n');
-    buffer.write('BEGIN:STANDARD\r\n');
-    buffer.write('TZOFFSETFROM:+0800\r\n');
-    buffer.write('TZOFFSETTO:+0800\r\n');
-    buffer.write('TZNAME:CST\r\n');
-    buffer.write('DTSTART:19700101T000000\r\n');
-    buffer.write('END:STANDARD\r\n');
-    buffer.write('END:VTIMEZONE\r\n');
+    _emit(buffer, 'BEGIN:VTIMEZONE');
+    _emit(buffer, 'TZID:Asia/Shanghai');
+    _emit(buffer, 'TZURL:http://tzurl.org/zoneinfo-outlook/Asia/Shanghai');
+    _emit(buffer, 'X-LIC-LOCATION:Asia/Shanghai');
+    _emit(buffer, 'BEGIN:STANDARD');
+    _emit(buffer, 'TZOFFSETFROM:+0800');
+    _emit(buffer, 'TZOFFSETTO:+0800');
+    _emit(buffer, 'TZNAME:CST');
+    _emit(buffer, 'DTSTART:19700101T000000');
+    _emit(buffer, 'END:STANDARD');
+    _emit(buffer, 'END:VTIMEZONE');
 
     // 2. 导出课程表事件 (按活跃教学周精确展开为单次日程，杜绝单双周/跳周在不同 ROM 上的解析丢失)
     if (courses.isNotEmpty && semesterStartMonday != null) {
@@ -67,8 +68,7 @@ class CalendarExportService {
         semesterStartMonday.day,
       );
 
-      for (int cIdx = 0; cIdx < courses.length; cIdx++) {
-        final course = courses[cIdx];
+      for (final course in courses) {
         final sortedWeeks = List<int>.from(course.weeks)..sort();
 
         final sIdx = (course.startSection - 1).clamp(0, Course.totalSections - 1);
@@ -89,16 +89,19 @@ class CalendarExportService {
           final startDt = DateTime(courseDate.year, courseDate.month, courseDate.day, sHour, sMinute);
           final endDt = DateTime(courseDate.year, courseDate.month, courseDate.day, eHour, eMinute);
 
-          final uid = 'course_${course.name.hashCode.toRadixString(16)}_${week}_${course.day}_${course.startSection}_$cIdx@xaut.assistant';
+          // 稳定确定性 UID (消除数组索引依赖与进程哈希不稳定性，保证多次导出同一课程 UID 恒定)
+          final uid = 'course_${_stableKey(course.name)}_d${course.day}_s${course.startSection}_w$week@xaut.assistant';
 
-          buffer.write('BEGIN:VEVENT\r\n');
-          buffer.write('UID:$uid\r\n');
-          buffer.write('DTSTAMP:$dtStamp\r\n');
-          buffer.write('DTSTART;TZID=Asia/Shanghai:${_formatDateTime(startDt)}\r\n');
-          buffer.write('DTEND;TZID=Asia/Shanghai:${_formatDateTime(endDt)}\r\n');
-          buffer.write('SUMMARY:${_escapeText('${course.name} (${course.sectionStr})')}\r\n');
+          _emit(buffer, 'BEGIN:VEVENT');
+          _emit(buffer, 'UID:$uid');
+          _emit(buffer, 'SEQUENCE:0');
+          _emit(buffer, 'LAST-MODIFIED:$dtStamp');
+          _emit(buffer, 'DTSTAMP:$dtStamp');
+          _emit(buffer, 'DTSTART;TZID=Asia/Shanghai:${_formatDateTime(startDt)}');
+          _emit(buffer, 'DTEND;TZID=Asia/Shanghai:${_formatDateTime(endDt)}');
+          _emit(buffer, 'SUMMARY:${_escapeText('${course.name} (${course.sectionStr})')}');
           if (course.room.trim().isNotEmpty) {
-            buffer.write('LOCATION:${_escapeText(course.room.trim())}\r\n');
+            _emit(buffer, 'LOCATION:${_escapeText(course.room.trim())}');
           }
 
           final desc = [
@@ -107,51 +110,53 @@ class CalendarExportService {
             '节次: ${course.sectionStr} (${course.timeRangeStr})',
             '周次: 第$week周 (${course.rawWeekStr})',
           ].map(_escapeText).join(r'\n');
-          buffer.write('DESCRIPTION:$desc\r\n');
+          _emit(buffer, 'DESCRIPTION:$desc');
 
           // 提醒配置
           if (courseReminder != CalendarReminderOption.none) {
-            buffer.write('BEGIN:VALARM\r\n');
-            buffer.write('ACTION:DISPLAY\r\n');
-            buffer.write('DESCRIPTION:${_escapeText('上课提醒: ${course.name}')}\r\n');
-            buffer.write('TRIGGER:${courseReminder.triggerString}\r\n');
-            buffer.write('END:VALARM\r\n');
+            _emit(buffer, 'BEGIN:VALARM');
+            _emit(buffer, 'ACTION:DISPLAY');
+            _emit(buffer, 'DESCRIPTION:${_escapeText('上课提醒: ${course.name}')}');
+            _emit(buffer, 'TRIGGER:${courseReminder.triggerString}');
+            _emit(buffer, 'END:VALARM');
           }
 
-          buffer.write('END:VEVENT\r\n');
+          _emit(buffer, 'END:VEVENT');
         }
       }
     }
 
     // 3. 导出考试日程事件 (严格基于真实教务字段，绝不包含座位号)
-    for (int eIdx = 0; eIdx < exams.length; eIdx++) {
-      final exam = exams[eIdx];
+    for (final exam in exams) {
       final parsed = exam.parseTimeRange();
       if (parsed.dateOnly == null) continue;
 
-      final uid = 'exam_${exam.courseCode}_${exam.courseName.hashCode.toRadixString(16)}_$eIdx@xaut.assistant';
+      // 稳定确定性 UID (消除数组索引依赖，多次导出同一门考试保持 UID 恒定)
+      final uid = 'exam_${_stableKey(exam.courseName)}_${_stableKey(exam.examTime)}@xaut.assistant';
 
-      buffer.write('BEGIN:VEVENT\r\n');
-      buffer.write('UID:$uid\r\n');
-      buffer.write('DTSTAMP:$dtStamp\r\n');
+      _emit(buffer, 'BEGIN:VEVENT');
+      _emit(buffer, 'UID:$uid');
+      _emit(buffer, 'SEQUENCE:0');
+      _emit(buffer, 'LAST-MODIFIED:$dtStamp');
+      _emit(buffer, 'DTSTAMP:$dtStamp');
 
       if (parsed.hasExplicitTime && parsed.start != null && parsed.end != null) {
-        buffer.write('DTSTART;TZID=Asia/Shanghai:${_formatDateTime(parsed.start!)}\r\n');
-        buffer.write('DTEND;TZID=Asia/Shanghai:${_formatDateTime(parsed.end!)}\r\n');
+        _emit(buffer, 'DTSTART;TZID=Asia/Shanghai:${_formatDateTime(parsed.start!)}');
+        _emit(buffer, 'DTEND;TZID=Asia/Shanghai:${_formatDateTime(parsed.end!)}');
       } else {
         // 全天事件备用
         final dStart = _formatDateOnly(parsed.dateOnly!);
         final dEnd = _formatDateOnly(parsed.dateOnly!.add(const Duration(days: 1)));
-        buffer.write('DTSTART;VALUE=DATE:$dStart\r\n');
-        buffer.write('DTEND;VALUE=DATE:$dEnd\r\n');
+        _emit(buffer, 'DTSTART;VALUE=DATE:$dStart');
+        _emit(buffer, 'DTEND;VALUE=DATE:$dEnd');
       }
 
-      buffer.write('SUMMARY:${_escapeText('【期末考试】${exam.courseName}')}\r\n');
+      _emit(buffer, 'SUMMARY:${_escapeText('【期末考试】${exam.courseName}')}');
 
       // 地点格式: 校区 + 考场教室 (无座位号)
       final locationParts = [exam.campus.trim(), exam.room.trim()].where((s) => s.isNotEmpty).toList();
       if (locationParts.isNotEmpty) {
-        buffer.write('LOCATION:${_escapeText(locationParts.join(' '))}\r\n');
+        _emit(buffer, 'LOCATION:${_escapeText(locationParts.join(' '))}');
       }
 
       final descParts = [
@@ -163,20 +168,20 @@ class CalendarExportService {
         if (exam.batch.trim().isNotEmpty) '考试批次: ${exam.batch.trim()}',
         if (exam.examTime.trim().isNotEmpty) '教务时间文本: ${exam.examTime.trim()}',
       ].map(_escapeText).join(r'\n');
-      buffer.write('DESCRIPTION:$descParts\r\n');
+      _emit(buffer, 'DESCRIPTION:$descParts');
 
       if (examReminder != CalendarReminderOption.none) {
-        buffer.write('BEGIN:VALARM\r\n');
-        buffer.write('ACTION:DISPLAY\r\n');
-        buffer.write('DESCRIPTION:${_escapeText('考试提醒: ${exam.courseName}')}\r\n');
-        buffer.write('TRIGGER:${examReminder.triggerString}\r\n');
-        buffer.write('END:VALARM\r\n');
+        _emit(buffer, 'BEGIN:VALARM');
+        _emit(buffer, 'ACTION:DISPLAY');
+        _emit(buffer, 'DESCRIPTION:${_escapeText('考试提醒: ${exam.courseName}')}');
+        _emit(buffer, 'TRIGGER:${examReminder.triggerString}');
+        _emit(buffer, 'END:VALARM');
       }
 
-      buffer.write('END:VEVENT\r\n');
+      _emit(buffer, 'END:VEVENT');
     }
 
-    buffer.write('END:VCALENDAR\r\n');
+    _emit(buffer, 'END:VCALENDAR');
     return buffer.toString();
   }
 
@@ -219,6 +224,35 @@ class CalendarExportService {
     final targetFile = File('${targetDir.path}${Platform.pathSeparator}$fileName');
     await targetFile.writeAsString(icsContent, flush: true);
     return targetFile.path;
+  }
+
+  /// 生成稳定确定性的业务键 (URL-Safe Base64, 去除尾部填充)，替代不可跨进程保序的 hashCode
+  static String _stableKey(String text) =>
+      base64Url.encode(utf8.encode(text)).replaceAll('=', '');
+
+  /// RFC 5545 §3.1: 属性内容行最大不超过 75 字节 (octets)，
+  /// 超出部分在 UTF-8 字符边界折行，续行以单个空格开头
+  static String _fold(String line) {
+    if (utf8.encode(line).length <= 75) return line;
+    final out = StringBuffer();
+    var octets = 0;
+    for (final rune in line.runes) {
+      final ch = String.fromCharCode(rune);
+      final len = utf8.encode(ch).length;
+      final limit = octets == 0 ? 75 : 74; // 续行留 1 字节给前导空格
+      if (octets + len > limit) {
+        out.write('\r\n ');
+        octets = 0;
+      }
+      out.write(ch);
+      octets += len;
+    }
+    return out.toString();
+  }
+
+  /// 安全写出行并自动折行
+  static void _emit(StringBuffer buf, String line) {
+    buf.write('${_fold(line)}\r\n');
   }
 
   /// RFC 5545 字符转义: 逗号、分号、反斜杠转义，换行转为 literal \n

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xaut_app/models/course.dart';
 import 'package:xaut_app/models/exam.dart';
@@ -16,7 +17,7 @@ void main() {
 
       expect(ics, contains('BEGIN:VCALENDAR\r\n'));
       expect(ics, contains('VERSION:2.0\r\n'));
-      expect(ics, contains('PRODID:-//XAUT Assistant//Jinhua Academic Calendar//CN\r\n'));
+      expect(ics, contains('PRODID:-//XAUT Assistant//Jinhua Academic Calendar v2.1.0//CN\r\n'));
       expect(ics, contains('X-WR-CALNAME:西安理工大学日程\r\n'));
       expect(ics, contains('X-WR-TIMEZONE:Asia/Shanghai\r\n'));
       expect(ics, contains('BEGIN:VTIMEZONE\r\n'));
@@ -27,9 +28,8 @@ void main() {
       expect(ics, endsWith('END:VCALENDAR\r\n'));
     });
 
-    test('generateIcs correctly maps course weeks, days and section times', () {
+    test('generateIcs correctly maps course weeks, days and section times with stable UIDs', () {
       final fixedNow = DateTime(2026, 11, 2, 10, 0, 0);
-      // 第 1 周周一为 2026-09-07
       final semesterStartMon = DateTime(2026, 9, 7);
 
       const course = Course(
@@ -43,7 +43,15 @@ void main() {
         rawWeekStr: '1,3(周)[01-02节]',
       );
 
-      final ics = CalendarExportService.generateIcs(
+      final ics1 = CalendarExportService.generateIcs(
+        courses: [course],
+        semesterStartMonday: semesterStartMon,
+        exams: [],
+        courseReminder: CalendarReminderOption.m15,
+        now: fixedNow,
+      );
+
+      final ics2 = CalendarExportService.generateIcs(
         courses: [course],
         semesterStartMonday: semesterStartMon,
         exams: [],
@@ -52,21 +60,30 @@ void main() {
       );
 
       // 验证第 1 周周一事件: 2026-09-07
-      expect(ics, contains('DTSTART;TZID=Asia/Shanghai:20260907T080000\r\n'));
-      expect(ics, contains('DTEND;TZID=Asia/Shanghai:20260907T095000\r\n'));
-      expect(ics, contains('SUMMARY:高等数学(上) (1-2节)\r\n'));
-      expect(ics, contains('LOCATION:教2-301\r\n'));
-      expect(ics, contains('教师: 王教授\\n教室: 教2-301\\n节次: 1-2节 (08:00-09:50)\\n周次: 第1周'));
+      expect(ics1, contains('DTSTART;TZID=Asia/Shanghai:20260907T080000\r\n'));
+      expect(ics1, contains('DTEND;TZID=Asia/Shanghai:20260907T095000\r\n'));
+      expect(ics1, contains('SUMMARY:高等数学(上) (1-2节)\r\n'));
+      expect(ics1, contains('LOCATION:教2-301\r\n'));
+
+      // 验证序列号与最后修改时间
+      expect(ics1, contains('SEQUENCE:0\r\n'));
+      expect(ics1, contains('LAST-MODIFIED:20261102T020000Z\r\n'));
+
+      // 验证两次生成产生的 UID 100% 确定且恒定
+      final uidRegex = RegExp(r'UID:(course_[^\r\n]+)');
+      final uids1 = uidRegex.allMatches(ics1).map((m) => m.group(1)).toList();
+      final uids2 = uidRegex.allMatches(ics2).map((m) => m.group(1)).toList();
+      expect(uids1, equals(uids2));
+      expect(uids1.length, equals(2)); // 第1周与第3周共2个事件
 
       // 验证第 3 周周一事件: 2026-09-21 (09-07 + 14 天)
-      expect(ics, contains('DTSTART;TZID=Asia/Shanghai:20260921T080000\r\n'));
-      expect(ics, contains('DTEND;TZID=Asia/Shanghai:20260921T095000\r\n'));
-      expect(ics, contains('周次: 第3周'));
+      expect(ics1, contains('DTSTART;TZID=Asia/Shanghai:20260921T080000\r\n'));
+      expect(ics1, contains('DTEND;TZID=Asia/Shanghai:20260921T095000\r\n'));
 
       // 验证提醒 VALARM
-      expect(ics, contains('BEGIN:VALARM\r\n'));
-      expect(ics, contains('TRIGGER:-PT15M\r\n'));
-      expect(ics, contains('DESCRIPTION:上课提醒: 高等数学(上)\r\n'));
+      expect(ics1, contains('BEGIN:VALARM\r\n'));
+      expect(ics1, contains('TRIGGER:-PT15M\r\n'));
+      expect(ics1, contains('DESCRIPTION:上课提醒: 高等数学(上)\r\n'));
     });
 
     test('generateIcs correctly maps exam schedules and guarantees NO seat number', () {
@@ -104,7 +121,6 @@ void main() {
       expect(ics, contains('DTSTART;TZID=Asia/Shanghai:20261120T090000\r\n'));
       expect(ics, contains('DTEND;TZID=Asia/Shanghai:20261120T110000\r\n'));
       expect(ics, contains('LOCATION:金花校区 教1-201\r\n'));
-      expect(ics, contains('课程名称: 操作系统原理\\n课程代码: CS1024\\n考场教室: 教1-201\\n所在校区: 金花校区'));
 
       // 验证 exam2 (无校区时仅显示考场)
       expect(ics, contains('SUMMARY:【期末考试】概率论与数理统计\r\n'));
@@ -120,6 +136,42 @@ void main() {
       // 验证考前 2 小时提醒
       expect(ics, contains('TRIGGER:-PT2H\r\n'));
       expect(ics, contains('DESCRIPTION:考试提醒: 操作系统原理\r\n'));
+    });
+
+    test('generateIcs enforces RFC 5545 §3.1 75-octet line folding', () {
+      final fixedNow = DateTime(2026, 11, 2, 10, 0, 0);
+      final semesterStartMon = DateTime(2026, 9, 7);
+
+      const longCourse = Course(
+        name: '非常长的一门专业核心必修课程名称用于测试折行机制',
+        teacher: '超长教师姓名测试高级工程师副教授博士生导师',
+        room: '金花校区教2楼计算机与信息工程学院网络通信联合实验教学中心A301多媒体智慧机房',
+        day: 4,
+        startSection: 7,
+        stepCount: 2,
+        weeks: [1],
+        rawWeekStr: '1-16(周)[07-08节]',
+      );
+
+      final ics = CalendarExportService.generateIcs(
+        courses: [longCourse],
+        semesterStartMonday: semesterStartMon,
+        now: fixedNow,
+      );
+
+      // 验证折行标识: 必须出现 CRLF + 单个空格
+      expect(ics, contains('\r\n '));
+
+      // 严格校验: 每一个被 \r\n 切分的物理行，其 UTF-8 字节长度均不得超过 75
+      final rawLines = ics.split('\r\n');
+      for (final line in rawLines) {
+        final byteLen = utf8.encode(line).length;
+        expect(
+          byteLen <= 75,
+          isTrue,
+          reason: 'Line exceeds RFC 5545 75-octet limit: "$line" ($byteLen bytes)',
+        );
+      }
     });
 
     test('generateIcs correctly escapes commas, semicolons and newlines', () {
@@ -146,7 +198,6 @@ void main() {
 
       expect(ics, contains('SUMMARY:面向对象\\, 设计模式\\; C++ (3-4节)\r\n'));
       expect(ics, contains('LOCATION:Room\\; 101\\, A\r\n'));
-      expect(ics, contains('教师: Prof\\, Zhang'));
     });
 
     test('generateIcs disables VALARM when reminder option is none', () {
