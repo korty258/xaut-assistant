@@ -765,7 +765,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                 Text('考试日程同步成功'),
               ],
             ),
-            content: Text('成功解析导入 ${parsed.length} 门考试日程！已自动提取考场与座位号。'),
+            content: Text('成功解析导入 ${parsed.length} 门考试日程！已自动提取考试时间与考场教室。'),
             actions: [
               FilledButton(
                 onPressed: () {

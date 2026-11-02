@@ -135,3 +135,24 @@ SOFTWARE.
 * **开源许可证**：GNU General Public License v3.0 (GPL-3.0)
 * **版权所有**：Copyright (C) 2026 Jinhua Assistant Contributors
 * 完整许可证正文请见项目根目录 [LICENSE](LICENSE)。
+
+---
+
+## 4. 核心开源功能组件库 (Core Flutter/Dart Dependencies)
+
+金花助手客户端运行于 Flutter 跨平台框架，依赖以下开源生态组件提供本地运行能力（所有组件均为纯本地运行，不含商业追踪与数据回传）：
+
+| 组件名称 | 许可证类别 | 用途说明 |
+| :--- | :--- | :--- |
+| **provider** | MIT License | 跨组件响应式状态管理（课表/成绩/考试状态调度） |
+| **shared_preferences** | BSD-3-Clause | 本地基础键值对配置与数据持久化 |
+| **webview_flutter** | BSD-3-Clause | Android 端内嵌系统官方登录 WebView 容器 |
+| **webview_windows** | MIT License | Windows 桌面端 Edge WebView2 运行时嵌入容器 |
+| **encrypt** | BSD-3-Clause | AEAD AES-256-GCM 本地全量学业数据信封加密 |
+| **flutter_secure_storage** | BSD-3-Clause | 硬件级加密根密钥托管 (Android Keystore / Windows DPAPI) |
+| **path_provider** | BSD-3-Clause | 跨平台本地目录与日历文件路径解析 |
+| **share_plus** | BSD-3-Clause | 跨平台系统原生分享面板直达系统日历 |
+| **flutter_markdown_plus** | BSD-3-Clause | 客户端离线法律合规文档富文本排版渲染 |
+| **cupertino_icons** | MIT License | 高清矢量图标资源底座 |
+
+各组件的完整许可证文本与版权声明均内置于应用内「关于与法律条款」-「全量开源组件许可证 (LicensePage)」中，可随时离线查阅。

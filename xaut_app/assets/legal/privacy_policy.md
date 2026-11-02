@@ -58,7 +58,7 @@
 
 4.2 **第三方组件说明**：
 - **本软件不包含任何第三方商业 SDK**（包括但不限于友盟、极光推送、百度移动统计、腾讯 Bugly、穿山甲广告等）。
-- 本软件所采用的依赖库（Flutter Framework、Provider、SharedPreferences、WebView 组件）均为**本地运行的开源功能组件**，不具备任何向外部回传数据的功能。
+- 本软件所采用的开源依赖库（Flutter 框架底座、Provider 状态管理、SharedPreferences 本地配置、系统原生 WebView 组件、encrypt 加密库、flutter_secure_storage 安全凭据存储、path_provider 与 share_plus 日历导出辅助组件）均为**纯端侧本地运行的开源功能库**，不收集、不追踪用户行为，亦不具备任何向外部自建服务器回传数据的功能。
 
 ---
 
@@ -69,6 +69,8 @@
 - Windows 端：位于当前系统用户的本地配置应用目录中。
 
 5.2 **安全防护加固**：
+- **全量学业数据 AES-256-GCM 硬件级落盘加密 (Encryption at Rest)**：课表日程、各科学分成绩与 GPA 绩点、期末考试安排在本地设备持久化存储时，全部采用高强度 AEAD AES-256-GCM 进行信封加密；加密根密钥通过 `flutter_secure_storage` 分别托管在 Android Hardware Keystore 与 Windows DPAPI / 凭据管理器硬件隔离区域，杜绝物理离线明文导出与窥视。
+- **撤回知情同意密码学粉碎 (Crypto-Shredding)**：严格遵照 PIPL 第 15 条，在撤回知情同意时执行主密钥销毁，确保底层存储介质即便残留历史数据块也永久无法解密还原。
 - **关闭系统备份**：Android 宿主已配置 `android:allowBackup="false"`，杜绝本地数据被系统自动备份或通过 ADB 备份指令提取导出。
 - **全链路 HTTPS 加密**：所有与教务系统的网络通信均被强制限定在 HTTPS 协议下进行，不启用明文 HTTP 传输。
 - **源码完全公开透明**：项目全部源代码已在 GitHub 开源，任何人均可审查其数据处理逻辑。
