@@ -17,7 +17,7 @@ void main() {
 
       expect(ics, contains('BEGIN:VCALENDAR\r\n'));
       expect(ics, contains('VERSION:2.0\r\n'));
-      expect(ics, contains('PRODID:-//XAUT Assistant//Jinhua Academic Calendar v2.1.0//CN\r\n'));
+      expect(ics, contains('PRODID:-//XAUT Assistant//Jinhua Academic Calendar v2.1.1//CN\r\n'));
       expect(ics, contains('X-WR-CALNAME:西安理工大学日程\r\n'));
       expect(ics, contains('X-WR-TIMEZONE:Asia/Shanghai\r\n'));
       expect(ics, contains('BEGIN:VTIMEZONE\r\n'));

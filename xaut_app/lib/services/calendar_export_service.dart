@@ -41,7 +41,7 @@ class CalendarExportService {
     // 1. 日历头部与时区定义 (标准中国时区 Asia/Shanghai UTC+8)
     _emit(buffer, 'BEGIN:VCALENDAR');
     _emit(buffer, 'VERSION:2.0');
-    _emit(buffer, 'PRODID:-//XAUT Assistant//Jinhua Academic Calendar v2.1.0//CN');
+    _emit(buffer, 'PRODID:-//XAUT Assistant//Jinhua Academic Calendar v2.1.1//CN');
     _emit(buffer, 'CALSCALE:GREGORIAN');
     _emit(buffer, 'METHOD:PUBLISH');
     _emit(buffer, 'X-WR-CALNAME:${_escapeText(calendarName)}');
