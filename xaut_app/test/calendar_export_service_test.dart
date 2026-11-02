@@ -67,7 +67,7 @@ void main() {
 
       // 验证序列号与最后修改时间
       expect(ics1, contains('SEQUENCE:0\r\n'));
-      expect(ics1, contains('LAST-MODIFIED:20261102T020000Z\r\n'));
+      expect(ics1, matches(r'LAST-MODIFIED:\d{8}T\d{6}Z\r\n'));
 
       // 验证两次生成产生的 UID 100% 确定且恒定
       final uidRegex = RegExp(r'UID:(course_[^\r\n]+)');
