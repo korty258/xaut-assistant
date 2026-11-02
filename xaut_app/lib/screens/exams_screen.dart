@@ -4,6 +4,7 @@ import '../models/exam.dart';
 import '../providers/exams_provider.dart';
 import 'webview_login_screen.dart';
 import 'legal_gate_screen.dart';
+import '../widgets/calendar_export_dialog.dart';
 
 class ExamsScreen extends StatelessWidget {
   const ExamsScreen({super.key});
@@ -104,7 +105,9 @@ class ExamsScreen extends StatelessWidget {
             icon: const Icon(Icons.more_vert),
             tooltip: '更多操作',
             onSelected: (val) {
-              if (val == 'clear') {
+              if (val == 'export_calendar') {
+                CalendarExportDialog.show(context, preferExams: true);
+              } else if (val == 'clear') {
                 _showClearExamsDialog(context, provider);
               } else if (val == 'about_legal') {
                 Navigator.of(context).push(
@@ -113,6 +116,17 @@ class ExamsScreen extends StatelessWidget {
               }
             },
             itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'export_calendar',
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_month_rounded, size: 18),
+                    SizedBox(width: 8),
+                    Text('导出至系统日历 (.ics)'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
               PopupMenuItem(
                 value: 'clear',
                 child: Row(

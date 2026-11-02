@@ -170,7 +170,7 @@ void main() {
       }
     });
 
-    test('ExamsProvider encrypts exams and seat numbers at rest', () async {
+    test('ExamsProvider encrypts exams at rest', () async {
       final examsProvider = ExamsProvider();
       final testExams = [
         const ExamItem(

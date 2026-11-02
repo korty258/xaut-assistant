@@ -5,6 +5,7 @@ import '../models/course.dart';
 import '../providers/schedule_provider.dart';
 import '../widgets/course_card.dart';
 import '../widgets/week_selector_sheet.dart';
+import '../widgets/calendar_export_dialog.dart';
 import 'webview_login_screen.dart';
 import 'legal_gate_screen.dart';
 
@@ -183,6 +184,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             onSelected: (val) {
               if (val == 'calibrate') {
                 SemesterCalibrateDialog.show(context, provider);
+              } else if (val == 'export_calendar') {
+                CalendarExportDialog.show(context);
               } else if (val == 'back_to_current') {
                 provider.resetToActualCurrentWeek();
               } else if (val == 'toggle_mode') {
@@ -214,6 +217,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     Icon(Icons.edit_calendar_rounded, size: 18),
                     SizedBox(width: 8),
                     Text('校准开学日期 / 当前周'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'export_calendar',
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_month_rounded, size: 18),
+                    SizedBox(width: 8),
+                    Text('导出至系统日历 (.ics)'),
                   ],
                 ),
               ),
