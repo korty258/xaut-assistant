@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/course.dart';
+import 'app_crypto_service.dart';
 
 class StorageService {
   static const String _keyCourses = 'xaut_cached_courses';
@@ -16,13 +17,13 @@ class StorageService {
     final jsonList = courses.map((c) => c.toJson()).toList();
     final jsonStr = jsonEncode(jsonList);
     await prefs.setString(_keyLastSync, DateTime.now().toIso8601String());
-    return prefs.setString(_keyCourses, jsonStr);
+    return AppCryptoService.saveEncryptedString(prefs, _keyCourses, jsonStr);
   }
 
   /// 加载课表
   static Future<List<Course>> loadCourses() async {
     final prefs = await SharedPreferences.getInstance();
-    final jsonStr = prefs.getString(_keyCourses);
+    final jsonStr = await AppCryptoService.loadEncryptedString(prefs, _keyCourses);
     if (jsonStr == null || jsonStr.isEmpty) return [];
 
     try {

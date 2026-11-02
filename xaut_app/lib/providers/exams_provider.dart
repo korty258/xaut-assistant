@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/exam.dart';
+import '../services/app_crypto_service.dart';
 
 class ExamsProvider extends ChangeNotifier {
   static const String _keyExams = 'xaut_cached_exams';
@@ -84,7 +85,7 @@ class ExamsProvider extends ChangeNotifier {
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
-    final examsStr = prefs.getString(_keyExams);
+    final examsStr = await AppCryptoService.loadEncryptedString(prefs, _keyExams);
 
     if (examsStr != null && examsStr.isNotEmpty) {
       try {
@@ -108,7 +109,11 @@ class ExamsProvider extends ChangeNotifier {
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyExams, jsonEncode(_exams.map((e) => e.toJson()).toList()));
+    await AppCryptoService.saveEncryptedString(
+      prefs,
+      _keyExams,
+      jsonEncode(_exams.map((e) => e.toJson()).toList()),
+    );
   }
 
   Future<void> clearAll() async {

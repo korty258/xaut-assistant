@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/grade.dart';
+import '../services/app_crypto_service.dart';
 
 class GradesProvider extends ChangeNotifier {
   static const String _keyGrades = 'xaut_cached_grades';
@@ -59,7 +60,7 @@ class GradesProvider extends ChangeNotifier {
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
-    final gradesStr = prefs.getString(_keyGrades);
+    final gradesStr = await AppCryptoService.loadEncryptedString(prefs, _keyGrades);
 
     if (gradesStr != null && gradesStr.isNotEmpty) {
       try {
@@ -86,10 +87,18 @@ class GradesProvider extends ChangeNotifier {
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyGrades, jsonEncode(_grades.map((g) => g.toJson()).toList()));
+    await AppCryptoService.saveEncryptedString(
+      prefs,
+      _keyGrades,
+      jsonEncode(_grades.map((g) => g.toJson()).toList()),
+    );
     final overall = overallSummary;
     if (overall != null) {
-      await prefs.setString(_keySummary, jsonEncode(overall.toJson()));
+      await AppCryptoService.saveEncryptedString(
+        prefs,
+        _keySummary,
+        jsonEncode(overall.toJson()),
+      );
     }
   }
 

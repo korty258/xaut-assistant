@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'app_crypto_service.dart';
 
 /// 法律门禁与用户授权状态服务
 ///
@@ -10,7 +11,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 /// 文本内容与 assets/legal/*.md 严格对应。
 class LegalService {
   /// 当前客户端对外统一发布版本号
-  static const String appVersion = 'v2.0.3';
+  static const String appVersion = 'v2.1.0.pre1';
 
   /// 当前合规文本版本。当协议有实质性变更时必须递增此常量，
   /// 系统检测到本地记录与该版本不一致时会自动重新唤起同意页面。
@@ -79,6 +80,11 @@ class LegalService {
   static Future<void> revokeAndClearAll() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
+
+    // 密码学粉碎 (Crypto-Shredding)：销毁主加密密钥，确保残留磁盘密文彻底不可逆失效
+    try {
+      await AppCryptoService.destroyMasterKey();
+    } catch (_) {}
 
     // 纵深防御加固：清除 Android/移动端 WebView 登录会话 Cookie 与 Windows 本地缓存
     try {
