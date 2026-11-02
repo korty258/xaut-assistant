@@ -110,6 +110,24 @@ flutter build apk --release --target-platform android-arm64
 
 ---
 
+## 🏷️ 版本发布流转规范 (Release Lifecycle)
+
+为保障客户端在广大师生日常使用中的稳定性与数据安全性，本项目建立三阶段版本发布流转体系：
+
+```text
+Pre (预览测试版) ──> RC (发布候选版) ──> Official Release (正式版)
+```
+
+| 阶段 | Tag 命名规范 (SemVer 2.0) | GitHub 发布类型 | 核心定位与准出标准 |
+| :--- | :--- | :--- | :--- |
+| **Pre 预览版** | `vX.Y.Z-pre1`、`vX.Y.Z-pre2` | `Pre-release` | 新特性快速研发与原型试用，用于敏捷测试与问题暴露。 |
+| **RC 候选版** | `vX.Y.Z-rc1`、`vX.Y.Z-rc2` | `Pre-release` | 功能冻结（Feature Freeze），开展全量自动化测试、边界异常修复、合规审查与稳定性验收。 |
+| **正式版** | `vX.Y.Z` | `Latest Release` | 验收通过的生产级全量发布版本，具备完整的安全加固与稳定质量保障，打上置顶 `Latest` 徽章。 |
+
+> **版本命名建议**：遵循 SemVer 2.0 规范使用中划线（如 `v2.2.0-pre1`、`v2.2.0-rc1`），保证各平台与 Git 语义化排序天然满足 `pre < rc < 正式版`。CI/CD 工作流已全面配置自动化分类与徽章分配。
+
+---
+
 ## ⚠️ 免责声明 (Disclaimer)
 
 1. **非官方声明与数据读取原则**：
