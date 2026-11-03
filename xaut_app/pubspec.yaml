@@ -1,5 +1,5 @@
 name: xaut_app
-description: "A new Flutter project."
+description: "金花助手 (Jinhua Assistant) — 适用于西安理工大学学生的纯本地跨端教务工具（非官方）"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

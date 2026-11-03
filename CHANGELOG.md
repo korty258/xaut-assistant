@@ -1,0 +1,104 @@
+# Changelog
+
+本文件记录**金花助手 (Jinhua Assistant)** 的所有重要版本变更。
+
+格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范，版本号管理遵循 [语义化版本 2.0.0 (SemVer)](https://semver.org/lang/zh-CN/) 及项目确立的三阶段发布流转规范（`Pre -> RC -> Release`）。
+
+## [Unreleased]
+
+### Added
+- 新增仓库根目录 `CHANGELOG.md`，按 Keep a Changelog 1.1.0 规范完整归档各版本演进记录。
+
+### Changed
+- 更新 `xaut_app/pubspec.yaml` 的 `description` 字段，移除脚手架默认占位符，对齐项目定位与非官方声明。
+
+## [2.1.1] - 2026-11-02
+
+### Added
+- 在 `THIRD_PARTY_NOTICES.md` 与内置开源致谢文档中新增第 4 节，完整公示 10 项纯本地 Flutter/Dart 开源依赖组件及其许可证类别（MIT / BSD-3-Clause）。
+- 在 `README.md` 确立并归档 `Pre -> RC -> Official Release` 三阶段版本发布流转规范。
+
+### Changed
+- 更新《隐私政策》与《用户服务协议》，补充 AES-256-GCM 硬件级落盘加密、撤回同意密码学粉碎及 RFC 5545 系统日历（`.ics`）导出范围说明（明确课表与考试支持 `.ics` 导出，成绩仅限应用内查看与核对）。
+- 更新 `SECURITY.md` 安全维护支持矩阵，将主干支持对齐至 `v2.1.x`。
+- 加固 GitHub Actions CI/CD 发布工作流（`.github/workflows/ci_cd.yml`），根据 Tag 名称动态设置 `prerelease` 与 `make_latest`，防止预发布版本覆盖正式版 `Latest` 标识。
+
+### Fixed
+- 修正 `WebViewLoginScreen` 考试日程同步完成弹窗中的遗留文案，移除不实“座位号”字样，如实提示“已自动提取考试时间与考场教室”，并同步清理单测模拟数据。
+- 修正历史 Release 下载说明中的 Windows 可执行文件名描述，统一对齐为实际产物 `jinhua_assistant.exe`。
+
+## [2.1.0] - 2026-11-02
+
+### Added
+- **RFC 5545 标准系统日历导出（`.ics`）**：
+  - 支持将整学期课程表（按活跃教学周展开）与期末考试安排（校区 + 考场教室，不含座位号）导出为 `.ics` 日历文件；
+  - 内置标准 `Asia/Shanghai`（UTC+8）时区定义、确定性稳定业务 `UID`、`SEQUENCE:0` 与 `LAST-MODIFIED` 属性；
+  - 实现严格的 RFC 5545 §3.1 75 字节 UTF-8 安全折行机制，兼容苹果日历、各大 Android 厂商系统日历、Outlook 与 Google 日历；
+  - 支持自定义课前（15 分钟 / 30 分钟 / 1 小时）与考前（2 小时 / 1 天）`VALARM` 提醒，支持系统分享、保存本地文件与复制源码。
+
+### Changed
+- 精确收窄《隐私政策》第七条关于复制权与可携带权的表述，如实阐明导出文件为明文且脱离应用沙盒保护，撤回同意或卸载应用不会自动删除外部副本；合规协议版本升级至 `2026-11-02.v6`。
+
+### Security
+- **全量学业数据 AES-256-GCM 硬件级落盘加密（Encryption at Rest）**：
+  - 课表日程、成绩与 GPA 汇总、期末考试安排全部采用 AEAD AES-256-GCM 信封加密（`ENC:v1:<Nonce>:<CiphertextWithTag>`），支持旧版明文缓存无感透明升级；
+  - 加密根密钥通过 `flutter_secure_storage` 托管于 Android Hardware Keystore 与 Windows DPAPI / 凭据管理器；
+  - 引入 Single-Flight 单飞锁消除冷启动多模块并发初始化主密钥的竞态条件，区分硬件读取异常与首次安装空值以防误覆盖主密钥；
+  - 撤回知情同意时执行 `destroyMasterKey()` 密码学粉碎（Crypto-Shredding），彻底销毁主密钥。
+
+## [2.0.3] - 2026-11-01
+
+### Added
+- 在《隐私政策》中补充个人信息可携带权条款说明。
+
+### Fixed
+- 修正文档中 Android APK 包体积的事实描述偏差（约 19.4 MB）。
+- 撤回同意清理缓存时保留应用缓存根目录本身，仅清空目录内部子项，避免部分系统环境下根目录重建异常。
+
+### Security
+- 强化内嵌 WebView 导航安全拦截，强制校验 `HTTPS` 协议与 `xaut.edu.cn` 校内合法域名白名单。
+
+## [2.0.2] - 2026-11-01
+
+### Changed
+- 升级合规协议版本号至 `2026-11-01.v4`，确保隐私条款更新后自动触发存量用户重新确认。
+
+### Fixed
+- 在 Android Gradle 打包配置中显式排除第三方 AAR 携带的冗余非 arm64 原生库（`armeabi-v7a`、`x86`、`x86_64`），保持纯 `arm64-v8a` 产物精简。
+
+### Security
+- 在 Android 原生侧增加 `WebStorage.getInstance().deleteAllData()` 与 Cookie 深度清理通道，确保撤回授权时彻底清除 DOM Storage 会话残留。
+
+## [2.0.1] - 2026-10-31
+
+### Fixed
+- 修复 `LicensePage` 开源许可证页面展示的应用版本号未与 `LegalService.appVersion` 同步的问题。
+
+## [2.0.0.beta3] - 2026-10-31
+
+### Added
+- 完善多端知情同意撤回时的本地缓存、数据库与 Cookie 清理机制，细化《隐私政策》中的用户法定权利章节。
+
+### Changed
+- Android Release 构建限定单架构 `arm64-v8a`，并显式启用 v1 / v2 / v3 全签名方案。
+
+### Security
+- 在 GitHub Actions 发布流水线中集成 `apksigner` 签名校验与官方发布证书 SHA-256 指纹强制核验，阻断 Debug 证书或未授权签名包发布。
+
+## [2.0.0.pre1] - 2026-10-31
+
+### Added
+- 初始开源版本发布（GPL-3.0 许可证），支持 Android 与 Windows 双端原生运行。
+- 实现强智教务系统内嵌官方网页登录与一键并发同步（课表、成绩、考试安排）及当前教学周自动识别校准。
+- 实现课表「仅本周 / 所有周」视图切换、同节次冲突课程叠层展示、左右滑动翻周及固定 6 大节 / 13 小节时间轴。
+- 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
+- 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
+
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/korty258/xaut-assistant/compare/v2.1.0...v2.1.1
+[2.1.0]: https://github.com/korty258/xaut-assistant/compare/v2.0.3...v2.1.0
+[2.0.3]: https://github.com/korty258/xaut-assistant/compare/v2.0.2...v2.0.3
+[2.0.2]: https://github.com/korty258/xaut-assistant/compare/v2.0.1...v2.0.2
+[2.0.1]: https://github.com/korty258/xaut-assistant/compare/v2.0.0.beta3...v2.0.1
+[2.0.0.beta3]: https://github.com/korty258/xaut-assistant/compare/v2.0.0.pre1...v2.0.0.beta3
+[2.0.0.pre1]: https://github.com/korty258/xaut-assistant/releases/tag/v2.0.0.pre1
