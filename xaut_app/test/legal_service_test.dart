@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/services/legal_service.dart';
@@ -71,8 +72,18 @@ void main() {
 
     test('LegalService registers upstream licenses and exposes v3 version', () {
       expect(LegalService.currentVersion, equals('2026-11-02.v6'));
-      expect(LegalService.appVersion, equals('v2.1.1'));
+      expect(LegalService.appVersion, startsWith('v'));
       expect(() => LegalService.registerCustomLicenses(), returnsNormally);
+    });
+
+    test('appVersion stays in sync with pubspec.yaml version', () {
+      final pubspecFile = File('pubspec.yaml').existsSync()
+          ? File('pubspec.yaml')
+          : File('xaut_app/pubspec.yaml');
+      final pubspec = pubspecFile.readAsStringSync();
+      final match = RegExp(r'^version:\s*([0-9A-Za-z.\-]+)', multiLine: true).firstMatch(pubspec);
+      expect(match, isNotNull, reason: 'pubspec.yaml must declare a version');
+      expect(LegalService.appVersion, equals('v${match!.group(1)}'));
     });
   });
 }

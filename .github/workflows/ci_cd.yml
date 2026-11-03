@@ -11,14 +11,34 @@ on:
 permissions:
   contents: write
 
+# 固定 Flutter 版本，保证本地开发环境与 CI 构建结果一致（升级时请同步修改本地 SDK）
+env:
+  FLUTTER_VERSION: '3.47.8'
+
 jobs:
   # 1. 代码质量与自动化测试 (PR / Push 均运行)
   quality_check:
     name: Lint & Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Verify Tag Matches pubspec & CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PUBSPEC_VERSION=$(tr -d '\r' < xaut_app/pubspec.yaml | grep -E '^version:' | sed -E 's/^version:[[:space:]]*//; s/\+.*//; s/[[:space:]]*$//')
+          echo "Tag version: $TAG_VERSION / pubspec version: $PUBSPEC_VERSION"
+          if [ "$TAG_VERSION" != "$PUBSPEC_VERSION" ]; then
+            echo "::error::Tag ($GITHUB_REF_NAME) does not match pubspec.yaml version ($PUBSPEC_VERSION)."
+            exit 1
+          fi
+          if ! tr -d '\r' < CHANGELOG.md | grep -Fq "## [$TAG_VERSION]"; then
+            echo "::error::CHANGELOG.md has no section for version [$TAG_VERSION]. Please add it before tagging."
+            exit 1
+          fi
 
       - name: Setup Java 17
         uses: actions/setup-java@v5
@@ -30,6 +50,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Install Dependencies
@@ -49,10 +70,10 @@ jobs:
     name: Build Android APK
     needs: quality_check
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Java 17
         uses: actions/setup-java@v5
@@ -64,6 +85,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Install Dependencies
@@ -133,7 +155,7 @@ jobs:
           fi
 
       - name: Upload Android Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-apk
           path: jinhua_assistant-android-arm64.apk
@@ -143,15 +165,16 @@ jobs:
     name: Build Windows Desktop
     needs: quality_check
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Enable Windows Desktop
@@ -171,7 +194,7 @@ jobs:
           Compress-Archive -Path xaut_app/build/windows/x64/runner/Release/* -DestinationPath jinhua_assistant-windows-x64.zip
 
       - name: Upload Windows Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-zip
           path: jinhua_assistant-windows-x64.zip
@@ -181,26 +204,59 @@ jobs:
     name: Publish GitHub Release
     needs: [build_android, build_windows]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download Android Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: android-apk
           path: ./
 
       - name: Download Windows Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-zip
           path: ./
 
+      # Release 正文取自 CHANGELOG.md 中与 Tag 对应的版本段落（如 v2.1.2 -> "## [2.1.2]"），
+      # 找不到对应段落时直接失败，保证每个发布版本都有经过维护的变更说明。
+      - name: Extract Release Notes from CHANGELOG
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          tr -d '\r' < CHANGELOG.md | awk -v ver="$VERSION" '
+            index($0, "## [" ver "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[[^]]+\]: / { exit }
+            found { print }
+          ' | sed -e '/./,$!d' > section.md
+
+          if [ ! -s section.md ]; then
+            echo "::error::CHANGELOG.md has no section for version [$VERSION]. Please add it before tagging."
+            exit 1
+          fi
+
+          {
+            echo "## 金花助手 ${GITHUB_REF_NAME}"
+            echo
+            cat section.md
+            echo
+            echo "---"
+            echo
+            echo "### 📦 下载与安装"
+            echo "- **Android**：下载 \`jinhua_assistant-android-arm64.apk\` 直接安装（仅支持 arm64-v8a 设备）。"
+            echo "- **Windows**：下载 \`jinhua_assistant-windows-x64.zip\`，解压后运行 \`jinhua_assistant.exe\`。"
+          } > RELEASE_NOTES.md
+
+          cat RELEASE_NOTES.md
+
       - name: Upload Assets to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
+          body_path: RELEASE_NOTES.md
           files: |
             jinhua_assistant-android-arm64.apk
             jinhua_assistant-windows-x64.zip

@@ -6,11 +6,22 @@
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-11-03
+
+本版本只调整工程与发布流程，App 功能与数据处理行为没有变化。
+
 ### Added
-- 新增仓库根目录 `CHANGELOG.md`，按 Keep a Changelog 1.1.0 规范完整归档各版本演进记录。
+- 新增仓库根目录 `CHANGELOG.md`，按 Keep a Changelog 1.1.0 规范归档各版本变更记录。
+- GitHub Release 正文改为自动取自 `CHANGELOG.md` 中对应版本的段落；如果缺少该版本段落，发布流程会直接失败。
+- CI 在打 tag 时校验 tag 版本号与 `pubspec.yaml` 中的版本号一致，不一致就中止构建。
+- 新增单元测试，校验应用内显示的版本号（`LegalService.appVersion`）与 `pubspec.yaml` 保持一致。
 
 ### Changed
 - 更新 `xaut_app/pubspec.yaml` 的 `description` 字段，移除脚手架默认占位符，对齐项目定位与非官方声明。
+- CI 固定 Flutter 版本为 `3.47.8`，与本地开发环境一致。
+- CI 运行环境由 `ubuntu-latest` / `windows-latest` 固定为 `ubuntu-24.04` / `windows-2025`。
+- CI 依赖的 GitHub Actions 升级到 Node 24 运行时版本（`checkout@v5`、`upload-artifact@v7`、`download-artifact@v8`、`action-gh-release@v3`），消除 Node 20 弃用告警。
+- 导出的 `.ics` 文件中 `PRODID` 的版本号改为直接引用应用版本常量，不再需要每次发版手动修改。
 
 ## [2.1.1] - 2026-11-02
 
@@ -94,7 +105,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.1.1...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.1.2...HEAD
+[2.1.2]: https://github.com/korty258/xaut-assistant/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/korty258/xaut-assistant/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/korty258/xaut-assistant/compare/v2.0.3...v2.1.0
 [2.0.3]: https://github.com/korty258/xaut-assistant/compare/v2.0.2...v2.0.3
