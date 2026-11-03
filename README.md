@@ -56,16 +56,17 @@
 
 ```text
 xaut-assistant/
+├── CHANGELOG.md                # 版本变更日志 (遵循 Keep a Changelog 1.1.0)
 └── xaut_app/                   # Flutter 跨平台主工程 (Android & Windows)
     ├── lib/
     │   ├── models/             # 课程 (Course)、成绩 (Grade)、考试 (Exam) 数据模型
-    │   ├── services/           # 解析服务 (ParserService)、本地存储 (StorageService)、法律门禁 (LegalService)
+    │   ├── services/           # 解析 (ParserService)、端侧加密 (AppCryptoService)、日历导出 (CalendarExportService)、存储 (StorageService)、合规门禁 (LegalService)
     │   ├── providers/          # ScheduleProvider, GradesProvider, ExamsProvider
     │   ├── screens/            # 课表、成绩、考试、登录同步容器、法律门禁 (LegalGateScreen)
-    │   └── widgets/            # 智能课程卡片、课程详情弹窗、教学周选择抽屉
+    │   └── widgets/            # 智能课程卡片、课程详情弹窗、教学周选择抽屉、日历导出弹窗 (CalendarExportDialog)
     ├── assets/
     │   ├── js/                 # 内置打包注入的强智教务解析脚本 (qiangzhi_parser.js)
-    │   ├── legal/              # 离线合规文本 (用户协议、隐私政策、免责声明 Markdown)
+    │   ├── legal/              # 离线合规文本 (用户协议、隐私政策、免责声明、开源致谢 Markdown)
     │   └── logo.png            # 金花原创软件标识
     ├── android/                # Android 宿主配置与原生资源 (包名 io.github.korty258.jinhua_assistant)
     └── windows/                # Windows C++ 宿主与 Edge WebView2 集成
@@ -76,8 +77,8 @@ xaut-assistant/
 ## 🚀 编译与本地运行
 
 ### 运行环境要求
-- [Flutter SDK](https://flutter.dev/) (>= 3.24.0)
-- [Dart SDK](https://dart.dev/) (>= 3.5.0)
+- [Flutter SDK](https://flutter.dev/) (>= 3.47.0，CI 固定为 3.47.8)
+- [Dart SDK](https://dart.dev/) (>= 3.13.7)
 - **Windows 构建**：Visual Studio 2022/2026 (包含 C++ 桌面开发套件)
 - **Android 构建**：Android SDK (API 34+) 及 Android NDK (r28+)
 

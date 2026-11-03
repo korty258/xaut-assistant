@@ -22,6 +22,7 @@
 - CI 运行环境由 `ubuntu-latest` / `windows-latest` 固定为 `ubuntu-24.04` / `windows-2025`。
 - CI 依赖的 GitHub Actions 升级到 Node 24 运行时版本（`checkout@v5`、`upload-artifact@v7`、`download-artifact@v8`、`action-gh-release@v3`），消除 Node 20 弃用告警。
 - 导出的 `.ics` 文件中 `PRODID` 的版本号改为直接引用应用版本常量，不再需要每次发版手动修改。
+- 同步更新 `README.md` 中的 Flutter/Dart SDK 最低版本要求（Flutter >= 3.47.0 / Dart >= 3.13.7）与工程目录树说明。
 
 ## [2.1.1] - 2026-11-02
 

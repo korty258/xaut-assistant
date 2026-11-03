@@ -35,8 +35,14 @@ jobs:
             echo "::error::Tag ($GITHUB_REF_NAME) does not match pubspec.yaml version ($PUBSPEC_VERSION)."
             exit 1
           fi
-          if ! tr -d '\r' < CHANGELOG.md | grep -Fq "## [$TAG_VERSION]"; then
-            echo "::error::CHANGELOG.md has no section for version [$TAG_VERSION]. Please add it before tagging."
+          SECTION_PREVIEW=$(tr -d '\r' < CHANGELOG.md | awk -v ver="$TAG_VERSION" '
+            index($0, "## [" ver "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[[^]]+\]: / { exit }
+            found { print }
+          ' | sed -e '/./,$!d')
+          if [ -z "$SECTION_PREVIEW" ]; then
+            echo "::error::CHANGELOG.md has no non-empty section for version [$TAG_VERSION]. Please add it before tagging."
             exit 1
           fi
 
