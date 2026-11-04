@@ -6,6 +6,23 @@
 
 ## [Unreleased]
 
+## [2.2.0-rc1] - 2026-11-04
+
+本版本为 `v2.2.0` 候选发布版（Release Candidate 1），重点实现强智教务同步结果三态可观测性诊断、未登录自动嗅探，以及本地落盘数据解密失败可见化与数据自愈恢复闭环。
+
+### Added
+- 建立全量同步三态/四态可观测模型（`SyncModuleStatus`）：严格区分成功（`ok`）、当前学期无数据（`empty`）、统一身份认证未登录（`notLoggedIn`）与改版/解析异常（`error`）。
+- 增强教务未登录嗅探能力：静默抓取时能自动识别 CAS 金智认证重定向特征（`authserver/login`、`casLoginForm`），并在同步时优先提示完成登录。
+- 新增解密失败用户可见化与数据自愈恢复组件（`DecryptionErrorView`）：当设备安全密钥变更或密文损坏时，课表、成绩与考试界面直观提示异常原因，提供“重新同步”与“一键重置损坏数据并重置主密钥”两条恢复通路（无需重新通读法律协议）。
+- 新增针对同步三态反序列化与 Provider 解密自愈流程的自动化单元测试。
+
+### Reliability
+- 修复 `StorageService.loadCourses` 吞掉 `CryptoException` 的缺陷，解密异常向上透出至业务层，杜绝损坏时静默展示空课表造成的误解。
+- 为 WebView 脚本执行硬拦截门禁增加 30 秒超时保护，防范校内教务接口无响应时界面永久冻结。
+
+### Changed
+- 重构全量同步完成与异常弹窗：逐行明确展示课表、教学周、成绩、考试各个模块的细化诊断状态与错误摘要。
+
 ## [2.2.0-pre1] - 2026-11-04
 
 本版本为 `v2.2.0` 开发预览版（Preview 1），重点建立强智教务解析层离线自动化测试基准、加固内嵌 WebView 白名单与执行隔离，并消除加密异常日志中的敏感数据暴露面。
@@ -126,7 +143,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-pre1...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-rc1...HEAD
+[2.2.0-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-pre1...v2.2.0-rc1
 [2.2.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.1.2...v2.2.0-pre1
 [2.1.2]: https://github.com/korty258/xaut-assistant/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/korty258/xaut-assistant/compare/v2.1.0...v2.1.1

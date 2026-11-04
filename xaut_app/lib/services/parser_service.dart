@@ -177,15 +177,36 @@ class ParserService {
           $jsCode
           $_xhrWeekFallbackJs
 
+          function checkAuth(doc, html, url) {
+            if (url && (url.indexOf('/authserver/login') !== -1 || url.indexOf('/authserver/') !== -1)) return true;
+            if (doc) {
+              if (doc.getElementById('casLoginForm')) return true;
+              if (doc.querySelector('form[action*="authserver"]') || doc.querySelector('form[action*="login"]')) {
+                if (doc.querySelector('input[name="username"]') && doc.querySelector('input[name="password"]')) {
+                  return true;
+                }
+              }
+            }
+            if (html && typeof html === 'string') {
+              if (html.indexOf('casLoginForm') !== -1 || html.indexOf('/authserver/login') !== -1) return true;
+            }
+            return false;
+          }
+
           var result = {
             courses: [],
             gradesData: { grades: [], summary: {} },
             exams: [],
             weekInfo: { currentWeek: null, semester: '', semesterStartDate: '' },
             status: {
-              courses: false,
-              grades: false,
-              exams: false
+              courses: 'empty',
+              grades: 'empty',
+              exams: 'empty'
+            },
+            errors: {
+              courses: null,
+              grades: null,
+              exams: null
             }
           };
 
@@ -198,56 +219,96 @@ class ParserService {
 
           // 1. 课表解析
           try {
+            var kbDoc = null;
             if (currentUrl.indexOf('/jsxsd/xskb/') !== -1) {
-              result.courses = parseQiangZhiCourses(document);
+              kbDoc = document;
             } else {
               var kbHtml = fetchHtmlSync('/jsxsd/xskb/xskb_list.do');
-              if (kbHtml) {
-                var kbDoc = new DOMParser().parseFromString(kbHtml, 'text/html');
-                result.courses = parseQiangZhiCourses(kbDoc);
-                if (!result.weekInfo.semester) {
-                  var kbSem = parseQiangZhiTeachingWeek(kbDoc, false);
-                  if (kbSem && kbSem.semester) {
-                    result.weekInfo.semester = kbSem.semester;
+              if (checkAuth(null, kbHtml, null)) {
+                result.status.courses = 'not_logged_in';
+              } else if (kbHtml) {
+                kbDoc = new DOMParser().parseFromString(kbHtml, 'text/html');
+              } else {
+                result.status.courses = 'error';
+                result.errors.courses = '课表请求响应为空或网络异常';
+              }
+            }
+
+            if (result.status.courses !== 'not_logged_in' && kbDoc) {
+              if (checkAuth(kbDoc, null, null)) {
+                result.status.courses = 'not_logged_in';
+              } else {
+                var kbTable = kbDoc.getElementById('timetable') || kbDoc.getElementById('kbtable');
+                if (!kbTable) {
+                  result.status.courses = 'error';
+                  result.errors.courses = '未找到课表表格(#timetable/#kbtable)，教务页面可能已改版';
+                } else {
+                  result.courses = parseQiangZhiCourses(kbDoc);
+                  result.status.courses = (result.courses && result.courses.length > 0) ? 'ok' : 'empty';
+                  if (!result.weekInfo.semester) {
+                    var kbSem = parseQiangZhiTeachingWeek(kbDoc, false);
+                    if (kbSem && kbSem.semester) {
+                      result.weekInfo.semester = kbSem.semester;
+                    }
                   }
                 }
               }
             }
-            if (result.courses && result.courses.length > 0) {
-              result.status.courses = true;
-            }
-          } catch(e) {}
+          } catch(e) {
+            result.status.courses = 'error';
+            result.errors.courses = String(e);
+          }
 
           // 2. 成绩解析
           try {
+            var cjDoc = null;
             if (currentUrl.indexOf('/jsxsd/kscj/') !== -1) {
-              result.gradesData = parseQiangZhiGrades(document);
+              cjDoc = document;
             } else {
               var cjHtml = fetchHtmlSync('/jsxsd/kscj/cjcx_list');
-              if (cjHtml) {
-                var cjDoc = new DOMParser().parseFromString(cjHtml, 'text/html');
-                result.gradesData = parseQiangZhiGrades(cjDoc);
+              if (checkAuth(null, cjHtml, null)) {
+                result.status.grades = 'not_logged_in';
+              } else if (cjHtml) {
+                cjDoc = new DOMParser().parseFromString(cjHtml, 'text/html');
+              } else {
+                result.status.grades = 'error';
+                result.errors.grades = '成绩请求响应为空或网络异常';
               }
             }
-            if (result.gradesData && result.gradesData.grades && result.gradesData.grades.length > 0) {
-              result.status.grades = true;
+
+            if (result.status.grades !== 'not_logged_in' && cjDoc) {
+              if (checkAuth(cjDoc, null, null)) {
+                result.status.grades = 'not_logged_in';
+              } else {
+                var cjTable = cjDoc.getElementById('dataList') || findTableByKeywords(cjDoc, ['课程名称', '成绩']);
+                if (!cjTable) {
+                  result.status.grades = 'error';
+                  result.errors.grades = '未找到成绩表格(#dataList)，教务页面可能已改版';
+                } else {
+                  result.gradesData = parseQiangZhiGrades(cjDoc);
+                  result.status.grades = (result.gradesData && result.gradesData.grades && result.gradesData.grades.length > 0) ? 'ok' : 'empty';
+                }
+              }
             }
-          } catch(e) {}
+          } catch(e) {
+            result.status.grades = 'error';
+            result.errors.grades = String(e);
+          }
 
           // 3. 考试安排解析（深度穿透外壳页与参数自动提取）
           try {
+            var exDoc = null;
             if (currentUrl.indexOf('/jsxsd/xsks/') !== -1) {
-              result.exams = parseQiangZhiExams(document);
+              exDoc = document;
             } else {
-              // 先抓取查询外壳页 /jsxsd/xsks/xsksap_query 获取当前激活学年学期及内嵌 iframe 真实请求参数
               var queryHtml = fetchHtmlSync('/jsxsd/xsks/xsksap_query');
-              var iframeUrl = null;
-              var xnxqid = '';
-
-              if (queryHtml) {
+              if (checkAuth(null, queryHtml, null)) {
+                result.status.exams = 'not_logged_in';
+              } else if (queryHtml) {
                 var qDoc = new DOMParser().parseFromString(queryHtml, 'text/html');
+                var iframeUrl = null;
+                var xnxqid = '';
 
-                // A. 优先直接提取 iframe 中的完整 src (通常自动包含真实参数如 ?xnxqid=2026-2027-1)
                 var iframes = qDoc.querySelectorAll('iframe, frame');
                 for (var f = 0; f < iframes.length; f++) {
                   var src = iframes[f].getAttribute('src') || '';
@@ -257,7 +318,6 @@ class ParserService {
                   }
                 }
 
-                // B. 提取学期参数 xnxqid
                 var sel = qDoc.querySelector('select[name="xnxqid"], #xnxqid, select');
                 if (sel) {
                   var opt = sel.querySelector('option[selected]') || sel.querySelector('option');
@@ -265,56 +325,72 @@ class ParserService {
                     xnxqid = opt.value.trim();
                   }
                 }
-              }
 
-              // 备用学期获取：从已识别学期或成绩数据中提取最新学期
-              if (!xnxqid && result.weekInfo && result.weekInfo.semester) {
-                xnxqid = result.weekInfo.semester;
-              }
-              if (!xnxqid && result.gradesData && result.gradesData.grades && result.gradesData.grades.length > 0) {
-                xnxqid = result.gradesData.grades[0].semester || '';
-              }
+                if (!xnxqid && result.weekInfo && result.weekInfo.semester) {
+                  xnxqid = result.weekInfo.semester;
+                }
+                if (!xnxqid && result.gradesData && result.gradesData.grades && result.gradesData.grades.length > 0) {
+                  xnxqid = result.gradesData.grades[0].semester || '';
+                }
 
-              // 构造完整的考试列表 URL
-              var listTargetUrl = iframeUrl;
-              if (listTargetUrl) {
-                if (listTargetUrl.indexOf('/') !== 0 && listTargetUrl.indexOf('http') !== 0) {
-                  listTargetUrl = '/jsxsd/xsks/' + listTargetUrl;
+                var listTargetUrl = iframeUrl;
+                if (listTargetUrl) {
+                  if (listTargetUrl.indexOf('/') !== 0 && listTargetUrl.indexOf('http') !== 0) {
+                    listTargetUrl = '/jsxsd/xsks/' + listTargetUrl;
+                  }
+                } else {
+                  listTargetUrl = '/jsxsd/xsks/xsksap_list' + (xnxqid ? ('?xnxqid=' + encodeURIComponent(xnxqid)) : '');
+                }
+
+                var listHtml = fetchHtmlSync(listTargetUrl);
+                if (checkAuth(null, listHtml, null)) {
+                  result.status.exams = 'not_logged_in';
+                } else if (listHtml) {
+                  exDoc = new DOMParser().parseFromString(listHtml, 'text/html');
+                }
+
+                if (result.status.exams !== 'not_logged_in' && (!exDoc || !exDoc.getElementById('dataList')) && xnxqid) {
+                  var postHtml = fetchHtmlSyncPost('/jsxsd/xsks/xsksap_list', 'xnxqid=' + encodeURIComponent(xnxqid));
+                  if (postHtml && !checkAuth(null, postHtml, null)) {
+                    exDoc = new DOMParser().parseFromString(postHtml, 'text/html');
+                  }
+                }
+
+                if (result.status.exams !== 'not_logged_in' && (!exDoc || !exDoc.getElementById('dataList'))) {
+                  var fallbackHtml = fetchHtmlSync('/jsxsd/xsks/xsksap_list');
+                  if (fallbackHtml && !checkAuth(null, fallbackHtml, null)) {
+                    exDoc = new DOMParser().parseFromString(fallbackHtml, 'text/html');
+                  }
                 }
               } else {
-                listTargetUrl = '/jsxsd/xsks/xsksap_list' + (xnxqid ? ('?xnxqid=' + encodeURIComponent(xnxqid)) : '');
-              }
-
-              // 1. GET 请求目标列表页
-              var listHtml = fetchHtmlSync(listTargetUrl);
-              if (listHtml) {
-                var listDoc = new DOMParser().parseFromString(listHtml, 'text/html');
-                result.exams = parseQiangZhiExams(listDoc);
-              }
-
-              // 2. 若 GET 为空且具备 xnxqid，尝试 POST 请求
-              if ((!result.exams || result.exams.length === 0) && xnxqid) {
-                var postHtml = fetchHtmlSyncPost('/jsxsd/xsks/xsksap_list', 'xnxqid=' + encodeURIComponent(xnxqid));
-                if (postHtml) {
-                  var postDoc = new DOMParser().parseFromString(postHtml, 'text/html');
-                  result.exams = parseQiangZhiExams(postDoc);
-                }
-              }
-
-              // 3. 终极保底：无参数 GET
-              if (!result.exams || result.exams.length === 0) {
-                var fallbackHtml = fetchHtmlSync('/jsxsd/xsks/xsksap_list');
-                if (fallbackHtml) {
-                  var fbDoc = new DOMParser().parseFromString(fallbackHtml, 'text/html');
-                  result.exams = parseQiangZhiExams(fbDoc);
-                }
+                result.status.exams = 'error';
+                result.errors.exams = '考试查询外壳页请求响应为空';
               }
             }
 
-            if (result.exams && result.exams.length > 0) {
-              result.status.exams = true;
+            if (result.status.exams !== 'not_logged_in') {
+              if (exDoc) {
+                if (checkAuth(exDoc, null, null)) {
+                  result.status.exams = 'not_logged_in';
+                } else {
+                  var exTable = exDoc.getElementById('dataList') || findTableByKeywords(exDoc, ['课程名称', '考试时间']);
+                  if (!exTable) {
+                    result.status.exams = 'error';
+                    result.errors.exams = '未找到考试表格(#dataList)，教务页面可能已改版';
+                  } else {
+                    result.exams = parseQiangZhiExams(exDoc);
+                    result.status.exams = (result.exams && result.exams.length > 0) ? 'ok' : 'empty';
+                  }
+                }
+              } else if (result.status.exams !== 'error') {
+                result.status.exams = 'error';
+                result.errors.exams = '未能获取到考试列表页面文档';
+              }
             }
-          } catch(e) {}
+          } catch(e) {
+            result.status.exams = 'error';
+            result.errors.exams = String(e);
+          }
 
           return JSON.stringify(result);
         } catch(e) {
@@ -391,9 +467,9 @@ class ParserService {
         courses: [],
         grades: [],
         exams: [],
-        hasCourses: false,
-        hasGrades: false,
-        hasExams: false,
+        statusCourses: SyncModuleStatus.error,
+        statusGrades: SyncModuleStatus.error,
+        statusExams: SyncModuleStatus.error,
         error: '执行结果为空',
       );
     }
@@ -406,9 +482,9 @@ class ParserService {
         courses: const [],
         grades: const [],
         exams: const [],
-        hasCourses: false,
-        hasGrades: false,
-        hasExams: false,
+        statusCourses: SyncModuleStatus.error,
+        statusGrades: SyncModuleStatus.error,
+        statusExams: SyncModuleStatus.error,
         error: 'JSON反序列化失败: $e',
       );
     }
@@ -419,14 +495,33 @@ class ParserService {
       final exams = parseExamsResult(data['exams']);
       final weekInfo = parseWeekInfoResult(data['weekInfo']);
 
+      final statusMap = data['status'] is Map ? data['status'] as Map : const {};
+      final errorsMap = data['errors'] is Map ? data['errors'] as Map : const {};
+
+      final statusCourses = SyncModuleStatus.fromString(
+        statusMap['courses']?.toString(),
+        fallbackOk: courses.isNotEmpty,
+      );
+      final statusGrades = SyncModuleStatus.fromString(
+        statusMap['grades']?.toString(),
+        fallbackOk: gradesResult.grades.isNotEmpty,
+      );
+      final statusExams = SyncModuleStatus.fromString(
+        statusMap['exams']?.toString(),
+        fallbackOk: exams.isNotEmpty,
+      );
+
       return SyncAllResult(
         courses: courses,
         grades: gradesResult.grades,
         gradeSummary: gradesResult.summary,
         exams: exams,
-        hasCourses: courses.isNotEmpty,
-        hasGrades: gradesResult.grades.isNotEmpty,
-        hasExams: exams.isNotEmpty,
+        statusCourses: statusCourses,
+        statusGrades: statusGrades,
+        statusExams: statusExams,
+        errorCourses: errorsMap['courses']?.toString(),
+        errorGrades: errorsMap['grades']?.toString(),
+        errorExams: errorsMap['exams']?.toString(),
         detectedWeek: weekInfo.currentWeek,
         detectedSemester: weekInfo.semester,
         detectedSemesterStart: weekInfo.semesterStartDate,
@@ -438,9 +533,6 @@ class ParserService {
       courses: [],
       grades: [],
       exams: [],
-      hasCourses: false,
-      hasGrades: false,
-      hasExams: false,
     );
   }
 
@@ -583,14 +675,45 @@ class ParserService {
   }
 }
 
+/// 模块同步状态枚举 (细化三态/四态：成功、无数据、未登录、异常改版)
+enum SyncModuleStatus {
+  ok,
+  empty,
+  notLoggedIn,
+  error;
+
+  static SyncModuleStatus fromString(String? val, {bool fallbackOk = false}) {
+    switch (val?.toLowerCase()) {
+      case 'ok':
+        return SyncModuleStatus.ok;
+      case 'empty':
+        return SyncModuleStatus.empty;
+      case 'not_logged_in':
+        return SyncModuleStatus.notLoggedIn;
+      case 'error':
+        return SyncModuleStatus.error;
+      default:
+        return fallbackOk ? SyncModuleStatus.ok : SyncModuleStatus.empty;
+    }
+  }
+
+  bool get isOk => this == SyncModuleStatus.ok;
+  bool get isEmpty => this == SyncModuleStatus.empty;
+  bool get isNotLoggedIn => this == SyncModuleStatus.notLoggedIn;
+  bool get isError => this == SyncModuleStatus.error;
+}
+
 class SyncAllResult {
   final List<Course> courses;
   final List<GradeItem> grades;
   final GradeSummary? gradeSummary;
   final List<ExamItem> exams;
-  final bool hasCourses;
-  final bool hasGrades;
-  final bool hasExams;
+  final SyncModuleStatus statusCourses;
+  final SyncModuleStatus statusGrades;
+  final SyncModuleStatus statusExams;
+  final String? errorCourses;
+  final String? errorGrades;
+  final String? errorExams;
   final int? detectedWeek;
   final String? detectedSemester;
   final DateTime? detectedSemesterStart;
@@ -601,14 +724,30 @@ class SyncAllResult {
     required this.grades,
     this.gradeSummary,
     required this.exams,
-    required this.hasCourses,
-    required this.hasGrades,
-    required this.hasExams,
+    this.statusCourses = SyncModuleStatus.empty,
+    this.statusGrades = SyncModuleStatus.empty,
+    this.statusExams = SyncModuleStatus.empty,
+    this.errorCourses,
+    this.errorGrades,
+    this.errorExams,
     this.detectedWeek,
     this.detectedSemester,
     this.detectedSemesterStart,
     this.error,
   });
 
+  bool get hasCourses => courses.isNotEmpty;
+  bool get hasGrades => grades.isNotEmpty;
+  bool get hasExams => exams.isNotEmpty;
   bool get hasAnyData => hasCourses || hasGrades || hasExams;
+
+  bool get isAnyNotLoggedIn =>
+      statusCourses == SyncModuleStatus.notLoggedIn ||
+      statusGrades == SyncModuleStatus.notLoggedIn ||
+      statusExams == SyncModuleStatus.notLoggedIn;
+
+  bool get isAnyError =>
+      statusCourses == SyncModuleStatus.error ||
+      statusGrades == SyncModuleStatus.error ||
+      statusExams == SyncModuleStatus.error;
 }

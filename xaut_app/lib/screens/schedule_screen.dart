@@ -6,6 +6,7 @@ import '../providers/schedule_provider.dart';
 import '../widgets/course_card.dart';
 import '../widgets/week_selector_sheet.dart';
 import '../widgets/calendar_export_dialog.dart';
+import '../widgets/decryption_error_view.dart';
 import 'webview_login_screen.dart';
 import 'legal_gate_screen.dart';
 
@@ -272,8 +273,13 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           const SizedBox(width: 4),
         ],
       ),
-      body: provider.courses.isEmpty
-          ? _buildFirstLaunchGuide(context)
+      body: provider.hasDecryptionError
+          ? DecryptionErrorView(
+              moduleName: '课表',
+              onReset: () => provider.clearAll(),
+            )
+          : provider.courses.isEmpty
+              ? _buildFirstLaunchGuide(context)
           : Column(
               children: [
                 // 非本周一键「回到本周」或未校准提示条

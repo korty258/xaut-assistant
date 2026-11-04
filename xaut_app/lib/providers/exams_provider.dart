@@ -11,9 +11,11 @@ class ExamsProvider extends ChangeNotifier {
 
   List<ExamItem> _exams = [];
   bool _isLoading = true;
+  bool _hasDecryptionError = false;
 
   DateTime get now => _nowProvider();
   bool get isLoading => _isLoading;
+  bool get hasDecryptionError => _hasDecryptionError;
 
   /// 智能排序后的考试列表：即将开考（按时间升序） -> 时间待定 -> 已结束（沉底弱化）
   List<ExamItem> get exams => sortExams(_exams, now);
@@ -91,7 +93,13 @@ class ExamsProvider extends ChangeNotifier {
         final List<dynamic> list = jsonDecode(examsStr);
         _exams = list.map((e) => ExamItem.fromJson(e as Map<String, dynamic>)).toList();
       }
-    } catch (_) {}
+      _hasDecryptionError = false;
+    } on CryptoException {
+      _hasDecryptionError = true;
+      _exams = [];
+    } catch (_) {
+      _exams = [];
+    }
 
     _isLoading = false;
     notifyListeners();
@@ -105,6 +113,7 @@ class ExamsProvider extends ChangeNotifier {
 
   Future<void> updateExams(List<ExamItem> exams) async {
     _exams = exams;
+    _hasDecryptionError = false;
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
@@ -117,6 +126,7 @@ class ExamsProvider extends ChangeNotifier {
 
   Future<void> clearAll() async {
     _exams = [];
+    _hasDecryptionError = false;
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();

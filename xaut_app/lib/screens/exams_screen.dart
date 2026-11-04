@@ -5,6 +5,7 @@ import '../providers/exams_provider.dart';
 import 'webview_login_screen.dart';
 import 'legal_gate_screen.dart';
 import '../widgets/calendar_export_dialog.dart';
+import '../widgets/decryption_error_view.dart';
 
 class ExamsScreen extends StatelessWidget {
   const ExamsScreen({super.key});
@@ -155,7 +156,12 @@ class ExamsScreen extends StatelessWidget {
       ),
       body: provider.isLoading
           ? const Center(child: CircularProgressIndicator())
-          : exams.isEmpty
+          : provider.hasDecryptionError
+              ? DecryptionErrorView(
+                  moduleName: '考试日程',
+                  onReset: () => provider.clearAll(),
+                )
+              : exams.isEmpty
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(32),

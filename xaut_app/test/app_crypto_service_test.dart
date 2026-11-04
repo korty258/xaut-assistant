@@ -6,6 +6,7 @@ import 'package:xaut_app/models/exam.dart';
 import 'package:xaut_app/models/grade.dart';
 import 'package:xaut_app/providers/exams_provider.dart';
 import 'package:xaut_app/providers/grades_provider.dart';
+import 'package:xaut_app/providers/schedule_provider.dart';
 import 'package:xaut_app/services/app_crypto_service.dart';
 import 'package:xaut_app/services/storage_service.dart';
 
@@ -217,6 +218,42 @@ void main() {
       expect(rawExams!.startsWith(AppCryptoService.envelopePrefix), isTrue);
       expect(rawExams.contains('概率论与数理统计'), isFalse);
       expect(rawExams.contains('028'), isFalse);
+    });
+
+    test('StorageService.loadCourses rethrows CryptoException when ciphertext is corrupted', () async {
+      final prefs = await SharedPreferences.getInstance();
+      // 写入损坏信封密文
+      await prefs.setString('xaut_cached_courses', 'ENC:v1:MDEyMzQ1Njc4OTAx:VEFNUEVSRUQ=');
+
+      expect(() async => await StorageService.loadCourses(), throwsA(isA<CryptoException>()));
+    });
+
+    test('Providers expose hasDecryptionError = true on decryption failure and self-heal via resetCorruptedData()', () async {
+      final prefs = await SharedPreferences.getInstance();
+      // 注入损坏的课表密文
+      await prefs.setString('xaut_cached_courses', 'ENC:v1:MDEyMzQ1Njc4OTAx:VEFNUEVSRUQ=');
+      await prefs.setString('xaut_cached_grades', 'ENC:v1:MDEyMzQ1Njc4OTAx:VEFNUEVSRUQ=');
+      await prefs.setString('xaut_cached_exams', 'ENC:v1:MDEyMzQ1Njc4OTAx:VEFNUEVSRUQ=');
+
+      final scheduleProvider = ScheduleProvider();
+      final gradesProvider = GradesProvider();
+      final examsProvider = ExamsProvider();
+
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(scheduleProvider.hasDecryptionError, isTrue);
+      expect(gradesProvider.hasDecryptionError, isTrue);
+      expect(examsProvider.hasDecryptionError, isTrue);
+
+      // 执行自愈重置
+      await StorageService.resetCorruptedData();
+      await scheduleProvider.clearAll();
+      await gradesProvider.clearAll();
+      await examsProvider.clearAll();
+
+      expect(scheduleProvider.hasDecryptionError, isFalse);
+      expect(gradesProvider.hasDecryptionError, isFalse);
+      expect(examsProvider.hasDecryptionError, isFalse);
     });
   });
 }

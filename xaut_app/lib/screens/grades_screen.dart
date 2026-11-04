@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/grades_provider.dart';
+import '../widgets/decryption_error_view.dart';
 import 'webview_login_screen.dart';
 import 'legal_gate_screen.dart';
 
@@ -109,7 +110,12 @@ class GradesScreen extends StatelessWidget {
       ),
       body: provider.isLoading
           ? const Center(child: CircularProgressIndicator())
-          : provider.grades.isEmpty
+          : provider.hasDecryptionError
+              ? DecryptionErrorView(
+                  moduleName: '成绩',
+                  onReset: () => provider.clearAll(),
+                )
+              : provider.grades.isEmpty
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(32),

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/course.dart';
 import 'app_crypto_service.dart';
@@ -20,15 +21,25 @@ class StorageService {
     return AppCryptoService.saveEncryptedString(prefs, _keyCourses, jsonStr);
   }
 
-  /// 加载课表
+  /// 加载课表（解密异常向上透出，避免将密钥损坏或密文篡改静默吞成无课状态）
   static Future<List<Course>> loadCourses() async {
     final prefs = await SharedPreferences.getInstance();
+    final String? jsonStr;
     try {
-      final jsonStr = await AppCryptoService.loadEncryptedString(prefs, _keyCourses);
-      if (jsonStr == null || jsonStr.isEmpty) return [];
+      jsonStr = await AppCryptoService.loadEncryptedString(prefs, _keyCourses);
+    } on CryptoException {
+      rethrow;
+    } catch (e) {
+      debugPrint('StorageService: Unexpected error loading encrypted courses: $e');
+      return [];
+    }
+
+    if (jsonStr == null || jsonStr.isEmpty) return [];
+    try {
       final List<dynamic> decoded = jsonDecode(jsonStr);
       return decoded.map((item) => Course.fromJson(item as Map<String, dynamic>)).toList();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('StorageService: JSON format error parsing cached courses: $e');
       return [];
     }
   }
@@ -102,5 +113,19 @@ class StorageService {
     await prefs.remove(_keyLastSync);
     await prefs.remove(_keySemesterStartDate);
     await prefs.remove(_keySemesterName);
+  }
+
+  /// 彻底重置损坏的本地加密数据（销毁主密钥并清除所有业务缓存密文）
+  /// 在解密发生严重异常时由用户触发，使持久化恢复至干净首启状态
+  static Future<void> resetCorruptedData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await AppCryptoService.destroyMasterKey();
+    await prefs.remove(_keyCourses);
+    await prefs.remove(_keyLastSync);
+    await prefs.remove(_keySemesterStartDate);
+    await prefs.remove(_keySemesterName);
+    await prefs.remove('xaut_cached_grades');
+    await prefs.remove('xaut_cached_grade_summary');
+    await prefs.remove('xaut_cached_exams');
   }
 }

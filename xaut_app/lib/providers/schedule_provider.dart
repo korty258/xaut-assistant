@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../models/course.dart';
+import '../services/app_crypto_service.dart';
 import '../services/storage_service.dart';
 
 class ScheduleProvider extends ChangeNotifier {
@@ -10,6 +11,7 @@ class ScheduleProvider extends ChangeNotifier {
   int _maxWeeks = 20;
   bool _onlyCurrentWeek = true; // 默认仅展示本周课程，避免重叠
   bool _isLoading = true;
+  bool _hasDecryptionError = false;
   DateTime? _lastSyncTime;
   DateTime? _semesterStartDate; // 本学期第 1 周周一基准日期 (本地零点)
   String _semesterName = '';
@@ -20,6 +22,7 @@ class ScheduleProvider extends ChangeNotifier {
   int get maxWeeks => _maxWeeks;
   bool get onlyCurrentWeek => _onlyCurrentWeek;
   bool get isLoading => _isLoading;
+  bool get hasDecryptionError => _hasDecryptionError;
   DateTime? get lastSyncTime => _lastSyncTime;
   DateTime? get semesterStartDate => _semesterStartDate;
   String get semesterName => _semesterName;
@@ -118,8 +121,22 @@ class ScheduleProvider extends ChangeNotifier {
     _lastSyncTime = await StorageService.loadLastSyncTime();
     _semesterStartDate = await StorageService.loadSemesterStartDate();
     _semesterName = await StorageService.loadSemesterName();
-    final loaded = await StorageService.loadCourses();
-    _courses = _deduplicateCourses(loaded);
+
+    try {
+      final loaded = await StorageService.loadCourses();
+      _courses = _deduplicateCourses(loaded);
+      _hasDecryptionError = false;
+      // 仅当正常加载去重后数量/内容有变动时，静默回写存储自愈
+      if (_courses.isNotEmpty) {
+        await StorageService.saveCourses(_courses);
+      }
+    } on CryptoException {
+      _hasDecryptionError = true;
+      _courses = [];
+    } catch (_) {
+      _courses = [];
+    }
+
     _recalculateMaxWeeks(savedWeek);
 
     // 打开即对齐：若已记录开学第 1 周周一基准日，每次启动自动按系统当天日期对齐当前教学周
@@ -130,9 +147,6 @@ class ScheduleProvider extends ChangeNotifier {
       _currentWeek = savedWeek.clamp(1, _maxWeeks);
     }
     _lastEvaluatedDay = todayDate;
-
-    // 如果去重或周次修正后数量/内容有变动，顺便静默回写存储修复历史缓存
-    await StorageService.saveCourses(_courses);
 
     _isLoading = false;
     notifyListeners();
@@ -336,6 +350,7 @@ class ScheduleProvider extends ChangeNotifier {
   /// 导入并覆盖当前课表
   Future<void> updateCourses(List<Course> newCourses) async {
     _courses = _deduplicateCourses(newCourses);
+    _hasDecryptionError = false;
     _recalculateMaxWeeks(_currentWeek);
     _lastSyncTime = _nowProvider();
     notifyListeners();
@@ -357,6 +372,7 @@ class ScheduleProvider extends ChangeNotifier {
   /// 清空本地课表
   Future<void> clearAll() async {
     _courses = [];
+    _hasDecryptionError = false;
     _lastSyncTime = null;
     _semesterStartDate = null;
     _semesterName = '';

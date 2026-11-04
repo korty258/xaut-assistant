@@ -22,10 +22,12 @@ class GradesProvider extends ChangeNotifier {
   List<GradeItem> _grades = [];
   String _selectedSemester = '全部';
   bool _isLoading = true;
+  bool _hasDecryptionError = false;
 
   List<GradeItem> get grades => _grades;
   String get selectedSemester => _selectedSemester;
   bool get isLoading => _isLoading;
+  bool get hasDecryptionError => _hasDecryptionError;
   bool get isAllSemesters => _selectedSemester == '全部';
 
   List<String> get availableSemesters {
@@ -66,7 +68,13 @@ class GradesProvider extends ChangeNotifier {
         final List<dynamic> list = jsonDecode(gradesStr);
         _grades = list.map((e) => GradeItem.fromJson(e as Map<String, dynamic>)).toList();
       }
-    } catch (_) {}
+      _hasDecryptionError = false;
+    } on CryptoException {
+      _hasDecryptionError = true;
+      _grades = [];
+    } catch (_) {
+      _grades = [];
+    }
 
     _isLoading = false;
     notifyListeners();
@@ -79,6 +87,7 @@ class GradesProvider extends ChangeNotifier {
 
   Future<void> updateGrades(List<GradeItem> grades, [GradeSummary? _]) async {
     _grades = grades;
+    _hasDecryptionError = false;
     // 若当前选中的学期在新数据中已不存在，自动回退至「全部」
     if (_selectedSemester != '全部' && !availableSemesters.contains(_selectedSemester)) {
       _selectedSemester = '全部';
@@ -155,6 +164,7 @@ class GradesProvider extends ChangeNotifier {
 
   Future<void> clearAll() async {
     _grades = [];
+    _hasDecryptionError = false;
     _selectedSemester = '全部';
     notifyListeners();
 

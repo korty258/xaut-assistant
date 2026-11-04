@@ -164,6 +164,34 @@ void main() {
     expect(result.exams.first.courseName, '大学物理');
   });
 
+  test('ParserService.parseSyncAllResult handles 3-state statuses, not_logged_in, and error diagnostics', () {
+    final mockDiagnosticJson = {
+      'courses': [],
+      'gradesData': {'grades': [], 'summary': {}},
+      'exams': [],
+      'status': {
+        'courses': 'empty',
+        'grades': 'not_logged_in',
+        'exams': 'error',
+      },
+      'errors': {
+        'courses': null,
+        'grades': null,
+        'exams': '未找到考试表格(#dataList)，教务页面可能已改版',
+      },
+      'error': '部分模块同步异常'
+    };
+
+    final result = ParserService.parseSyncAllResult(mockDiagnosticJson);
+    expect(result.hasAnyData, false);
+    expect(result.statusCourses, SyncModuleStatus.empty);
+    expect(result.statusGrades, SyncModuleStatus.notLoggedIn);
+    expect(result.statusExams, SyncModuleStatus.error);
+    expect(result.errorExams, contains('未找到考试表格'));
+    expect(result.isAnyNotLoggedIn, true);
+    expect(result.isAnyError, true);
+  });
+
   test('Course.timeRangeStr matches XAUT official 6 major periods / 13 sections', () {
     Course make(int start, int step) => Course(
           name: 'Test',

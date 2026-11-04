@@ -1,3 +1,4 @@
+import 'dart:async' show TimeoutException;
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -318,17 +319,19 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     }
   }
 
-  /// 安全执行 JavaScript 脚本，内置 URL 白名单硬拦截守卫（防止在恶意或非校内页面注入脚本泄露数据）
+  /// 安全执行 JavaScript 脚本，内置 URL 白名单硬拦截守卫与 30 秒超时保护
   Future<dynamic> _safeExecuteScript(String script) async {
     if (!isAllowedUrl(_currentUrl) || _currentUrl == 'about:blank') {
       debugPrint('WebViewLoginScreen: Blocked script execution on unsafe URL: $_currentUrl');
       throw StateError('当前处于非校内受信任页面 ($_currentUrl)，已拒绝执行同步脚本');
     }
-    if (_isWindows) {
-      return _winController.executeScript(script);
-    } else {
-      return _mobileController.runJavaScriptReturningResult(script);
-    }
+    final future = _isWindows
+        ? _winController.executeScript(script)
+        : _mobileController.runJavaScriptReturningResult(script);
+    return await future.timeout(
+      const Duration(seconds: 30),
+      onTimeout: () => throw TimeoutException('教务系统响应超时 (30秒)，请检查校园网连接或强智系统运行状态'),
+    );
   }
 
   /// 执行一键全量同步（同时同步 课表 + 成绩 + 考试 3大模块）
@@ -367,6 +370,54 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
 
         if (!mounted) return;
 
+        final String coursesDetail;
+        switch (result.statusCourses) {
+          case SyncModuleStatus.ok:
+            coursesDetail = '成功导入 ${result.courses.length} 门课程';
+            break;
+          case SyncModuleStatus.empty:
+            coursesDetail = '当前学期暂无课表数据';
+            break;
+          case SyncModuleStatus.notLoggedIn:
+            coursesDetail = '未登录统一身份认证';
+            break;
+          case SyncModuleStatus.error:
+            coursesDetail = '课表解析失败${result.errorCourses != null ? " (${result.errorCourses})" : " (页面可能已改版)"}';
+            break;
+        }
+
+        final String gradesDetail;
+        switch (result.statusGrades) {
+          case SyncModuleStatus.ok:
+            gradesDetail = '成功导入 ${result.grades.length} 门成绩 (GPA: ${result.gradeSummary?.averageGpa ?? "-"})';
+            break;
+          case SyncModuleStatus.empty:
+            gradesDetail = '当前学期暂无成绩发布';
+            break;
+          case SyncModuleStatus.notLoggedIn:
+            gradesDetail = '未登录统一身份认证';
+            break;
+          case SyncModuleStatus.error:
+            gradesDetail = '成绩解析失败${result.errorGrades != null ? " (${result.errorGrades})" : " (页面可能已改版)"}';
+            break;
+        }
+
+        final String examsDetail;
+        switch (result.statusExams) {
+          case SyncModuleStatus.ok:
+            examsDetail = '成功导入 ${result.exams.length} 门考试安排';
+            break;
+          case SyncModuleStatus.empty:
+            examsDetail = '暂无已发布的考试安排';
+            break;
+          case SyncModuleStatus.notLoggedIn:
+            examsDetail = '未登录统一身份认证';
+            break;
+          case SyncModuleStatus.error:
+            examsDetail = '考试解析失败${result.errorExams != null ? " (${result.errorExams})" : " (页面可能已改版)"}';
+            break;
+        }
+
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -379,7 +430,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                 _buildSyncResultRow(
                   icon: Icons.calendar_month,
                   title: '课表数据',
-                  detail: result.hasCourses ? '成功导入 ${result.courses.length} 门课程' : '未查询到课表数据',
+                  detail: coursesDetail,
                   isSuccess: result.hasCourses,
                 ),
                 const SizedBox(height: 10),
@@ -393,16 +444,14 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                 _buildSyncResultRow(
                   icon: Icons.grade,
                   title: '学业成绩',
-                  detail: result.hasGrades
-                      ? '成功导入 ${result.grades.length} 门成绩 (GPA: ${result.gradeSummary?.averageGpa ?? "-"})'
-                      : '未查询到成绩数据',
+                  detail: gradesDetail,
                   isSuccess: result.hasGrades,
                 ),
                 const SizedBox(height: 10),
                 _buildSyncResultRow(
                   icon: Icons.assignment,
                   title: '考试日程',
-                  detail: result.hasExams ? '成功导入 ${result.exams.length} 门考试安排' : '暂无已发布的考试安排',
+                  detail: examsDetail,
                   isSuccess: result.hasExams,
                 ),
               ],
@@ -419,18 +468,45 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
           ),
         );
       } else {
+        final String title;
+        final String message;
+        final IconData icon;
+        final Color iconColor;
+
+        if (result.isAnyNotLoggedIn) {
+          title = '未完成统一身份认证登录';
+          icon = Icons.lock_clock_rounded;
+          iconColor = Colors.orange;
+          message = '未能提取数据：检测到统一身份认证尚未登录。\n\n'
+              '操作指引：\n'
+              '1. 请在下方网页中输入学号与密码完成登录；\n'
+              '2. 登录成功后，再次点击底部【一键同步全部】。';
+        } else if (result.isAnyError) {
+          title = '教务同步遇到异常';
+          icon = Icons.error_outline_rounded;
+          iconColor = Colors.red;
+          final errorList = [
+            if (result.errorCourses != null) '• 课表: ${result.errorCourses}',
+            if (result.errorGrades != null) '• 成绩: ${result.errorGrades}',
+            if (result.errorExams != null) '• 考试: ${result.errorExams}',
+            if (result.error != null) '• 全局: ${result.error}',
+          ];
+          message = '强智教务页面结构可能已改版或服务暂时不可用：\n\n'
+              '${errorList.join('\n')}\n\n'
+              '若持续出现此提示，请向开发者反馈。';
+        } else {
+          title = '暂无已发布的教务数据';
+          icon = Icons.info_outline_rounded;
+          iconColor = Colors.blue;
+          message = '已成功连接强智教务系统，但当前学期暂未查询到课表、成绩或考试数据。';
+        }
+
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
-            icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 36),
-            title: const Text('未同步到有效数据'),
-            content: const Text(
-              '未能从强智教务系统获取到课表、成绩或考试数据。\n\n'
-              '操作指引：\n'
-              '1. 请先在下方网页中输入学号与密码完成统一身份认证登录；\n'
-              '2. 登录成功后，直接点击底部【一键同步全部】；\n'
-              '3. 客户端将全自动穿透并提取三大教务模块！',
-            ),
+            icon: Icon(icon, color: iconColor, size: 36),
+            title: Text(title),
+            content: Text(message),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
