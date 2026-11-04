@@ -132,12 +132,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     if (!mounted || !_currentUrl.toLowerCase().contains('jwgl.xaut.edu.cn')) return;
     try {
       final script = await ParserService.buildWeekDetectScript();
-      dynamic raw;
-      if (_isWindows) {
-        raw = await _winController.executeScript(script);
-      } else {
-        raw = await _mobileController.runJavaScriptReturningResult(script);
-      }
+      final raw = await _safeExecuteScript(script);
       final info = ParserService.parseWeekInfoResult(raw);
       if (info.currentWeek != null) {
         _cachedDetectedWeek = info.currentWeek;
@@ -192,13 +187,14 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
   /// 校验目标域名是否属于西安理工大学校内合法域名且强制全链路 HTTPS 加密（防钓鱼、防窃听与防明文降级）
   static bool isAllowedUrl(String url) {
     final trimmed = url.trim();
-    if (trimmed.isEmpty || trimmed == 'about:blank') return true;
+    if (trimmed == 'about:blank') return true;
+    if (trimmed.isEmpty) return false;
     final uri = Uri.tryParse(trimmed);
     if (uri == null) return false;
     // 强制 HTTPS 传输：Windows 桌面端无 usesCleartextTraffic 等价隔离，需在应用层严格拦截明文 HTTP
     if (uri.scheme != 'https') return false;
     final host = uri.host.toLowerCase();
-    return host.isEmpty || host == 'xaut.edu.cn' || host.endsWith('.xaut.edu.cn');
+    return host == 'xaut.edu.cn' || host.endsWith('.xaut.edu.cn');
   }
 
   void _showBlockedUrlDialog(String url) {
@@ -227,6 +223,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
       await _winController.initialize();
       _winController.url.listen((url) {
         if (!isAllowedUrl(url)) {
+          _winController.stop();
           _showBlockedUrlDialog(url);
           _winController.loadUrl(_defaultUrl);
           return;
@@ -321,6 +318,19 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     }
   }
 
+  /// 安全执行 JavaScript 脚本，内置 URL 白名单硬拦截守卫（防止在恶意或非校内页面注入脚本泄露数据）
+  Future<dynamic> _safeExecuteScript(String script) async {
+    if (!isAllowedUrl(_currentUrl) || _currentUrl == 'about:blank') {
+      debugPrint('WebViewLoginScreen: Blocked script execution on unsafe URL: $_currentUrl');
+      throw StateError('当前处于非校内受信任页面 ($_currentUrl)，已拒绝执行同步脚本');
+    }
+    if (_isWindows) {
+      return _winController.executeScript(script);
+    } else {
+      return _mobileController.runJavaScriptReturningResult(script);
+    }
+  }
+
   /// 执行一键全量同步（同时同步 课表 + 成绩 + 考试 3大模块）
   Future<void> _syncAll() async {
     if (_isSyncCoolingDown()) return;
@@ -333,14 +343,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
 
     try {
       final script = await ParserService.buildSyncAllInjectionScript();
-      dynamic rawResult;
-
-      if (_isWindows) {
-        rawResult = await _winController.executeScript(script);
-      } else {
-        rawResult = await _mobileController.runJavaScriptReturningResult(script);
-      }
-
+      final dynamic rawResult = await _safeExecuteScript(script);
       final result = ParserService.parseSyncAllResult(rawResult);
 
       if (!mounted) return;
@@ -552,14 +555,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
 
     try {
       final script = await ParserService.buildCourseInjectionScript();
-      dynamic rawResult;
-
-      if (_isWindows) {
-        rawResult = await _winController.executeScript(script);
-      } else {
-        rawResult = await _mobileController.runJavaScriptReturningResult(script);
-      }
-
+      final dynamic rawResult = await _safeExecuteScript(script);
       final syncRes = ParserService.parseCourseSyncResult(rawResult);
       final List<Course> parsed = syncRes.courses;
 
@@ -650,14 +646,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
 
     try {
       final script = await ParserService.buildGradesInjectionScript();
-      dynamic rawResult;
-
-      if (_isWindows) {
-        rawResult = await _winController.executeScript(script);
-      } else {
-        rawResult = await _mobileController.runJavaScriptReturningResult(script);
-      }
-
+      final dynamic rawResult = await _safeExecuteScript(script);
       final result = ParserService.parseGradesResult(rawResult);
 
       if (!mounted) return;
@@ -740,14 +729,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
 
     try {
       final script = await ParserService.buildExamsInjectionScript();
-      dynamic rawResult;
-
-      if (_isWindows) {
-        rawResult = await _winController.executeScript(script);
-      } else {
-        rawResult = await _mobileController.runJavaScriptReturningResult(script);
-      }
-
+      final dynamic rawResult = await _safeExecuteScript(script);
       final List<ExamItem> parsed = ParserService.parseExamsResult(rawResult);
 
       if (!mounted) return;

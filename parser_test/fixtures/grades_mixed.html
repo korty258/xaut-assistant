@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>学生个人成绩 - 混合制样本</title>
+</head>
+<body>
+  <table id="dataList" border="1">
+    <tr>
+      <th>序号</th>
+      <th>开课学期</th>
+      <th>课程编号</th>
+      <th>课程名称</th>
+      <th>成绩</th>
+      <th>学分</th>
+      <th>绩点</th>
+      <th>课程性质</th>
+      <th>考核方式</th>
+    </tr>
+    <!-- 1. 百分制 -->
+    <tr>
+      <td>1</td>
+      <td>2026-2027-1</td>
+      <td>MAT1001</td>
+      <td>高等数学(上)</td>
+      <td>88</td>
+      <td>4.0</td>
+      <td>3.8</td>
+      <td>必修</td>
+      <td>考试</td>
+    </tr>
+    <!-- 2. 五级制：优 (score: 95, gpa: 4.5) -->
+    <tr>
+      <td>2</td>
+      <td>2026-2027-1</td>
+      <td>ENG2001</td>
+      <td>大学英语(三)</td>
+      <td>优</td>
+      <td>3.0</td>
+      <td>4.5</td>
+      <td>必修</td>
+      <td>考试</td>
+    </tr>
+    <!-- 3. 五级制：良 (score: 85, gpa: 3.5) -->
+    <tr>
+      <td>3</td>
+      <td>2026-2027-1</td>
+      <td>PHY1001</td>
+      <td>大学物理(一)</td>
+      <td>良</td>
+      <td>3.0</td>
+      <td>3.5</td>
+      <td>必修</td>
+      <td>考试</td>
+    </tr>
+    <!-- 4. 五级制：及格 (score: 65, gpa: 1.5) -->
+    <tr>
+      <td>4</td>
+      <td>2026-2027-1</td>
+      <td>PE1001</td>
+      <td>体育(三)</td>
+      <td>及格</td>
+      <td>1.0</td>
+      <td>1.5</td>
+      <td>必修</td>
+      <td>考查</td>
+    </tr>
+    <!-- 5. 二级制：合格 (有绩点 0，不计入加权分数但计入学分) -->
+    <tr>
+      <td>5</td>
+      <td>2026-2027-1</td>
+      <td>MIL1001</td>
+      <td>军事理论</td>
+      <td>合格</td>
+      <td>2.0</td>
+      <td>0.0</td>
+      <td>必修</td>
+      <td>考查</td>
+    </tr>
+    <!-- 6. 异常状态：缓考 (不计入学分和绩点) -->
+    <tr>
+      <td>6</td>
+      <td>2026-2027-1</td>
+      <td>INN1001</td>
+      <td>创新创业实践</td>
+      <td>缓考</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>选修</td>
+      <td>考查</td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -14,7 +14,12 @@
  *   4. 当前教学周与开学基准嗅探 (parseQiangZhiTeachingWeek)
  */
 
-// ==================== 0. 核心工具: 自动跨 iframe 表格定位 ====================
+// ==================== 0. 核心工具: 自动跨 iframe 表格定位与跨环境文本提取 ====================
+
+function getNodeText(node) {
+  if (!node) return "";
+  return (node.innerText !== undefined ? node.innerText : node.textContent) || "";
+}
 
 function findTableAcrossFrames(doc, matcher) {
   if (!doc) doc = document;
@@ -66,7 +71,7 @@ function parseQiangZhiCourses(doc = document) {
     if (cells.length === 0) continue;
 
     // 关键防坑 1: 忽略表尾的备注/实践教学环节/未排时间课程等汇总说明行
-    const rowText = (row.innerText || "").trim();
+    const rowText = getNodeText(row).trim();
     if (/^(备注|实践环节|实践教学|未排时间|调课)/.test(rowText) || rowText.includes("实践教学环节") || (rowText.includes(";") && rowText.includes("周"))) {
       continue;
     }
@@ -104,8 +109,9 @@ function parseQiangZhiCourses(doc = document) {
           extractFromDiv(kbDiv, dayOfWeek, sectionIndex, result);
         });
       } else {
-        if (cell.innerText && cell.innerText.trim() && cell.innerText.trim() !== "" && cell.innerText.trim() !== "&nbsp;") {
-          const t = cell.innerText.trim();
+        const cellText = getNodeText(cell).trim();
+        if (cellText && cellText !== "&nbsp;") {
+          const t = cellText;
           // 只有具备常规课表格式且非分号拼接的备注时才尝试降级提取
           if (!t.includes(";") && !/^(备注|实践)/.test(t)) {
             extractFromDiv(cell, dayOfWeek, sectionIndex, result);
@@ -303,7 +309,7 @@ function parseQiangZhiGrades(doc = document) {
   const rows = Array.from(table.querySelectorAll("tr"));
   if (rows.length < 2) return { grades, summary: {} };
 
-  const headerCells = Array.from(rows[0].querySelectorAll("th, td")).map(c => c.innerText.trim());
+  const headerCells = Array.from(rows[0].querySelectorAll("th, td")).map(c => getNodeText(c).trim());
   const colMap = {
     semester: headerCells.findIndex(t => /开课学期|学期/.test(t)),
     courseCode: headerCells.findIndex(t => /课程编号|课程代码/.test(t)),
@@ -333,7 +339,7 @@ function parseQiangZhiGrades(doc = document) {
   };
 
   for (let i = 1; i < rows.length; i++) {
-    const cells = Array.from(rows[i].querySelectorAll("td")).map(c => c.innerText.trim());
+    const cells = Array.from(rows[i].querySelectorAll("td")).map(c => getNodeText(c).trim());
     if (cells.length < 3) continue;
 
     const courseName = colMap.courseName !== -1 ? cells[colMap.courseName] : "";
@@ -410,7 +416,7 @@ function parseQiangZhiExams(doc = document) {
   const rows = Array.from(table.rows);
   if (rows.length < 2) return exams;
 
-  const headerCells = Array.from(rows[0].cells).map(c => c.innerText.trim());
+  const headerCells = Array.from(rows[0].cells).map(c => getNodeText(c).trim());
   const colMap = {
     campus: headerCells.findIndex(t => /校区/.test(t)),
     batch: headerCells.findIndex(t => /场次|批次/.test(t)),
@@ -422,7 +428,7 @@ function parseQiangZhiExams(doc = document) {
   };
 
   for (let i = 1; i < rows.length; i++) {
-    const cells = Array.from(rows[i].cells).map(c => c.innerText.trim());
+    const cells = Array.from(rows[i].cells).map(c => getNodeText(c).trim());
     if (cells.length < 4) continue;
 
     const courseName = colMap.courseName !== -1 ? cells[colMap.courseName] : "";
@@ -448,7 +454,7 @@ function parseQiangZhiExams(doc = document) {
 function findTableByKeywords(doc, keywords) {
   const tables = doc.querySelectorAll("table");
   for (const t of tables) {
-    const text = t.innerText || "";
+    const text = getNodeText(t);
     if (keywords.every(kw => text.includes(kw))) {
       return t;
     }

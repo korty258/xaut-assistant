@@ -1,0 +1,13 @@
+{
+  "name": "parser_test",
+  "version": "1.0.0",
+  "description": "Regression tests for QiangZhi HTML/DOM parser in JSDOM environment",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

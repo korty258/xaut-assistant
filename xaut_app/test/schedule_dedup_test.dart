@@ -80,7 +80,7 @@ void main() {
     final courses = [
       const Course(
         name: '电路基础实验',
-        teacher: '郭庆吉,严骅',
+        teacher: '张老师,李老师',
         room: '三电中心教10-102D',
         day: 1,
         startSection: 7,

@@ -6,6 +6,26 @@
 
 ## [Unreleased]
 
+## [2.2.0-pre1] - 2026-11-04
+
+本版本为 `v2.2.0` 开发预览版（Preview 1），重点建立强智教务解析层离线自动化测试基准、加固内嵌 WebView 白名单与执行隔离，并消除加密异常日志中的敏感数据暴露面。
+
+### Added
+- 新增根目录 `parser_test/` 测试套件，内建 6 组完全合成脱敏的 DOM Fixtures（覆盖双容器过滤、二维码节点剥离、4 节连排、表尾大跨度备注行阻断、五级制/二级制成绩折算、无座位号考试日程与统一身份认证登录负例）。
+- 基于 Node 24 原生 `node:test` + JSDOM 实现 13 项强智核心 DOM 解析用例全自动化断言。
+- GitHub Actions CI/CD 工作流（`.github/workflows/ci_cd.yml`）在代码质量门禁（`quality_check`）中接入 Node 24 环境、npm 依赖缓存与 `node --test` 回归测试。
+- 新增 `WebViewLoginScreen.isAllowedUrl` 专属安全单测（`test/webview_security_test.dart`），全方位覆盖空 Host、钓鱼仿冒域名、明文 HTTP 协议降级等边界场景。
+
+### Security
+- 修复 `WebViewLoginScreen.isAllowedUrl` 中空 Host 被意外放行的逻辑漏洞，严格限定仅放行有效校内 HTTPS 域名及内核空白页。
+- 增强 Windows 端 WebView 导航拦截，触发非白名单拦截时先调用 `_winController.stop()` 立即终止当前加载。
+- 建立统一的 `_safeExecuteScript` 注入门禁，在执行任何教务提取脚本前强制校验页面白名单，非校内页面一律禁止注入脚本。
+- 脱敏 `AppCryptoService.getMasterKey` 与 `AppCryptoService.decrypt` 中的异常提示文本，移除私钥明文与加密载荷的字符串插值。
+
+### Changed
+- 生产解析脚本 `qiangzhi_parser.js` 引入跨环境文本提取函数 `getNodeText`，平滑兼容 Node JSDOM 与双端 WebView 浏览器环境。
+- 脱敏 `test/schedule_dedup_test.dart` 中的单测教师姓名数据，统一对齐为教学化名。
+
 ## [2.1.2] - 2026-11-03
 
 本版本只调整工程与发布流程，App 功能与数据处理行为没有变化。
@@ -106,7 +126,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.1.2...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-pre1...HEAD
+[2.2.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.1.2...v2.2.0-pre1
 [2.1.2]: https://github.com/korty258/xaut-assistant/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/korty258/xaut-assistant/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/korty258/xaut-assistant/compare/v2.0.3...v2.1.0

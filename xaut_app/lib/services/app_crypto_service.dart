@@ -92,7 +92,7 @@ class AppCryptoService {
       return _cachedMasterKey!;
     }
 
-    throw StateError('主密钥格式损坏 (长度非64位Hex)，拒绝覆盖: $keyHex');
+    throw StateError('主密钥格式损坏 (长度非64位Hex，实际长度: ${keyHex.length})，拒绝覆盖');
   }
 
   /// 使用 AES-256-GCM 对明文字符串进行动态加密并输出标准信封格式
@@ -114,7 +114,7 @@ class AppCryptoService {
 
     final parts = payload.split(':');
     if (parts.length != 4) {
-      throw FormatException('Invalid encrypted envelope: $payload');
+      throw const FormatException('Invalid encrypted envelope format');
     }
 
     final iv = IV.fromBase64(parts[2]);

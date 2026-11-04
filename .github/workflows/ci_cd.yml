@@ -46,6 +46,21 @@ jobs:
             exit 1
           fi
 
+      - name: Setup Node 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: parser_test/package-lock.json
+
+      - name: Install JS Parser Test Dependencies
+        working-directory: parser_test
+        run: npm ci
+
+      - name: Run JS Parser Regression Tests
+        working-directory: parser_test
+        run: node --test
+
       - name: Setup Java 17
         uses: actions/setup-java@v5
         with:

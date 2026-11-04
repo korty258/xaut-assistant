@@ -49,3 +49,7 @@ scratch/
 PROJECT_HANDOVER.md
 强智api/
 docs/
+
+# Node / JS Parser Tests
+node_modules/
+**/node_modules/
