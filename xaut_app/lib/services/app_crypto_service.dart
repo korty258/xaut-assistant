@@ -47,7 +47,10 @@ class AppCryptoService {
     if (_cachedMasterKey != null) {
       return Future.value(_cachedMasterKey!);
     }
-    return _masterKeyFuture ??= _loadOrCreateMasterKey();
+    return _masterKeyFuture ??= _loadOrCreateMasterKey().catchError((Object e, StackTrace st) {
+      _masterKeyFuture = null;
+      Error.throwWithStackTrace(e, st);
+    });
   }
 
   static Future<Key> _loadOrCreateMasterKey() async {
@@ -85,8 +88,21 @@ class AppCryptoService {
       final newHex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
       try {
         await _secureStorage.write(key: _storageKeyMaster, value: newHex);
+        try {
+          final verifyHex = await _secureStorage.read(key: _storageKeyMaster);
+          if (verifyHex != null && verifyHex != newHex) {
+            throw const CryptoException('主密钥写入校验不一致，拒绝使用未持久化密钥');
+          }
+        } on MissingPluginException {
+          // 单元测试环境
+        }
+      } on MissingPluginException {
+        debugPrint('AppCryptoService: MissingPluginException on write in test environment.');
+      } on CryptoException {
+        rethrow;
       } catch (e) {
         debugPrint('AppCryptoService: SecureStorage write exception: $e');
+        throw CryptoException('安全存储写入主密钥失败，已阻止加密落盘: $e');
       }
       _cachedMasterKey = Key(bytes);
       return _cachedMasterKey!;

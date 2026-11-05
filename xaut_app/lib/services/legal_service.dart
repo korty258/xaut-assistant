@@ -1,5 +1,6 @@
 import 'dart:io' show Directory, File, Platform;
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -11,7 +12,7 @@ import 'app_crypto_service.dart';
 /// 文本内容与 assets/legal/*.md 严格对应。
 class LegalService {
   /// 当前客户端对外统一发布版本号
-  static const String appVersion = 'v2.2.0-rc1';
+  static const String appVersion = 'v2.2.0-rc2';
 
   /// 当前合规文本版本。当协议有实质性变更时必须递增此常量，
   /// 系统检测到本地记录与该版本不一致时会自动重新唤起同意页面。
@@ -100,15 +101,45 @@ class LegalService {
           await cookieManager.clearCookies();
         }
       } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
-        // Windows 桌面端防御：尝试清理本地 AppData 目录下的持久化缓存
+        // Windows 桌面端防御：清理真实 Application Support & Cache 目录下的持久化缓存
+        try {
+          final supportDir = await getApplicationSupportDirectory();
+          if (await supportDir.exists()) {
+            final entries = supportDir.listSync();
+            for (final entry in entries) {
+              try {
+                await entry.delete(recursive: true);
+              } catch (_) {}
+            }
+          }
+        } on MissingPluginException {
+          // 单元测试无原生宿主插件环境
+        } catch (_) {}
+
+        try {
+          final cacheDir = await getApplicationCacheDirectory();
+          if (await cacheDir.exists()) {
+            final entries = cacheDir.listSync();
+            for (final entry in entries) {
+              try {
+                await entry.delete(recursive: true);
+              } catch (_) {}
+            }
+          }
+        } on MissingPluginException {
+          // 单元测试无原生宿主插件环境
+        } catch (_) {}
+
+        // 同时兼容清理旧路径与可执行文件同级目录下的 *.WebView2 缓存文件夹
         final appData = Platform.environment['APPDATA'];
         if (appData != null && appData.isNotEmpty) {
-          final dir = Directory('$appData\\io.github.korty258.jinhua_assistant');
-          if (await dir.exists()) {
-            await dir.delete(recursive: true);
+          final oldDir = Directory('$appData\\io.github.korty258.jinhua_assistant');
+          if (await oldDir.exists()) {
+            try {
+              await oldDir.delete(recursive: true);
+            } catch (_) {}
           }
         }
-        // 尝试清理可执行文件同级目录下的 *.WebView2 缓存文件夹
         try {
           final exeDir = File(Platform.resolvedExecutable).parent;
           if (await exeDir.exists()) {

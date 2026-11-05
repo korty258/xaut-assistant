@@ -49,8 +49,20 @@ class ExamItem {
     required this.room,
   });
 
+  static final _timeRangeCache =
+      Expando<({DateTime? dateOnly, DateTime? start, DateTime? end, bool hasExplicitTime})>();
+
   /// 解析强智教务考试时间文本（兼容 "2026-11-20 09:00~11:00"、"2026-11-20(09:00-11:00)"、"2026年11月20日 14:30-16:30" 等格式）
+  /// 采用 Expando 缓存解析结果，消除排序比较与状态演算中的高频重复正则计算
   ({DateTime? dateOnly, DateTime? start, DateTime? end, bool hasExplicitTime}) parseTimeRange() {
+    final cached = _timeRangeCache[this];
+    if (cached != null) return cached;
+    final parsed = _computeTimeRange();
+    _timeRangeCache[this] = parsed;
+    return parsed;
+  }
+
+  ({DateTime? dateOnly, DateTime? start, DateTime? end, bool hasExplicitTime}) _computeTimeRange() {
     final raw = examTime.trim();
     if (raw.isEmpty) {
       return (dateOnly: null, start: null, end: null, hasExplicitTime: false);

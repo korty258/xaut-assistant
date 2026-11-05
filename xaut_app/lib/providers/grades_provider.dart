@@ -6,7 +6,7 @@ import '../services/app_crypto_service.dart';
 
 class GradesProvider extends ChangeNotifier {
   static const String _keyGrades = 'xaut_cached_grades';
-  static const String _keySummary = 'xaut_cached_grade_summary';
+  static const String _legacyKeySummary = 'xaut_cached_grade_summary';
 
   static const Map<String, ({double score, double gpa})> _fiveLevelGradeMap = {
     '优': (score: 95.0, gpa: 4.5),
@@ -85,7 +85,7 @@ class GradesProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> updateGrades(List<GradeItem> grades, [GradeSummary? _]) async {
+  Future<void> updateGrades(List<GradeItem> grades) async {
     _grades = grades;
     _hasDecryptionError = false;
     // 若当前选中的学期在新数据中已不存在，自动回退至「全部」
@@ -100,14 +100,6 @@ class GradesProvider extends ChangeNotifier {
       _keyGrades,
       jsonEncode(_grades.map((g) => g.toJson()).toList()),
     );
-    final overall = overallSummary;
-    if (overall != null) {
-      await AppCryptoService.saveEncryptedString(
-        prefs,
-        _keySummary,
-        jsonEncode(overall.toJson()),
-      );
-    }
   }
 
   /// 精确统计总学分、加权平均分与平均绩点（同时兼容百分制、五级制「优/良/中/及格」与二级制「合格/通过」）
@@ -170,6 +162,6 @@ class GradesProvider extends ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyGrades);
-    await prefs.remove(_keySummary);
+    await prefs.remove(_legacyKeySummary);
   }
 }

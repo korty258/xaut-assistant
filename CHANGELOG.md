@@ -6,6 +6,28 @@
 
 ## [Unreleased]
 
+## [2.2.0-rc2] - 2026-11-05
+
+本版本为 `v2.2.0` 候选发布版（Release Candidate 2），全面加固端侧数据生命周期状态管理、完善主密钥单飞恢复与写入校验、增强跨 iframe 与单双周解析鲁棒性，并补齐 Windows 端撤回授权真实路径清理。
+
+### Security & Privacy
+- 修复撤回知情同意及重置损坏数据后的内存状态残留：调用 `LegalService.revokeAndClearAll()` 与 `StorageService.resetCorruptedData()` 时，同步调用全量 Provider 的 `clearAll()` 彻底清空内存，杜绝界面残留。
+- 加固主密钥安全存储与单飞恢复：修复主密钥写入失败时吞掉真实存储异常的隐患，增加写入回读校验与真实异常重抛；修复 Single-Flight 机制在异常时的死锁问题，确保异常后可正常重试。
+- 注入脚本顶层 Origin 安全守卫：为 5 个注入解析脚本头部增加严格的协议（`https:`）与域名后缀（`*.xaut.edu.cn`）运行时自检，从 JS 底层阻断导航竞态与恶意外跳。
+- 修正 Windows 桌面端撤回授权数据清理路径：更正为真实的 `getApplicationSupportDirectory` 目录（`%APPDATA%\Jinhua Assistant OpenSource Community\金花助手`）并自动递归清理文件，兼容无原生环境的测试。
+
+### Fixed
+- 修复课表冷启动无条件篡改「上次同步时间」的缺陷：增加 `updateSyncTime` 可选控制，启动时若去重规范化后数据无变动则不回写，保持同步时间戳准确。
+- 修复全量一键同步脚本在子页面触发时未跨 `iframe` 探测表格导致误报改版错误的问题：预检统一改用跨 frame 搜索函数 `findTableAcrossFrames`。
+- 修复考试安排查询学期参数兜底错误：优先取下拉框显式选中的学期或当前教学周学期，最后兜底取成绩列表中字典序最大的最新学期，避免盲目取首项导致高年级考试列表为空。
+- 修复单/双周混合格式（如 `"1-4单周,5-8周"`、`"1-3,5-7单周"`）解析缺陷：`qiangzhi_parser.js` 与 Dart 侧统一升级为基于子段的单双周判定与向前继承解析算法。
+
+### Changed
+- 统一成绩同步弹窗与成绩界面的 GPA/学分数据源：弹窗直接使用 Dart 侧 `gradesProvider.overallSummary` 计算口径，并清理废弃的 `xaut_cached_grade_summary` 冗余写入字段。
+- 课程详情弹窗周次矩阵支持动态上限（`max(20, currentWeek, ...weeks)`），消除大于 20 周时周次被截断的问题。
+- 优化考试模型（`ExamItem`）时间解析性能：采用 `Expando` 弱引用缓存时间正则解析结果，大幅降低列表排序与状态演算中的重复正则消耗。
+- Android `release` 构建类型在无签名密钥配置时优雅回退至 `debug` 签名，保证非发版分支的 CI 编译产物不报错（发版 Tag 仍保持 SHA-256 证书强校验）。
+
 ## [2.2.0-rc1] - 2026-11-04
 
 本版本为 `v2.2.0` 候选发布版（Release Candidate 1），重点实现强智教务同步结果三态可观测性诊断、未登录自动嗅探，以及本地落盘数据解密失败可见化与数据自愈恢复闭环。
@@ -143,7 +165,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-rc1...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-rc2...HEAD
+[2.2.0-rc2]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-rc1...v2.2.0-rc2
 [2.2.0-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-pre1...v2.2.0-rc1
 [2.2.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.1.2...v2.2.0-pre1
 [2.1.2]: https://github.com/korty258/xaut-assistant/compare/v2.1.1...v2.1.2

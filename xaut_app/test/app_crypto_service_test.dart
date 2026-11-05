@@ -254,6 +254,66 @@ void main() {
       expect(scheduleProvider.hasDecryptionError, isFalse);
       expect(gradesProvider.hasDecryptionError, isFalse);
       expect(examsProvider.hasDecryptionError, isFalse);
+      expect(scheduleProvider.courses, isEmpty);
+      expect(gradesProvider.grades, isEmpty);
+      expect(examsProvider.exams, isEmpty);
+    });
+
+    test('Provider clearAll clears in-memory data completely', () async {
+      final scheduleProvider = ScheduleProvider();
+      final gradesProvider = GradesProvider();
+      final examsProvider = ExamsProvider();
+
+      await scheduleProvider.updateCourses([
+        const Course(
+          name: '测试课',
+          teacher: '老师',
+          room: '101',
+          day: 1,
+          startSection: 1,
+          stepCount: 2,
+          weeks: [1],
+          rawWeekStr: '1周',
+        ),
+      ]);
+      await gradesProvider.updateGrades([
+        const GradeItem(
+          courseName: '测试课',
+          courseCode: 'CS101',
+          credit: 2.0,
+          score: '90',
+          gpa: 4.0,
+          category: '必修',
+          examType: '正常考试',
+          semester: '2026-2027-1',
+        ),
+      ]);
+      await examsProvider.updateExams([
+        const ExamItem(
+          campus: '金花',
+          batch: '期末',
+          courseCode: 'T101',
+          courseName: '测试课',
+          teacher: '老师',
+          examTime: '2026-12-01 09:00-11:00',
+          room: '101',
+        ),
+      ]);
+
+      expect(scheduleProvider.courses, isNotEmpty);
+      expect(gradesProvider.grades, isNotEmpty);
+      expect(examsProvider.exams, isNotEmpty);
+
+      await scheduleProvider.clearAll();
+      await gradesProvider.clearAll();
+      await examsProvider.clearAll();
+
+      expect(scheduleProvider.courses, isEmpty);
+      expect(gradesProvider.grades, isEmpty);
+      expect(examsProvider.exams, isEmpty);
+      expect(scheduleProvider.hasDecryptionError, isFalse);
+      expect(gradesProvider.hasDecryptionError, isFalse);
+      expect(examsProvider.hasDecryptionError, isFalse);
     });
   });
 }

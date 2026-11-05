@@ -61,12 +61,24 @@ class ParserService {
     }
   ''';
 
+  /// 顶层运行环境 Origin 白名单安全守卫（防范导航竞态与恶意外跳）
+  static const String _originGuardJs = '''
+    if (typeof window !== 'undefined' && window.location) {
+      var proto = window.location.protocol;
+      var host = (window.location.hostname || '').toLowerCase();
+      if (proto !== 'https:' || !(host === 'xaut.edu.cn' || host.endsWith('.xaut.edu.cn'))) {
+        throw new Error('Blocked script execution on untrusted origin: ' + window.location.href);
+      }
+    }
+  ''';
+
   /// 构建轻量级当前教学周被动嗅探脚本（供教务主页加载完成时静默捕获右上角「2026-2027-1 第9周」）
   static Future<String> buildWeekDetectScript() async {
     final jsCode = await loadParserJs();
     return '''
       (function() {
         try {
+          $_originGuardJs
           $jsCode
           var allowSelect = window.location.href.indexOf('/jsxsd/xskb/') === -1;
           var info = parseQiangZhiTeachingWeek(document, allowSelect);
@@ -96,6 +108,7 @@ class ParserService {
         }
 
         try {
+          $_originGuardJs
           $jsCode
           $_xhrWeekFallbackJs
           var courses = parseQiangZhiCourses(document);
@@ -117,6 +130,7 @@ class ParserService {
     return '''
       (function() {
         try {
+          $_originGuardJs
           $jsCode
           var res = parseQiangZhiGrades(document);
           return JSON.stringify(res);
@@ -133,6 +147,7 @@ class ParserService {
     return '''
       (function() {
         try {
+          $_originGuardJs
           $jsCode
           var res = parseQiangZhiExams(document);
           return JSON.stringify(res);
@@ -174,6 +189,7 @@ class ParserService {
         }
 
         try {
+          $_originGuardJs
           $jsCode
           $_xhrWeekFallbackJs
 
@@ -238,7 +254,9 @@ class ParserService {
               if (checkAuth(kbDoc, null, null)) {
                 result.status.courses = 'not_logged_in';
               } else {
-                var kbTable = kbDoc.getElementById('timetable') || kbDoc.getElementById('kbtable');
+                var kbTable = findTableAcrossFrames(kbDoc, function(d) {
+                  return d.getElementById('timetable') || d.getElementById('kbtable');
+                });
                 if (!kbTable) {
                   result.status.courses = 'error';
                   result.errors.courses = '未找到课表表格(#timetable/#kbtable)，教务页面可能已改版';
@@ -280,7 +298,9 @@ class ParserService {
               if (checkAuth(cjDoc, null, null)) {
                 result.status.grades = 'not_logged_in';
               } else {
-                var cjTable = cjDoc.getElementById('dataList') || findTableByKeywords(cjDoc, ['课程名称', '成绩']);
+                var cjTable = findTableAcrossFrames(cjDoc, function(d) {
+                  return d.getElementById('dataList') || findTableByKeywords(d, ['课程名称', '成绩']);
+                });
                 if (!cjTable) {
                   result.status.grades = 'error';
                   result.errors.grades = '未找到成绩表格(#dataList)，教务页面可能已改版';
@@ -320,9 +340,14 @@ class ParserService {
 
                 var sel = qDoc.querySelector('select[name="xnxqid"], #xnxqid, select');
                 if (sel) {
-                  var opt = sel.querySelector('option[selected]') || sel.querySelector('option');
+                  var opt = sel.querySelector('option[selected]');
                   if (opt && opt.value) {
                     xnxqid = opt.value.trim();
+                  } else if (sel.selectedIndex >= 0 && sel.options && sel.options[sel.selectedIndex]) {
+                    var sVal = (sel.options[sel.selectedIndex].value || '').trim();
+                    if (sVal) {
+                      xnxqid = sVal;
+                    }
                   }
                 }
 
@@ -330,7 +355,13 @@ class ParserService {
                   xnxqid = result.weekInfo.semester;
                 }
                 if (!xnxqid && result.gradesData && result.gradesData.grades && result.gradesData.grades.length > 0) {
-                  xnxqid = result.gradesData.grades[0].semester || '';
+                  var sems = result.gradesData.grades
+                    .map(function(g) { return (g.semester || '').trim(); })
+                    .filter(function(s) { return s.length > 0; })
+                    .sort();
+                  if (sems.length > 0) {
+                    xnxqid = sems[sems.length - 1];
+                  }
                 }
 
                 var listTargetUrl = iframeUrl;
@@ -373,7 +404,9 @@ class ParserService {
                 if (checkAuth(exDoc, null, null)) {
                   result.status.exams = 'not_logged_in';
                 } else {
-                  var exTable = exDoc.getElementById('dataList') || findTableByKeywords(exDoc, ['课程名称', '考试时间']);
+                  var exTable = findTableAcrossFrames(exDoc, function(d) {
+                    return d.getElementById('dataList') || findTableByKeywords(d, ['课程名称', '考试时间']);
+                  });
                   if (!exTable) {
                     result.status.exams = 'error';
                     result.errors.exams = '未找到考试表格(#dataList)，教务页面可能已改版';

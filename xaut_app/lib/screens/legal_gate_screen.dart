@@ -3,7 +3,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:provider/provider.dart';
 
+import '../providers/exams_provider.dart';
+import '../providers/grades_provider.dart';
+import '../providers/schedule_provider.dart';
 import '../services/legal_service.dart';
 import 'home_screen.dart';
 
@@ -189,7 +193,7 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
         content: Text(
           '依据《个人信息保护法》第 15 条，您有权撤回同意。\n\n'
           '撤回同意后，本软件将清除保存在本机设备上的所有课表、成绩、考试数据以及授权凭证，并退回首次启动法律门禁。\n\n'
-          '${!kIsWeb && defaultTargetPlatform == TargetPlatform.windows ? "【Windows 提示】由于便携版及 WebView2 进程特性，彻底清除内嵌网页缓存请在退出软件后手动删除程序同级目录下的 *.WebView2 文件夹及 %APPDATA%\\io.github.korty258.jinhua_assistant 目录。\n\n" : ""}'
+          '${!kIsWeb && defaultTargetPlatform == TargetPlatform.windows ? "【Windows 提示】由于便携版及 WebView2 进程特性，彻底清除内嵌网页缓存请在退出软件后手动删除程序同级目录下的 *.WebView2 文件夹及 %APPDATA%\\Jinhua Assistant OpenSource Community\\金花助手 目录。\n\n" : ""}'
           '此操作不可撤销，确定撤回吗？',
         ),
         actions: [
@@ -210,6 +214,17 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
     );
 
     if (confirmed == true) {
+      if (mounted) {
+        ScheduleProvider? sp;
+        GradesProvider? gp;
+        ExamsProvider? ep;
+        try { sp = context.read<ScheduleProvider>(); } catch (_) {}
+        try { gp = context.read<GradesProvider>(); } catch (_) {}
+        try { ep = context.read<ExamsProvider>(); } catch (_) {}
+        try { await sp?.clearAll(); } catch (_) {}
+        try { await gp?.clearAll(); } catch (_) {}
+        try { await ep?.clearAll(); } catch (_) {}
+      }
       await LegalService.revokeAndClearAll();
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(

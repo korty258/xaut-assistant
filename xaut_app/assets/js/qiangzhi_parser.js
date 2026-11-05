@@ -250,19 +250,47 @@ function parseWeeks(weekStr) {
   // 避免节次编号（如 07-08、09-10）被全局数字正则误当作上课周次！
   const cleanWeekPart = weekStr.replace(/\[.*?\]/g, "");
 
-  const isOdd = /单/.test(cleanWeekPart);
-  const isEven = /双/.test(cleanWeekPart);
+  // 支持单/双周混合格式（如 "1-4单周,5-8周"、"1-3,5-7单周"、"1-8单周,9-16双周"）
+  // 按逗号/分号/空白拆分为独立子段，子段独立判定或向前探查继承单/双周属性
+  const segments = cleanWeekPart.split(/[,，;；\s]+/).filter(function(s) { return s.trim().length > 0; });
 
-  const rangeMatches = cleanWeekPart.matchAll(/(\d+)(?:-(\d+))?/g);
-  for (const match of rangeMatches) {
-    const start = parseInt(match[1], 10);
-    const end = match[2] ? parseInt(match[2], 10) : start;
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    let mode = 'all'; // 'all', 'odd', 'even'
 
-    for (let w = start; w <= end; w++) {
-      if (isOdd && w % 2 === 0) continue;
-      if (isEven && w % 2 !== 0) continue;
-      if (!weeks.includes(w)) {
-        weeks.push(w);
+    if (/单/.test(seg)) {
+      mode = 'odd';
+    } else if (/双/.test(seg)) {
+      mode = 'even';
+    } else if (/周/.test(seg)) {
+      mode = 'all';
+    } else {
+      // 当前段无明确修饰符（如 "1-3,5-7单周" 中的 "1-3"），向后寻找最近的分段标记
+      for (let j = i + 1; j < segments.length; j++) {
+        if (/单/.test(segments[j])) {
+          mode = 'odd';
+          break;
+        } else if (/双/.test(segments[j])) {
+          mode = 'even';
+          break;
+        } else if (/周/.test(segments[j])) {
+          mode = 'all';
+          break;
+        }
+      }
+    }
+
+    const rangeMatches = seg.matchAll(/(\d+)(?:-(\d+))?/g);
+    for (const match of rangeMatches) {
+      const start = parseInt(match[1], 10);
+      const end = match[2] ? parseInt(match[2], 10) : start;
+
+      for (let w = start; w <= end; w++) {
+        if (mode === 'odd' && w % 2 === 0) continue;
+        if (mode === 'even' && w % 2 !== 0) continue;
+        if (!weeks.includes(w)) {
+          weeks.push(w);
+        }
       }
     }
   }

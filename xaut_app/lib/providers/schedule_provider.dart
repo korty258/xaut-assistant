@@ -126,9 +126,9 @@ class ScheduleProvider extends ChangeNotifier {
       final loaded = await StorageService.loadCourses();
       _courses = _deduplicateCourses(loaded);
       _hasDecryptionError = false;
-      // 仅当正常加载去重后数量/内容有变动时，静默回写存储自愈
-      if (_courses.isNotEmpty) {
-        await StorageService.saveCourses(_courses);
+      // 仅当正常加载去重后数量/内容有变动时，静默回写存储自愈（不改写上次同步时间）
+      if (_courses.isNotEmpty && !_isSameCourseList(loaded, _courses)) {
+        await StorageService.saveCourses(_courses, updateSyncTime: false);
       }
     } on CryptoException {
       _hasDecryptionError = true;
@@ -159,19 +159,50 @@ class ScheduleProvider extends ChangeNotifier {
     final raw = c.rawWeekStr;
     // 关键：剔除中括号 [xx-xx节] 后的周次文本
     final cleanWeekPart = raw.replaceAll(RegExp(r'\[.*?\]'), '');
-    final isOdd = cleanWeekPart.contains('单');
-    final isEven = cleanWeekPart.contains('双');
 
-    final weekMatches = RegExp(r'(\d+)(?:-(\d+))?').allMatches(cleanWeekPart);
+    // 支持单/双周混合格式（如 "1-4单周,5-8周"、"1-3,5-7单周"、"1-8单周,9-16双周"）
+    final segments = cleanWeekPart
+        .split(RegExp(r'[,，;；\s]+'))
+        .where((s) => s.trim().isNotEmpty)
+        .toList();
+
     final List<int> correctedWeeks = [];
-    for (final m in weekMatches) {
-      final start = int.parse(m.group(1)!);
-      final end = m.group(2) != null ? int.parse(m.group(2)!) : start;
-      for (int w = start; w <= end; w++) {
-        if (isOdd && w % 2 == 0) continue;
-        if (isEven && w % 2 != 0) continue;
-        if (!correctedWeeks.contains(w)) {
-          correctedWeeks.add(w);
+    for (int i = 0; i < segments.length; i++) {
+      final seg = segments[i];
+      String mode = 'all'; // 'all', 'odd', 'even'
+
+      if (seg.contains('单')) {
+        mode = 'odd';
+      } else if (seg.contains('双')) {
+        mode = 'even';
+      } else if (seg.contains('周')) {
+        mode = 'all';
+      } else {
+        // 当前段无明确修饰符，向后寻找最近的分段标记
+        for (int j = i + 1; j < segments.length; j++) {
+          if (segments[j].contains('单')) {
+            mode = 'odd';
+            break;
+          } else if (segments[j].contains('双')) {
+            mode = 'even';
+            break;
+          } else if (segments[j].contains('周')) {
+            mode = 'all';
+            break;
+          }
+        }
+      }
+
+      final weekMatches = RegExp(r'(\d+)(?:-(\d+))?').allMatches(seg);
+      for (final m in weekMatches) {
+        final start = int.parse(m.group(1)!);
+        final end = m.group(2) != null ? int.parse(m.group(2)!) : start;
+        for (int w = start; w <= end; w++) {
+          if (mode == 'odd' && w % 2 == 0) continue;
+          if (mode == 'even' && w % 2 != 0) continue;
+          if (!correctedWeeks.contains(w)) {
+            correctedWeeks.add(w);
+          }
         }
       }
     }
@@ -257,6 +288,26 @@ class ScheduleProvider extends ChangeNotifier {
     }
 
     return map.values.toList();
+  }
+
+  static bool _isSameCourseList(List<Course> a, List<Course> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      final ca = a[i];
+      final cb = b[i];
+      if (ca.name != cb.name ||
+          ca.teacher != cb.teacher ||
+          ca.room != cb.room ||
+          ca.day != cb.day ||
+          ca.startSection != cb.startSection ||
+          ca.stepCount != cb.stepCount ||
+          ca.rawWeekStr != cb.rawWeekStr ||
+          !listEquals(ca.weeks, cb.weeks)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// 切换当前浏览的教学周次

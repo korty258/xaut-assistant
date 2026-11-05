@@ -362,7 +362,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
           detectedStart: result.detectedSemesterStart,
         );
         if (result.hasGrades) {
-          await gradesProvider.updateGrades(result.grades, result.gradeSummary);
+          await gradesProvider.updateGrades(result.grades);
         }
         if (result.hasExams) {
           await examsProvider.updateExams(result.exams);
@@ -389,7 +389,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
         final String gradesDetail;
         switch (result.statusGrades) {
           case SyncModuleStatus.ok:
-            gradesDetail = '成功导入 ${result.grades.length} 门成绩 (GPA: ${result.gradeSummary?.averageGpa ?? "-"})';
+            gradesDetail = '成功导入 ${result.grades.length} 门成绩 (GPA: ${gradesProvider.overallSummary?.averageGpa ?? "-"})';
             break;
           case SyncModuleStatus.empty:
             gradesDetail = '当前学期暂无成绩发布';
@@ -728,8 +728,9 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
       if (!mounted) return;
 
       if (result.grades.isNotEmpty) {
-        await gradesProvider.updateGrades(result.grades, result.summary);
+        await gradesProvider.updateGrades(result.grades);
         if (!mounted) return;
+        final summary = gradesProvider.overallSummary;
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -742,8 +743,8 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
             ),
             content: Text(
               '成功导入 ${result.grades.length} 门课程成绩！\n'
-              '平均 GPA: ${result.summary?.averageGpa ?? '-'}\n'
-              '总修学分: ${result.summary?.totalCredits ?? '-'}',
+              '平均 GPA: ${summary?.averageGpa ?? '-'}\n'
+              '总修学分: ${summary?.totalCredits ?? '-'}',
             ),
             actions: [
               FilledButton(

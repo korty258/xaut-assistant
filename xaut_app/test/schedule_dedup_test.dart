@@ -8,6 +8,7 @@ import 'package:xaut_app/providers/grades_provider.dart';
 import 'package:xaut_app/providers/schedule_provider.dart';
 import 'package:xaut_app/services/parser_service.dart';
 import 'package:xaut_app/services/legal_service.dart';
+import 'package:xaut_app/services/storage_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -516,5 +517,71 @@ void main() {
     // 伪课程已被全部过滤自愈，仅保留真实正课
     expect(coursesDay1.length, 1);
     expect(coursesDay1.first.name, '高等数学(下)');
+  });
+
+  test('Cold boot does not overwrite lastSyncTime when courses are already deduplicated', () async {
+    final provider = ScheduleProvider();
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    final sample = [
+      const Course(
+        name: '电路分析基础',
+        teacher: '李老师',
+        room: '教2-101',
+        day: 2,
+        startSection: 3,
+        stepCount: 2,
+        weeks: [1, 2, 3, 4],
+        rawWeekStr: '1-4周[03-04节]',
+      ),
+    ];
+    await provider.updateCourses(sample);
+    final t1 = await StorageService.loadLastSyncTime();
+    expect(t1, isNotNull);
+
+    // 等待 50ms 模拟冷启动重新初始化 Provider
+    await Future.delayed(const Duration(milliseconds: 50));
+    final provider2 = ScheduleProvider();
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    final t2 = await StorageService.loadLastSyncTime();
+    expect(t2, equals(t1));
+    expect(provider2.courses.length, 1);
+  });
+
+  test('ScheduleProvider normalizes mixed odd/even week strings', () async {
+    final provider = ScheduleProvider();
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    final courses = [
+      const Course(
+        name: '计算机组成原理',
+        teacher: '赵老师',
+        room: '教3-202',
+        day: 3,
+        startSection: 1,
+        stepCount: 2,
+        weeks: [],
+        rawWeekStr: '1-4单周,5-8周[01-02节]',
+      ),
+      const Course(
+        name: '数字信号处理',
+        teacher: '钱老师',
+        room: '教3-203',
+        day: 4,
+        startSection: 3,
+        stepCount: 2,
+        weeks: [],
+        rawWeekStr: '1-3,5-7单周[03-04节]',
+      ),
+    ];
+
+    await provider.updateCourses(courses);
+
+    final c1 = provider.courses.firstWhere((c) => c.name == '计算机组成原理');
+    expect(c1.weeks, [1, 3, 5, 6, 7, 8]);
+
+    final c2 = provider.courses.firstWhere((c) => c.name == '数字信号处理');
+    expect(c2.weeks, [1, 3, 5, 7]);
   });
 }

@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/exams_provider.dart';
+import '../providers/grades_provider.dart';
+import '../providers/schedule_provider.dart';
 import '../screens/webview_login_screen.dart';
 import '../services/storage_service.dart';
 
@@ -90,7 +94,18 @@ class DecryptionErrorView extends StatelessWidget {
                   ),
                 );
                 if (confirm == true) {
+                  ScheduleProvider? sp;
+                  GradesProvider? gp;
+                  ExamsProvider? ep;
+                  if (context.mounted) {
+                    try { sp = context.read<ScheduleProvider>(); } catch (_) {}
+                    try { gp = context.read<GradesProvider>(); } catch (_) {}
+                    try { ep = context.read<ExamsProvider>(); } catch (_) {}
+                  }
                   await StorageService.resetCorruptedData();
+                  try { await sp?.clearAll(); } catch (_) {}
+                  try { await gp?.clearAll(); } catch (_) {}
+                  try { await ep?.clearAll(); } catch (_) {}
                   onReset();
                 }
               },

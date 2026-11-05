@@ -228,43 +228,48 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
                 ),
               ),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: List.generate(20, (index) {
-                  final weekNum = index + 1;
-                  final hasClass = course.isActiveInWeek(weekNum);
-                  final isSelected = weekNum == widget.currentWeek;
+              Builder(
+                builder: (context) {
+                  final maxWeekToShow = [20, widget.currentWeek, ...course.weeks].reduce((a, b) => a > b ? a : b);
+                  return Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: List.generate(maxWeekToShow, (index) {
+                      final weekNum = index + 1;
+                      final hasClass = course.isActiveInWeek(weekNum);
+                      final isSelected = weekNum == widget.currentWeek;
 
-                  return Container(
-                    width: 28,
-                    height: 28,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? color
-                          : hasClass
-                              ? color.withValues(alpha: 0.18)
-                              : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-                      borderRadius: BorderRadius.circular(6),
-                      border: isSelected
-                          ? Border.all(color: color, width: 2)
-                          : null,
-                    ),
-                    child: Text(
-                      '$weekNum',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: isSelected || hasClass ? FontWeight.bold : FontWeight.normal,
-                        color: isSelected
-                            ? Colors.white
-                            : hasClass
-                                ? color
-                                : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
-                      ),
-                    ),
+                      return Container(
+                        width: 28,
+                        height: 28,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? color
+                              : hasClass
+                                  ? color.withValues(alpha: 0.18)
+                                  : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(6),
+                          border: isSelected
+                              ? Border.all(color: color, width: 2)
+                              : null,
+                        ),
+                        child: Text(
+                          '$weekNum',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: isSelected || hasClass ? FontWeight.bold : FontWeight.normal,
+                            color: isSelected
+                                ? Colors.white
+                                : hasClass
+                                    ? color
+                                    : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
+                          ),
+                        ),
+                      );
+                    }),
                   );
-                }),
+                },
               ),
 
               const SizedBox(height: 22),

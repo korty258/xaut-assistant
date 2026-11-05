@@ -13,11 +13,16 @@ class StorageService {
   static const String _keySemesterName = 'xaut_semester_name';
 
   /// 保存课表
-  static Future<bool> saveCourses(List<Course> courses) async {
+  static Future<bool> saveCourses(
+    List<Course> courses, {
+    bool updateSyncTime = true,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final jsonList = courses.map((c) => c.toJson()).toList();
     final jsonStr = jsonEncode(jsonList);
-    await prefs.setString(_keyLastSync, DateTime.now().toIso8601String());
+    if (updateSyncTime) {
+      await prefs.setString(_keyLastSync, DateTime.now().toIso8601String());
+    }
     return AppCryptoService.saveEncryptedString(prefs, _keyCourses, jsonStr);
   }
 

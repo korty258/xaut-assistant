@@ -158,3 +158,21 @@ test('4. 教学周与学期识别回归测试 (parseQiangZhiTeachingWeek)', asyn
     assert.equal(weekInfo.semester, '');
   });
 });
+
+test('5. 复杂周次解析回归测试 (parseWeeks)', async (t) => {
+  await t.test('混合单双周格式: "1-4单周,5-8周"', () => {
+    assert.deepEqual(parser.parseWeeks('1-4单周,5-8周'), [1, 3, 5, 6, 7, 8]);
+  });
+
+  await t.test('前导无修饰继承末尾单周: "1-3,5-7单周"', () => {
+    assert.deepEqual(parser.parseWeeks('1-3,5-7单周'), [1, 3, 5, 7]);
+  });
+
+  await t.test('前后不同单双周: "1-8单周,9-16双周"', () => {
+    assert.deepEqual(parser.parseWeeks('1-8单周,9-16双周'), [1, 3, 5, 7, 10, 12, 14, 16]);
+  });
+
+  await t.test('含节次中括号混入: "1-4单周,5-8周[01-02节]"', () => {
+    assert.deepEqual(parser.parseWeeks('1-4单周,5-8周[01-02节]'), [1, 3, 5, 6, 7, 8]);
+  });
+});
