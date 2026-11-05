@@ -6,6 +6,51 @@
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-05
+
+金花助手 `v2.2.0` 正式版发布！本版本为重大可靠性与安全性升级，全面加固端侧数据生命周期、引入强智 DOM 解析层离线回归测试套件、构建同步三态可观测诊断与数据自愈闭环、并封堵 WebView 与安全存储多处边界隐患。
+
+### Added
+- **DOM 解析器离线自动化回归测试套件 (`parser_test/`)**：
+  - 基于 Node 24 原生测试运行器与 JSDOM 构建 18 组核心用例，覆盖课表双容器过滤、4 节连排、表尾大跨度备注行阻断、五级制/二级制成绩折算、无座位号考试日程与登录负例。
+  - 全面集成至 GitHub Actions CI 质量门禁流水线。
+- **全量同步三态/四态可观测诊断**：
+  - 建立 `SyncModuleStatus` 可观测模型，明确区分成功（`ok`）、当前学期无数据（`empty`）、统一身份认证未登录（`notLoggedIn`）与改版/解析异常（`error`）。
+  - 增强未登录嗅探能力，自动识别 CAS 金智认证重定向特征并在同步完成弹窗中逐项展示诊断状态与错误摘要。
+- **解密失败可见化与数据自愈闭环 (`DecryptionErrorView`)**：
+  - 当设备密钥变更或本地密文损坏时，界面直观提示异常原因，提供“重新同步”与“一键重置损坏数据并重置主密钥”两条恢复通路，无需重新签署法律协议。
+- **课程详情周次矩阵动态上限**：
+  - 弹窗矩阵支持动态上限 `max(20, currentWeek, ...weeks)`，消除教学周超过 20 周时被截断的问题。
+
+### Security & Privacy
+- **内存生命周期严格闭环**：
+  - 撤回知情同意（《个人信息保护法》第 15 条）与重置损坏数据时，同步调用全量 Provider 的 `clearAll()` 彻底销毁内存状态与错误标记，杜绝界面残留。
+- **主密钥安全存储与单飞死锁修复**：
+  - 修复首次写入安全存储时吞异常问题，增加写入回读校验与真实异常重抛，阻止未持久化临时密钥加密落盘；修复 Single-Flight 机制在异常时的死锁问题，允许失败后安全重试。
+- **WebView 安全与脚本注入 Origin 守卫**：
+  - 修复 `WebViewLoginScreen.isAllowedUrl` 空 Host 漏洞，严格限制 `*.xaut.edu.cn` HTTPS 白名单并增加 Windows 拦截即时 `_winController.stop()`。
+  - 为 5 个注入解析脚本头部增加 `_originGuardJs` 严格校验 `proto === 'https:'` 与 `host.endsWith('.xaut.edu.cn')`，彻底封堵导航竞态与恶意外跳。
+  - 脚本执行增加 30 秒硬超时保护，防范校内教务接口冻结。
+- **Windows 桌面端撤回清理路径更正**：
+  - 更正为真实的 `getApplicationSupportDirectory` 目录（`%APPDATA%\Jinhua Assistant OpenSource Community\金花助手`），并自动递归清理文件。
+- **敏感数据脱敏**：
+  - 移除安全日志中密钥的十六进制字符串插值，测试用例与样本数据全面剥离教师姓名等个人信息。
+
+### Fixed
+- **课表冷启动同步时间保护**：
+  - 修复每次启动无条件将「上次同步时间」篡改为当前时间的缺陷，仅在去重数据确有变动时静默回写，保持同步时间戳准确。
+- **全量同步跨 iframe 探测**：
+  - 预检课表、成绩、考试表格统一改用跨 frame 搜索函数 `findTableAcrossFrames`，消除子页面嵌套 iframe 时的误报改版错误。
+- **考试查询学期参数兜底**：
+  - 优先取下拉框显式选中的学期或当前教学周学期，兜底取成绩列表中字典序最大的最新学期，避免盲目取首项导致高年级考试列表为空。
+- **复杂单/双周混合格式解析**：
+  - `qiangzhi_parser.js` 与 Dart 侧统一升级为基于子段的单双周判定与向前继承解析算法（覆盖 `"1-4单周,5-8周"`、`"1-3,5-7单周"`、`"1-8单周,9-16双周"` 等）。
+
+### Changed
+- 统一成绩同步弹窗与成绩界面的 GPA/学分数据源为 Dart 侧 `gradesProvider.overallSummary` 计算口径，并清理废弃的 `xaut_cached_grade_summary` 冗余写入。
+- 优化考试模型（`ExamItem`）时间解析性能，采用 `Expando` 弱引用缓存时间正则解析结果，降低高频重复正则开销。
+- Android `release` 构建类型在无签名密钥配置时优雅回退至 `debug` 签名，保证非发版分支的 CI 编译产物不报错。
+
 ## [2.2.0-rc2] - 2026-11-05
 
 本版本为 `v2.2.0` 候选发布版（Release Candidate 2），全面加固端侧数据生命周期状态管理、完善主密钥单飞恢复与写入校验、增强跨 iframe 与单双周解析鲁棒性，并补齐 Windows 端撤回授权真实路径清理。
@@ -165,7 +210,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-rc2...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/korty258/xaut-assistant/compare/v2.1.2...v2.2.0
 [2.2.0-rc2]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-rc1...v2.2.0-rc2
 [2.2.0-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-pre1...v2.2.0-rc1
 [2.2.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.1.2...v2.2.0-pre1
