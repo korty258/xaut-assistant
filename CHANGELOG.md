@@ -6,6 +6,25 @@
 
 ## [Unreleased]
 
+## [2.3.0-pre1] - 2026-11-05
+
+本版本为 `v2.3.0` 首个开发预览版（Developer Preview 1），重点完成全量教务同步全异步架构重构以及千行核心界面的模块化解耦拆分，彻底消除大同步时的 UI 冻结现象，并大幅提升工程代码健康度与可维护性。
+
+### Added
+- **跨端原生消息通道与全量异步同步架构**：
+  - 在 `WebViewPlatformAdapter` 中打通双端原生通信桥梁（Android 原生 `JavascriptChannel('JinhuaBridge')` 与 Windows WebView2 原生 `window.chrome.webview.postMessage`）。
+  - 支持阶段性同步进度实时分发与界面感知（动态呈现教学周识别、课表提取、学业成绩与考试安排进度），消除大同步过程中的 UI 冻结与操作阻滞。
+- **模块化排布算法与单元测试套件**：
+  - 新增 `schedule_layout_test.dart` 8 组核心用例，全方位断言多课程动态分栏、智能聚类排布、活跃周次优先及邻近度排序规则。
+
+### Refactored
+- **强智解析层异步化升级 (`ParserService`)**：
+  - 彻底废除同步阻塞式 `XMLHttpRequest`，全面升级为基于原生 `fetch` 与 `AbortController` 20 秒超时保护的异步拉取（`fetchHtmlAsync` 与 `fetchHtmlAsyncPost`）。
+  - 同步脚本支持桥接通知与直接返回值双轨兼容。
+- **千行大页面单一职责解耦拆解**：
+  - **`WebViewLoginScreen` (1156 行 ➔ 198 行)**：解耦为 `webview_constants.dart`（常量与业务路由枚举）、`webview_platform_adapter.dart`（双端生命周期与桥接通道）、`webview_sync_coordinator.dart`（同步业务编排与弹窗）、`webview_nav_bar.dart`（导航与地址条）与 `webview_bottom_bar.dart`（操作栏与进度指示）。
+  - **`ScheduleScreen` (1145 行 ➔ 380 行)**：解耦为 `schedule_types.dart`（布局项模型与纯函数排布算法）、`week_switcher_capsule.dart`（双端周次切换胶囊）、`schedule_empty_guide.dart`（无课表空态引导）、`week_status_banner.dart`（非本周回到本周提醒条）、`weekday_header.dart`（星期与公历日期表头）、`section_timeline.dart`（13 节次时间轴）与 `schedule_day_column.dart`（单天网格与课程并列定位卡片）。
+
 ## [2.2.0] - 2026-11-05
 
 金花助手 `v2.2.0` 正式版发布！本版本为重大可靠性与安全性升级，全面加固端侧数据生命周期、引入强智 DOM 解析层离线回归测试套件、构建同步三态可观测诊断与数据自愈闭环、并封堵 WebView 与安全存储多处边界隐患。
@@ -210,7 +229,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-pre1...HEAD
+[2.3.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.2.0...v2.3.0-pre1
 [2.2.0]: https://github.com/korty258/xaut-assistant/compare/v2.1.2...v2.2.0
 [2.2.0-rc2]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-rc1...v2.2.0-rc2
 [2.2.0-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-pre1...v2.2.0-rc1

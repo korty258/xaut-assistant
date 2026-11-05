@@ -14,9 +14,71 @@ class ParserService {
     return _cachedJsCode!;
   }
 
-  /// 跨页面补充探测周次与校历开学日的公共 JS 片段
-  static const String _xhrWeekFallbackJs = '''
-    function resolveTeachingWeekWithFallback(doc, currentUrl) {
+  /// 跨端原生消息桥接与异步 Fetch / 校历探测公共 JS 工具片段
+  static const String _asyncBridgeHelperJs = '''
+    function postToFlutter(msgObj) {
+      try {
+        var str = typeof msgObj === 'string' ? msgObj : JSON.stringify(msgObj);
+        if (typeof window !== 'undefined') {
+          if (window.JinhuaBridge && typeof window.JinhuaBridge.postMessage === 'function') {
+            window.JinhuaBridge.postMessage(str);
+            return true;
+          }
+          if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+            window.chrome.webview.postMessage(str);
+            return true;
+          }
+        }
+      } catch(e) {}
+      return false;
+    }
+
+    async function fetchHtmlAsync(url, options) {
+      try {
+        var opt = options || {};
+        var init = {
+          method: opt.method || 'GET',
+          credentials: 'include',
+          headers: opt.headers || {}
+        };
+        if (opt.body) {
+          init.body = opt.body;
+        }
+        if (typeof AbortController !== 'undefined') {
+          var controller = new AbortController();
+          init.signal = controller.signal;
+          var timeout = setTimeout(function() { controller.abort(); }, 20000);
+          try {
+            var resp = await fetch(url, init);
+            clearTimeout(timeout);
+            if (resp && resp.ok) {
+              return await resp.text();
+            }
+          } catch(err) {
+            clearTimeout(timeout);
+            return null;
+          }
+        } else {
+          var resp = await fetch(url, init);
+          if (resp && resp.ok) {
+            return await resp.text();
+          }
+        }
+      } catch(e) {}
+      return null;
+    }
+
+    async function fetchHtmlAsyncPost(url, data) {
+      return await fetchHtmlAsync(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+        },
+        body: data
+      });
+    }
+
+    async function resolveTeachingWeekWithFallbackAsync(doc, currentUrl) {
       var allowSelect = currentUrl.indexOf('/jsxsd/xskb/') === -1;
       var info = parseQiangZhiTeachingWeek(doc, allowSelect);
       if (info && info.currentWeek) {
@@ -29,7 +91,7 @@ class ParserService {
         '/jsxsd/framework/xsMain_10700.htmlx'
       ];
       for (var i = 0; i < probeUrls.length; i++) {
-        var html = fetchHtmlSync(probeUrls[i]);
+        var html = await fetchHtmlAsync(probeUrls[i]);
         if (html) {
           var pDoc = new DOMParser().parseFromString(html, 'text/html');
           var subInfo = parseQiangZhiTeachingWeek(pDoc, true);
@@ -44,7 +106,7 @@ class ParserService {
       }
 
       // 终极保底：从强智教学周历 (/jsxsd/jxzl/jxzl_query) 提取第 1 周周一公历日期
-      var calHtml = fetchHtmlSync('/jsxsd/jxzl/jxzl_query');
+      var calHtml = await fetchHtmlAsync('/jsxsd/jxzl/jxzl_query');
       if (calHtml) {
         var calDoc = new DOMParser().parseFromString(calHtml, 'text/html');
         var startStr = parseQiangZhiCalendarStart(calDoc);
@@ -80,10 +142,13 @@ class ParserService {
         try {
           $_originGuardJs
           $jsCode
+          $_asyncBridgeHelperJs
           var allowSelect = window.location.href.indexOf('/jsxsd/xskb/') === -1;
           var info = parseQiangZhiTeachingWeek(document, allowSelect);
+          postToFlutter({ type: 'detect_week_result', success: true, data: info });
           return JSON.stringify(info);
         } catch(e) {
+          postToFlutter({ type: 'detect_week_result', success: false, error: e.toString() });
           return JSON.stringify({ error: e.toString() });
         }
       })();
@@ -94,30 +159,21 @@ class ParserService {
   static Future<String> buildCourseInjectionScript() async {
     final jsCode = await loadParserJs();
     return '''
-      (function() {
-        function fetchHtmlSync(url) {
-          try {
-            var xhr = new XMLHttpRequest();
-            xhr.open('GET', url, false);
-            xhr.send(null);
-            if (xhr.status >= 200 && xhr.status < 300) {
-              return xhr.responseText;
-            }
-          } catch(e) {}
-          return null;
-        }
-
+      (async function() {
         try {
           $_originGuardJs
           $jsCode
-          $_xhrWeekFallbackJs
+          $_asyncBridgeHelperJs
           var courses = parseQiangZhiCourses(document);
-          var weekInfo = resolveTeachingWeekWithFallback(document, window.location.href);
-          return JSON.stringify({
+          var weekInfo = await resolveTeachingWeekWithFallbackAsync(document, window.location.href);
+          var res = {
             courses: courses,
             weekInfo: weekInfo
-          });
+          };
+          postToFlutter({ type: 'sync_course_result', success: true, data: res });
+          return JSON.stringify(res);
         } catch(e) {
+          postToFlutter({ type: 'sync_course_result', success: false, error: e.toString() });
           return JSON.stringify({ error: e.toString() });
         }
       })();
@@ -132,9 +188,12 @@ class ParserService {
         try {
           $_originGuardJs
           $jsCode
+          $_asyncBridgeHelperJs
           var res = parseQiangZhiGrades(document);
+          postToFlutter({ type: 'sync_grades_result', success: true, data: res });
           return JSON.stringify(res);
         } catch(e) {
+          postToFlutter({ type: 'sync_grades_result', success: false, error: e.toString() });
           return JSON.stringify({ error: e.toString() });
         }
       })();
@@ -149,9 +208,12 @@ class ParserService {
         try {
           $_originGuardJs
           $jsCode
+          $_asyncBridgeHelperJs
           var res = parseQiangZhiExams(document);
+          postToFlutter({ type: 'sync_exams_result', success: true, data: res });
           return JSON.stringify(res);
         } catch(e) {
+          postToFlutter({ type: 'sync_exams_result', success: false, error: e.toString() });
           return JSON.stringify({ error: e.toString() });
         }
       })();
@@ -162,36 +224,11 @@ class ParserService {
   static Future<String> buildSyncAllInjectionScript() async {
     final jsCode = await loadParserJs();
     return '''
-      (function() {
-        function fetchHtmlSync(url) {
-          try {
-            var xhr = new XMLHttpRequest();
-            xhr.open('GET', url, false);
-            xhr.send(null);
-            if (xhr.status >= 200 && xhr.status < 300) {
-              return xhr.responseText;
-            }
-          } catch(e) {}
-          return null;
-        }
-
-        function fetchHtmlSyncPost(url, data) {
-          try {
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', url, false);
-            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
-            xhr.send(data);
-            if (xhr.status >= 200 && xhr.status < 300) {
-              return xhr.responseText;
-            }
-          } catch(e) {}
-          return null;
-        }
-
+      (async function() {
         try {
           $_originGuardJs
           $jsCode
-          $_xhrWeekFallbackJs
+          $_asyncBridgeHelperJs
 
           function checkAuth(doc, html, url) {
             if (url && (url.indexOf('/authserver/login') !== -1 || url.indexOf('/authserver/') !== -1)) return true;
@@ -230,16 +267,18 @@ class ParserService {
 
           // 0. 提取当前教学周与学年学期（教务主页右上角天然带有 "2026-2027-1 第9周"）
           try {
-            result.weekInfo = resolveTeachingWeekWithFallback(document, currentUrl);
+            postToFlutter({ type: 'progress', message: '正在识别教学周与学期...' });
+            result.weekInfo = await resolveTeachingWeekWithFallbackAsync(document, currentUrl);
           } catch(e) {}
 
           // 1. 课表解析
           try {
+            postToFlutter({ type: 'progress', message: '正在同步课表数据...' });
             var kbDoc = null;
             if (currentUrl.indexOf('/jsxsd/xskb/') !== -1) {
               kbDoc = document;
             } else {
-              var kbHtml = fetchHtmlSync('/jsxsd/xskb/xskb_list.do');
+              var kbHtml = await fetchHtmlAsync('/jsxsd/xskb/xskb_list.do');
               if (checkAuth(null, kbHtml, null)) {
                 result.status.courses = 'not_logged_in';
               } else if (kbHtml) {
@@ -279,11 +318,12 @@ class ParserService {
 
           // 2. 成绩解析
           try {
+            postToFlutter({ type: 'progress', message: '正在同步学业成绩...' });
             var cjDoc = null;
             if (currentUrl.indexOf('/jsxsd/kscj/') !== -1) {
               cjDoc = document;
             } else {
-              var cjHtml = fetchHtmlSync('/jsxsd/kscj/cjcx_list');
+              var cjHtml = await fetchHtmlAsync('/jsxsd/kscj/cjcx_list');
               if (checkAuth(null, cjHtml, null)) {
                 result.status.grades = 'not_logged_in';
               } else if (cjHtml) {
@@ -317,11 +357,12 @@ class ParserService {
 
           // 3. 考试安排解析（深度穿透外壳页与参数自动提取）
           try {
+            postToFlutter({ type: 'progress', message: '正在查询考试安排...' });
             var exDoc = null;
             if (currentUrl.indexOf('/jsxsd/xsks/') !== -1) {
               exDoc = document;
             } else {
-              var queryHtml = fetchHtmlSync('/jsxsd/xsks/xsksap_query');
+              var queryHtml = await fetchHtmlAsync('/jsxsd/xsks/xsksap_query');
               if (checkAuth(null, queryHtml, null)) {
                 result.status.exams = 'not_logged_in';
               } else if (queryHtml) {
@@ -373,7 +414,7 @@ class ParserService {
                   listTargetUrl = '/jsxsd/xsks/xsksap_list' + (xnxqid ? ('?xnxqid=' + encodeURIComponent(xnxqid)) : '');
                 }
 
-                var listHtml = fetchHtmlSync(listTargetUrl);
+                var listHtml = await fetchHtmlAsync(listTargetUrl);
                 if (checkAuth(null, listHtml, null)) {
                   result.status.exams = 'not_logged_in';
                 } else if (listHtml) {
@@ -381,14 +422,14 @@ class ParserService {
                 }
 
                 if (result.status.exams !== 'not_logged_in' && (!exDoc || !exDoc.getElementById('dataList')) && xnxqid) {
-                  var postHtml = fetchHtmlSyncPost('/jsxsd/xsks/xsksap_list', 'xnxqid=' + encodeURIComponent(xnxqid));
+                  var postHtml = await fetchHtmlAsyncPost('/jsxsd/xsks/xsksap_list', 'xnxqid=' + encodeURIComponent(xnxqid));
                   if (postHtml && !checkAuth(null, postHtml, null)) {
                     exDoc = new DOMParser().parseFromString(postHtml, 'text/html');
                   }
                 }
 
                 if (result.status.exams !== 'not_logged_in' && (!exDoc || !exDoc.getElementById('dataList'))) {
-                  var fallbackHtml = fetchHtmlSync('/jsxsd/xsks/xsksap_list');
+                  var fallbackHtml = await fetchHtmlAsync('/jsxsd/xsks/xsksap_list');
                   if (fallbackHtml && !checkAuth(null, fallbackHtml, null)) {
                     exDoc = new DOMParser().parseFromString(fallbackHtml, 'text/html');
                   }
@@ -425,8 +466,10 @@ class ParserService {
             result.errors.exams = String(e);
           }
 
+          postToFlutter({ type: 'sync_all_result', success: true, data: result });
           return JSON.stringify(result);
         } catch(e) {
+          postToFlutter({ type: 'sync_all_result', success: false, error: e.toString() });
           return JSON.stringify({ error: e.toString() });
         }
       })();
