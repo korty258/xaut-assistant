@@ -6,6 +6,44 @@
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-07
+
+金花助手 `v2.3.0` 正式版发布！本版本为重大架构与可靠性升级：全面完成强智教务全量异步同步重构（彻底消除 UI 冻结）、千行核心界面单一职责解耦、异步桥接 `requestId` 生命周期隔离、四态缓存防误清纵深加固、学期基准跳变与课表原子确认保护，以及主密钥强一致校验与 Windows 撤回授权冷启动补偿擦除闭环。
+
+### Added
+- **双端原生消息桥接与全量异步同步架构**：
+  - 打通 Android `JavascriptChannel('JinhuaBridge')` 与 Windows WebView2 `window.chrome.webview.postMessage` 原生通信通道，废除同步阻塞式 `XMLHttpRequest`，升级为 `fetch` + `AbortController` 异步拉取。
+  - 支持阶段性同步进度实时透出（教学周识别、课表提取、学业成绩、考试安排），消除全量同步时的界面卡顿。
+- **学期基准变更冲突检测与原子确认保护 (`ScheduleProvider` & `WebViewSyncCoordinator`)**：
+  - 引入 `evaluateSemesterCalibration` 纯逻辑评估器：当校历起始日与顶栏周次反推存在 `>= 7` 天偏差，或与本地基准发生跨学期 / `>= 7` 天跳变时弹出二次确认对话框。
+  - 确认流程前置至课表落盘之前：若用户选择「保持原设置」，同时保留原课表与原学期基准，杜绝新课表与旧开学日错位混用；仅识别到学期名而无周次时调用 `setSemesterNameOnly` 并准确提示手动校准。
+- **工程质量门禁与构建校验增强**：
+  - GitHub Actions 构建门禁扩展覆盖 `pull_request` 双端编译校验，Release 发布自动生成并附带 `SHA256SUMS.txt` 校验清单。
+  - Flutter 自动化单元与组件测试扩充至 **96 项**（新增课表排布算法、异步桥接路由与超时取消、`success: false` 异常拦截、生命周期销毁、单飞防抖、四态缓存与密钥强校验回归套件）。
+
+### Changed & Refactored
+- **千行大页面单一职责解耦拆分**：
+  - `WebViewLoginScreen`（1156 行 ➔ 218 行）拆分为平台适配器、同步协调器、导航地址栏与底部进度操作栏组件；页面加载状态（`isLoadingNotifier`）与数据同步状态（`isSyncingNotifier`）彻底解耦。
+  - `ScheduleScreen`（1145 行 ➔ 380 行）拆分为纯函数排布算法、双端切周胶囊、空态引导、回到本周横幅、星期公历表头、13 节时间轴与单日网格列组件。
+- **异步桥接请求生命周期隔离与精确路由 (`WebViewPlatformAdapter` & `ParserService`)**：
+  - 引入全局递增 `requestId` 精准路由与 `window.__jinhuaAbortTask` 取消钩子，超时与已取消任务的迟到响应直接丢弃；在 Android/Windows 页面跨页跳转（排除 `#hash` 锚点变化）、刷新或销毁时主动取消挂起任务。
+  - 全量同步（`syncAll`）强制通过独立异步请求拉取默认全量课表与成绩数据源，严禁直接读取当前浏览页 `document`，防止页面筛选态污染本地全量缓存。
+
+### Fixed
+- **纵深阻断异常响应误清空本地缓存**：
+  - 桥接层第一时间拦截 `type == 'error'` 与 `parsed['success'] == false` 全局异常包；解析层将 `SyncModuleStatus.fromString` 默认回退收紧为 `SyncModuleStatus.error`，严格按四态语义仅在显式合法 `empty` 时清空对应模块旧缓存，`notLoggedIn` 与 `error` 始终保留本地历史缓存。
+- **防抖自锁与页面销毁竞态修复**：
+  - 修复非业务页智能提示弹窗过早记录冷却时间导致弹窗内「一键同步全部」被 3 秒冷却自锁拦截的问题，并增加单飞互斥锁。
+  - 调整 `WebViewLoginScreen.dispose()` 释放顺序并补充 `isDisposed` 状态守卫，杜绝退出页面时向已销毁 `ValueNotifier` 写入触发异常。
+
+### Security & Compliance
+- **主密钥写后回读强一致校验 (`AppCryptoService`)**：
+  - 首次生成主密钥写入系统安全存储后立即执行回读比对，若为空或不一致立即抛出 `CryptoKeyException` 并阻断未持久化临时密钥加密落盘，消除重启后永久解密死锁隐患。
+- **Windows 撤回授权冷启动早期补偿擦除 (`LegalService`)**：
+  - 针对运行期 WebView2 文件句柄占用场景，引入 `pendingWindowsWipeKey` 标记并在下次冷启动初始化 WebView2 前自动执行二次物理擦除。
+- **合规文本 `2026-11-06.v7` 对齐**：
+  - 更新《隐私政策》（`v7`）、《用户服务协议》与《开源软件致谢》，明确剪贴板仅按用户点击指令写入、不主动读取；客观区分 Android Keystore 硬件级托管与 Windows DPAPI 当前登录用户凭据隔离，并对齐 Windows `%APPDATA%` 真实存储路径与构建环境说明。
+
 ## [2.3.0-rc2] - 2026-11-07
 
 本版本为 `v2.3.0` 第二候选发布版（Release Candidate 2），重点闭环异步桥接全局异常 `success: false` 拦截与四态缓存防误清纵深加固、页面销毁与 Windows 校内导航生命周期对齐、学期确认与新课表写入原子一致性以及合规文本精细化对齐。
@@ -280,7 +318,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-rc2...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/korty258/xaut-assistant/compare/v2.2.0...v2.3.0
 [2.3.0-rc2]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-rc1...v2.3.0-rc2
 [2.3.0-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-pre1...v2.3.0-rc1
 [2.3.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.2.0...v2.3.0-pre1
