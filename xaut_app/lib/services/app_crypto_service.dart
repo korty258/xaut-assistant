@@ -14,6 +14,14 @@ class CryptoException implements Exception {
   String toString() => 'CryptoException: $message';
 }
 
+/// 主密钥安全存储与派生专用异常
+class CryptoKeyException extends CryptoException {
+  const CryptoKeyException(super.message);
+
+  @override
+  String toString() => 'CryptoKeyException: $message';
+}
+
 /// 纯端侧高强度加密存储服务 (Envelope Encryption with AES-256-GCM)
 ///
 /// 用于对课表、成绩与绩点、考试安排等敏感学业数据执行落盘加密 (Encryption at Rest)。
@@ -31,6 +39,12 @@ class AppCryptoService {
   static Future<Key>? _masterKeyFuture;
 
   @visibleForTesting
+  static Future<String?> Function(String key)? debugStorageReader;
+
+  @visibleForTesting
+  static Future<void> Function(String key, String value)? debugStorageWriter;
+
+  @visibleForTesting
   static void setMockStorage(FlutterSecureStorage storage) {
     _secureStorage = storage;
   }
@@ -39,6 +53,14 @@ class AppCryptoService {
   static void setMockMasterKey(Key? key) {
     _cachedMasterKey = key;
     _masterKeyFuture = key != null ? Future.value(key) : null;
+  }
+
+  @visibleForTesting
+  static void resetForTesting() {
+    _cachedMasterKey = null;
+    _masterKeyFuture = null;
+    debugStorageReader = null;
+    debugStorageWriter = null;
   }
 
   /// 获取或安全派生设备专属 256 位 AES 主密钥 (Master Key)
@@ -60,7 +82,9 @@ class AppCryptoService {
 
     String? keyHex;
     try {
-      keyHex = await _secureStorage.read(key: _storageKeyMaster);
+      keyHex = debugStorageReader != null
+          ? await debugStorageReader!(_storageKeyMaster)
+          : await _secureStorage.read(key: _storageKeyMaster);
     } on MissingPluginException {
       // 纯单元测试环境下无原生宿主插件通道，在测试中允许安全回退内存密钥
       debugPrint('AppCryptoService: MissingPluginException in test environment.');
@@ -87,11 +111,17 @@ class AppCryptoService {
       }
       final newHex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
       try {
-        await _secureStorage.write(key: _storageKeyMaster, value: newHex);
+        if (debugStorageWriter != null) {
+          await debugStorageWriter!(_storageKeyMaster, newHex);
+        } else {
+          await _secureStorage.write(key: _storageKeyMaster, value: newHex);
+        }
         try {
-          final verifyHex = await _secureStorage.read(key: _storageKeyMaster);
-          if (verifyHex != null && verifyHex != newHex) {
-            throw const CryptoException('主密钥写入校验不一致，拒绝使用未持久化密钥');
+          final verifyHex = debugStorageReader != null
+              ? await debugStorageReader!(_storageKeyMaster)
+              : await _secureStorage.read(key: _storageKeyMaster);
+          if (verifyHex != newHex) {
+            throw const CryptoKeyException('安全存储写入校验失败：回读的主密钥为空或不一致');
           }
         } on MissingPluginException {
           // 单元测试环境
@@ -102,7 +132,7 @@ class AppCryptoService {
         rethrow;
       } catch (e) {
         debugPrint('AppCryptoService: SecureStorage write exception: $e');
-        throw CryptoException('安全存储写入主密钥失败，已阻止加密落盘: $e');
+        throw CryptoKeyException('安全存储写入主密钥失败，已阻止加密落盘: $e');
       }
       _cachedMasterKey = Key(bytes);
       return _cachedMasterKey!;

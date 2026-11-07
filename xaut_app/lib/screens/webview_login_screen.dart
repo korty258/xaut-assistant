@@ -37,10 +37,9 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     _coordinator = WebViewSyncCoordinator(
       getContext: () => context,
       adapter: _adapter,
-      onStateChanged: (loading, message) {
+      onStateChanged: (syncing, message) {
         if (mounted) {
           setState(() {
-            _adapter.isLoadingNotifier.value = loading;
             _syncStatusMessage = message;
           });
         }
@@ -121,15 +120,21 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
 
   @override
   void dispose() {
+    _coordinator.dispose();
     _adapter.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: _adapter.isLoadingNotifier,
-      builder: (context, isLoading, _) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        _adapter.isInitializedNotifier,
+        _adapter.isLoadingNotifier,
+        _coordinator.isSyncingNotifier,
+      ]),
+      builder: (context, _) {
+        final isBusy = _adapter.isLoading || _coordinator.isSyncing;
         return ValueListenableBuilder<String>(
           valueListenable: _adapter.currentUrlNotifier,
           builder: (context, currentUrl, _) {
@@ -138,7 +143,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                 title: const Text('强智教务登录与同步', style: TextStyle(fontSize: 16)),
                 bottom: PreferredSize(
                   preferredSize: const Size.fromHeight(4.0),
-                  child: isLoading
+                  child: isBusy
                       ? const LinearProgressIndicator()
                       : const SizedBox(height: 4.0),
                 ),
@@ -193,10 +198,11 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                             : af.WebViewWidget(controller: _adapter.mobileController),
                   ),
 
-                  // 3. 底部全异步同步操作条 (支持进度状态感知)
+                  // 3. 底部全异步同步操作条 (状态独立解耦)
                   WebViewBottomBar(
                     currentUrl: currentUrl,
-                    isLoading: isLoading,
+                    isInitialized: _adapter.isInitialized,
+                    isSyncing: _coordinator.isSyncing,
                     statusMessage: _syncStatusMessage,
                     onSyncAll: () => _coordinator.syncAll(),
                     onSyncCurrentPage: () => _coordinator.syncCurrentPage(),

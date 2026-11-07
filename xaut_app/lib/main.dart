@@ -10,6 +10,11 @@ import 'services/legal_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await LegalService.runPendingWipeIfNeeded();
+  } catch (e) {
+    debugPrint('LegalService.runPendingWipeIfNeeded error: $e');
+  }
   LegalService.registerCustomLicenses();
   final isLegalAccepted = await LegalService.isAccepted();
   runApp(XautApp(isLegalAccepted: isLegalAccepted));

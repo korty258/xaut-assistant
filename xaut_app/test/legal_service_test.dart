@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/services/legal_service.dart';
@@ -8,6 +9,11 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    LegalService.debugWindowsWipeAction = null;
+  });
+
+  tearDown(() {
+    LegalService.debugWindowsWipeAction = null;
   });
 
   group('LegalService Compliance Tests', () {
@@ -67,11 +73,13 @@ void main() {
       expect(await LegalService.isAccepted(), isFalse);
       expect(await LegalService.getAcceptedVersion(), isNull);
       expect(await LegalService.getAcceptedAt(), isNull);
-      expect(prefs.getKeys(), isEmpty);
+      expect(prefs.getString('xaut_cached_courses'), isNull);
+      expect(prefs.getString('xaut_cached_grades'), isNull);
+      expect(prefs.getString('xaut_cached_exams'), isNull);
     });
 
-    test('LegalService registers upstream licenses and exposes v3 version', () {
-      expect(LegalService.currentVersion, equals('2026-11-02.v6'));
+    test('LegalService registers upstream licenses and exposes v7 version', () {
+      expect(LegalService.currentVersion, equals('2026-11-06.v7'));
       expect(LegalService.appVersion, startsWith('v'));
       expect(() => LegalService.registerCustomLicenses(), returnsNormally);
     });
@@ -84,6 +92,68 @@ void main() {
       final match = RegExp(r'^version:\s*([0-9A-Za-z.\-]+)', multiLine: true).firstMatch(pubspec);
       expect(match, isNotNull, reason: 'pubspec.yaml must declare a version');
       expect(LegalService.appVersion, equals('v${match!.group(1)}'));
+    });
+
+    test('revokeAndClearAll() writes pendingWindowsWipeKey when Windows wipe fails due to locks', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      try {
+        LegalService.debugWindowsWipeAction = () async => false; // 模拟文件锁未删净
+        SharedPreferences.setMockInitialValues({
+          'jinhua_legal_terms_version': LegalService.currentVersion,
+        });
+
+        await LegalService.revokeAndClearAll();
+
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getBool(LegalService.pendingWindowsWipeKey), isTrue);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    test('runPendingWipeIfNeeded() executes compensation wipe and removes flag on success', () async {
+      int wipeCallCount = 0;
+      LegalService.debugWindowsWipeAction = () async {
+        wipeCallCount++;
+        return true;
+      };
+
+      SharedPreferences.setMockInitialValues({
+        LegalService.pendingWindowsWipeKey: true,
+      });
+
+      await LegalService.runPendingWipeIfNeeded();
+
+      expect(wipeCallCount, equals(1));
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(LegalService.pendingWindowsWipeKey), isNull);
+    });
+
+    test('runPendingWipeIfNeeded() preserves flag if compensation wipe still fails', () async {
+      LegalService.debugWindowsWipeAction = () async => false;
+
+      SharedPreferences.setMockInitialValues({
+        LegalService.pendingWindowsWipeKey: true,
+      });
+
+      await LegalService.runPendingWipeIfNeeded();
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(LegalService.pendingWindowsWipeKey), isTrue);
+    });
+
+    test('runPendingWipeIfNeeded() does nothing when flag is absent', () async {
+      int wipeCallCount = 0;
+      LegalService.debugWindowsWipeAction = () async {
+        wipeCallCount++;
+        return true;
+      };
+
+      SharedPreferences.setMockInitialValues({});
+
+      await LegalService.runPendingWipeIfNeeded();
+
+      expect(wipeCallCount, equals(0));
     });
   });
 }

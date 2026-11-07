@@ -364,6 +364,105 @@ class ScheduleProvider extends ChangeNotifier {
     await StorageService.saveCurrentWeek(_currentWeek);
   }
 
+  /// 手动或自动设置开学第 1 周周一基准日期
+  Future<void> setSemesterStartDate(
+    DateTime monday, {
+    String? semester,
+  }) async {
+    await calibrateFromStartDate(monday, semester: semester);
+  }
+
+  static String _formatDate(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  /// 纯逻辑评估新识别到的学期与教学周校准基准
+  /// 检测内部数据源偏差（校历 vs 实时周次）与历史基准大幅跳变，提供冲突防线
+  SemesterCalibrationDecision evaluateSemesterCalibration({
+    int? detectedWeek,
+    String? detectedSemester,
+    DateTime? detectedStart,
+    DateTime? now,
+  }) {
+    final refDate = now ?? todayDate;
+    final candidateSemester = (detectedSemester != null && detectedSemester.trim().isNotEmpty)
+        ? detectedSemester.trim()
+        : _semesterName;
+
+    DateTime? startMonday;
+    if (detectedStart != null) {
+      startMonday = mondayOf(detectedStart);
+    }
+
+    DateTime? weekMonday;
+    if (detectedWeek != null && detectedWeek >= 1 && detectedWeek <= 30) {
+      weekMonday = calculateSemesterStartMonday(refDate, detectedWeek);
+    }
+
+    bool requiresConfirmation = false;
+    String? conflictReason;
+    DateTime? candidateMonday;
+
+    // 1. 内部源冲突检测：校历起始日 vs 顶栏当前周次反推
+    if (startMonday != null && weekMonday != null) {
+      final internalDiff = startMonday.difference(weekMonday).inDays.abs();
+      if (internalDiff >= 7) {
+        requiresConfirmation = true;
+        candidateMonday = weekMonday; // 候选值默认优先采用顶部实时周次推算
+        conflictReason = '教务教学历起始日 (${_formatDate(startMonday)}) 与顶部当前周次推算起始日 (${_formatDate(weekMonday)}) 存在偏差 (相差 $internalDiff 天)';
+      } else {
+        candidateMonday = weekMonday;
+      }
+    } else {
+      candidateMonday = weekMonday ?? startMonday;
+    }
+
+    // 2. 历史基准比对与跳变检测
+    bool hasUpdate = false;
+    if (hasSemesterStart) {
+      if (candidateMonday != null) {
+        final diffDays = candidateMonday.difference(_semesterStartDate!).inDays.abs();
+        final semesterChanged = _semesterName.isNotEmpty &&
+            candidateSemester.isNotEmpty &&
+            candidateSemester != _semesterName;
+
+        if (semesterChanged || diffDays >= 7) {
+          requiresConfirmation = true;
+          final reasons = <String>[];
+          if (semesterChanged) {
+            reasons.add('检测到学期变更: 当前 [$_semesterName] -> 新检测 [$candidateSemester]');
+          }
+          if (diffDays >= 7) {
+            reasons.add('检测到第1周开学日大幅跳变: 当前 [${_formatDate(_semesterStartDate!)}] -> 新检测 [${_formatDate(candidateMonday)}] (偏移 $diffDays 天)');
+          }
+          conflictReason = conflictReason == null
+              ? reasons.join('\n')
+              : '$conflictReason\n${reasons.join('\n')}';
+          hasUpdate = true;
+        } else if (diffDays == 0 && !semesterChanged) {
+          hasUpdate = false;
+        } else {
+          hasUpdate = (candidateMonday != _semesterStartDate) ||
+              (_semesterName.isEmpty && candidateSemester.isNotEmpty);
+        }
+      } else if (_semesterName.isEmpty && candidateSemester.isNotEmpty) {
+        hasUpdate = true;
+      }
+    } else {
+      // 本地尚无开学基准
+      if (candidateMonday != null || candidateSemester.isNotEmpty) {
+        hasUpdate = true;
+      }
+    }
+
+    return SemesterCalibrationDecision(
+      hasUpdate: hasUpdate,
+      candidateMonday: candidateMonday,
+      candidateSemester: candidateSemester,
+      requiresConfirmation: requiresConfirmation,
+      conflictReason: conflictReason,
+    );
+  }
+
   /// 当应用从后台切回前台或跨午夜时，自动检测日期变更并推进教学周次
   void refreshForDateChange() {
     final nowDay = todayDate;
@@ -431,4 +530,21 @@ class ScheduleProvider extends ChangeNotifier {
     notifyListeners();
     await StorageService.clearCourses();
   }
+}
+
+/// 学期与周次校准评估决策
+class SemesterCalibrationDecision {
+  final bool hasUpdate;
+  final DateTime? candidateMonday;
+  final String candidateSemester;
+  final bool requiresConfirmation;
+  final String? conflictReason;
+
+  const SemesterCalibrationDecision({
+    required this.hasUpdate,
+    this.candidateMonday,
+    this.candidateSemester = '',
+    required this.requiresConfirmation,
+    this.conflictReason,
+  });
 }

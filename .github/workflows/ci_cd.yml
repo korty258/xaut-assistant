@@ -86,11 +86,11 @@ jobs:
         working-directory: xaut_app
         run: flutter test --coverage
 
-  # 2. 编译 Android Release APK (Tag 或手动触发)
+  # 2. 编译 Android Release APK (Tag、手动触发或 PR 门禁)
   build_android:
     name: Build Android APK
     needs: quality_check
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
@@ -181,11 +181,11 @@ jobs:
           name: android-apk
           path: jinhua_assistant-android-arm64.apk
 
-  # 3. 编译 Windows 桌面端绿色版 (Tag 或手动触发)
+  # 3. 编译 Windows 桌面端绿色版 (Tag、手动触发或 PR 门禁)
   build_windows:
     name: Build Windows Desktop
     needs: quality_check
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: windows-2025
     steps:
       - name: Checkout Code
@@ -242,6 +242,12 @@ jobs:
           name: windows-zip
           path: ./
 
+      - name: Generate SHA-256 Checksums
+        shell: bash
+        run: |
+          sha256sum jinhua_assistant-android-arm64.apk jinhua_assistant-windows-x64.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       # Release 正文取自 CHANGELOG.md 中与 Tag 对应的版本段落（如 v2.1.2 -> "## [2.1.2]"），
       # 找不到对应段落时直接失败，保证每个发布版本都有经过维护的变更说明。
       - name: Extract Release Notes from CHANGELOG
@@ -281,6 +287,7 @@ jobs:
           files: |
             jinhua_assistant-android-arm64.apk
             jinhua_assistant-windows-x64.zip
+            SHA256SUMS.txt
           prerelease: ${{ contains(github.ref_name, 'pre') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
           make_latest: ${{ !contains(github.ref_name, 'pre') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'rc') }}
           generate_release_notes: true

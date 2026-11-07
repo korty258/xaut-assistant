@@ -16,7 +16,7 @@
   </a>
   <img src="https://img.shields.io/badge/Flutter-3.47+-02569B?logo=flutter&logoColor=white" alt="Flutter">
   <img src="https://img.shields.io/badge/Platform-Android%20|%20Windows-green" alt="Platform">
-  <img src="https://img.shields.io/badge/Architecture-arm64--v8a%20(19MB)-blue" alt="Architecture">
+  <img src="https://img.shields.io/badge/Architecture-arm64--v8a%20(~20MB)-blue" alt="Architecture">
   <img src="https://img.shields.io/badge/License-GPL--3.0-blue.svg" alt="License">
 </p>
 
@@ -29,7 +29,7 @@
 ## 🌟 项目亮点
 
 - 🔒 **零第三方服务端 / 隐私安全**：完全在本地设备运行，直连西安理工大学强智教务系统，不收集、不上报任何账号、密码或个人敏感信息。
-- 🔐 **全量学业数据 AES-256-GCM 硬件级落盘加密**：课表日程、成绩与绩点 (GPA)、期末考试安排在设备本地均采用 AEAD AES-256-GCM 算法加密存储；主密钥受硬件安全隔离保护并支持撤回时“密码学粉碎 (Crypto-Shredding)”，杜绝离线物理导出与明文窥视。
+- 🔐 **全量学业数据 AES-256-GCM 落盘加密**：课表日程、成绩与绩点 (GPA)、期末考试安排在设备本地均采用 AEAD AES-256-GCM 算法加密存储；主密钥托管于系统安全存储（Android Keystore 硬件级密钥库 / Windows DPAPI 当前用户凭据隔离加密）并支持撤回时“密码学粉碎 (Crypto-Shredding)”，杜绝离线物理导出与明文窥视。
 - 📆 **RFC 5545 标准系统日历导出**：支持一键将整学期课程表与期末考试日程导出为标准 `.ics` 日历文件；完美兼容苹果日历、小米日历、华为日历、OPPO/vivo、Outlook 及 Google 日历，支持自定义上课与考前提醒时间，无缝联动手机系统桌面小组件与智能手表手环。
 - 🛡️ **知情同意门禁与合规防护**：深度参照《中华人民共和国个人信息保护法》(PIPL) 与网络安全合规规范，首次启动必须经过法律门禁 (`LegalGateScreen`) 完整阅读并主动勾选同意，内置完全离线可查阅的《用户服务协议》、《隐私政策》与《免责声明》；未经用户明确授权不读取或存储任何教务凭据，且支持随时在「关于与法律条款」中查阅或一键**撤回知情同意并清空本地缓存**。
 - ⚡ **一键全量同步 & 周次自动校准**：在教务主页即可通过原生 WebView 注入解析引擎，一键并发拉取 **课表 + 成绩 + 考试** 三大模块，并自动识别顶栏当前教学周（如 `2026-2027-1 第9周`）反推本学期第 1 周周一基准日期。
@@ -40,7 +40,7 @@
   - **去重与清洗**：自动剔除强智教务系统隐藏二维码与重复备用容器，精准识别 4 节连排实验课。
 - 📊 **分学期动态 GPA 演算 & 等级制成绩兼容**：切换学期筛选 Chip 即可实时重算**单学期 / 累计**加权平均分、平均绩点 (GPA) 与已修学分；完整兼容西理工实验、实训等 **五级制（优/良/中/及格）** 与 **二级制（合格/通过）** 课程学分绩点统计。
 - 📝 **考试倒计时角标与「待考优先」智能排序**：自动解析考试起止时间，将未考科目按开考时间升序排在最前并展示醒目的 `考试中` / `今天` / `明天` / `还有 X 天` 倒计时角标，已结束科目自动沉底弱化。
-- 🌙 **跨端原生与深浅色自适应**：完整适配系统浅色 / 深色模式 (`ThemeMode.system`)，支持 Windows 桌面端 (MSVC AOT / WebView2 / 微软雅黑清晰渲染) 与 Android 端 (纯 arm64-v8a 极致裁剪优化，包体积约 19.4 MB)。
+- 🌙 **跨端原生与深浅色自适应**：完整适配系统浅色 / 深色模式 (`ThemeMode.system`)，支持 Windows 桌面端 (MSVC AOT / WebView2 / 微软雅黑清晰渲染) 与 Android 端 (纯 arm64-v8a 极致裁剪优化，包体积约 20 MB)。
 
 ---
 
@@ -80,7 +80,7 @@ xaut-assistant/
 ### 运行环境要求
 - [Flutter SDK](https://flutter.dev/) (>= 3.47.0，CI 固定为 3.47.8)
 - [Dart SDK](https://dart.dev/) (>= 3.13.7)
-- **Windows 构建**：Visual Studio 2022/2026 (包含 C++ 桌面开发套件)
+- **Windows 构建**：Visual Studio 2022 (包含 C++ 桌面开发套件，需勾选“使用 C++ 的桌面开发”及 C++ ATL / MFC 组件)
 - **Android 构建**：Android SDK (API 34+) 及 Android NDK (r28+)
 
 ### 1. 克隆工程并拉取依赖

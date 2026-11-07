@@ -6,6 +6,36 @@
 
 ## [Unreleased]
 
+## [2.3.0-rc1] - 2026-11-07
+
+本版本为 `v2.3.0` 发布候选版（Release Candidate 1），完成异步同步生命周期隔离、防抖与四态缓存语义加固、学期基准跳变确认保护、主密钥写后强一致校验、Windows 撤回授权冷启动补偿擦除、隐私政策 `v7` 对齐以及 CI `SHA256SUMS.txt` 校验清单集成。
+
+### Changed
+- **异步桥接请求生命周期隔离与精确路由**：
+  - `WebViewPlatformAdapter` 与 `ParserService` 引入全局递增 `requestId` 路由机制，跨端消息分发严格按 `requestId` 校验挂起请求，超时与已取消任务的迟到响应直接丢弃，彻底消除跨请求数据污染。
+  - 建立统一的任务总超时预算与 `window.__jinhuaAbortTask` 尽力而为取消钩子，在页面跳转、刷新或销毁时主动取消正在运行的任务；超时文案明确区分“停止等待（迟到响应丢弃）”，避免虚假承诺底层网络立即中止。
+  - 彻底解耦 WebView 页面加载状态（`isLoadingNotifier`）与数据同步状态（`isSyncingNotifier`），底部操作栏与 AppBar 进度感知独立分流，消除页面重绘意外解锁按钮的竞态隐患。
+- **一键全量同步数据源隔离 (`ParserService.buildSyncAllInjectionScript`)**：
+  - 课表与全量成绩始终通过异步 Fetch 独立拉取默认数据源，严禁读取当前浏览页 `document`，避免用户在成绩页或课表页筛选无数据学期时导致误清空本地全部历史数据。
+
+### Fixed
+- **同步弹窗一键同步全部防抖自锁修复 (`WebViewSyncCoordinator`)**：
+  - 修复用户在非业务功能页点击同步时，因智能提示弹窗过早记录时间戳导致弹窗内点击“一键同步全部”被 3 秒冷却自锁拦截的问题；冷却检测移至实际任务执行点。
+- **空数据与异常/未登录本地缓存语义对齐**：
+  - 严格按四态语义处理本地存储：当前学期无数据（`empty`）时同步清空对应模块旧缓存；而未登录（`notLoggedIn`）或解析改版异常（`error`）时严格保留本地历史缓存并显著标注提示，阻断误清空风险。
+- **学期基准日期大幅跳变与冲突确认保护 (`ScheduleProvider`)**：
+  - 引入 `evaluateSemesterCalibration` 纯逻辑评估器，当检测到教学历起始日与顶栏当前周次反推存在 >= 7 天偏差，或新学期基准与本地已存基准发生跨学期 / >= 7 天大幅跳变时，弹出二次确认对话框，防止脏数据静默覆盖用户正常学期设置。
+
+### Security & Compliance
+- **主密钥写后回读强校验与异常隔离 (`AppCryptoService`)**：
+  - 修复首次生成主密钥写入安全存储后回读为 `null` 时未校验的隐患，实现写后强一致校验；若回读为空或不一致立即抛出 `CryptoKeyException` 并阻止未持久化临时密钥落盘，消除重启永久解密死锁。
+- **Windows 撤回授权冷启动补偿擦除 (`LegalService`)**：
+  - 针对 Windows 桌面端运行期 WebView2 独占锁导致部分网络缓存无法立即物理删除的问题，引入 `pendingWindowsWipeKey` 标记与冷启动早期补偿擦除机制，并在下次启动未初始化 WebView2 前彻底清空残留。
+- **合规协议与文档修订 (合规文本 `2026-11-06.v7`)**：
+  - 《隐私政策》更新生效日期至 2026 年 11 月 6 日（`v7`）；澄清剪贴板仅在用户主动点击复制时按指令写入、不主动读取；精确区分 Android Keystore 硬件级与 Windows DPAPI 凭据隔离存储机制；修正 Windows 本地路径为 `%APPDATA%\Jinhua Assistant OpenSource Community\金花助手`。
+  - `README.md` 与工程构建指南补充 Windows 构建 VS 2022 C++ ATL/MFC 组件要求，更新 Android 包体积说明（约 20 MB）。
+  - CI/CD 流水线构建门禁扩展覆盖 PR 编译，Release 发布产物自动化生成 `SHA256SUMS.txt` 校验清单并随 Release 上传。
+
 ## [2.3.0-pre1] - 2026-11-05
 
 本版本为 `v2.3.0` 首个开发预览版（Developer Preview 1），重点完成全量教务同步全异步架构重构以及千行核心界面的模块化解耦拆分，彻底消除大同步时的 UI 冻结现象，并大幅提升工程代码健康度与可维护性。
@@ -229,7 +259,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-pre1...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-rc1...HEAD
+[2.3.0-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-pre1...v2.3.0-rc1
 [2.3.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.2.0...v2.3.0-pre1
 [2.2.0]: https://github.com/korty258/xaut-assistant/compare/v2.1.2...v2.2.0
 [2.2.0-rc2]: https://github.com/korty258/xaut-assistant/compare/v2.2.0-rc1...v2.2.0-rc2

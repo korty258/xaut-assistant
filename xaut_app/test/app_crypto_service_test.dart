@@ -316,4 +316,88 @@ void main() {
       expect(examsProvider.hasDecryptionError, isFalse);
     });
   });
+
+  group('AppCryptoService Master Key Read-Back Strong Verification Tests', () {
+    tearDown(() {
+      AppCryptoService.resetForTesting();
+    });
+
+    test('read initial null -> write ok -> re-read null throws CryptoKeyException', () async {
+      AppCryptoService.resetForTesting();
+      int readCount = 0;
+      AppCryptoService.debugStorageReader = (key) async {
+        readCount++;
+        // 第一次读取为 null（未初始化），第二次回读校验仍返回 null
+        return null;
+      };
+      AppCryptoService.debugStorageWriter = (key, val) async {};
+
+      await expectLater(
+        AppCryptoService.getMasterKey(),
+        throwsA(isA<CryptoKeyException>().having(
+          (e) => e.message,
+          'message',
+          contains('回读的主密钥为空或不一致'),
+        )),
+      );
+      expect(readCount, equals(2));
+    });
+
+    test('read initial null -> write ok -> re-read inconsistent hex throws CryptoKeyException', () async {
+      AppCryptoService.resetForTesting();
+      int readCount = 0;
+      AppCryptoService.debugStorageReader = (key) async {
+        readCount++;
+        if (readCount == 1) return null;
+        return '00' * 32; // 返回不一致的 64 位十六进制
+      };
+      AppCryptoService.debugStorageWriter = (key, val) async {};
+
+      await expectLater(
+        AppCryptoService.getMasterKey(),
+        throwsA(isA<CryptoKeyException>().having(
+          (e) => e.message,
+          'message',
+          contains('回读的主密钥为空或不一致'),
+        )),
+      );
+    });
+
+    test('write throws platform exception -> throws CryptoKeyException without caching master key and allows recovery', () async {
+      AppCryptoService.resetForTesting();
+      bool shouldFailWrite = true;
+      String? persistedKey;
+
+      AppCryptoService.debugStorageReader = (key) async => persistedKey;
+      AppCryptoService.debugStorageWriter = (key, val) async {
+        if (shouldFailWrite) {
+          throw Exception('Platform secure storage I/O disk failure');
+        }
+        persistedKey = val;
+      };
+
+      // 首次尝试：写操作抛出异常
+      await expectLater(
+        () => AppCryptoService.getMasterKey(),
+        throwsA(isA<CryptoKeyException>().having(
+          (e) => e.message,
+          'message',
+          contains('安全存储写入主密钥失败'),
+        )),
+      );
+
+      // 验证未产生污染内存的密钥，后续重试能够正常派生并持久化
+      shouldFailWrite = false;
+      final key = await AppCryptoService.getMasterKey();
+      expect(key.bytes.length, equals(32));
+      expect(persistedKey, isNotNull);
+      expect(persistedKey!.length, equals(64));
+
+      // 验证恢复正常后加解密功能完备
+      const secret = '机密测试文本';
+      final cipher = await AppCryptoService.encrypt(secret);
+      final plain = await AppCryptoService.decrypt(cipher);
+      expect(plain, equals(secret));
+    });
+  });
 }

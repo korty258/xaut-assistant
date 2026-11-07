@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'webview_constants.dart';
 
-/// 底部常驻同步操作按钮栏 (支持阶段进度提示)
+/// 底部常驻同步操作按钮栏 (支持阶段进度提示与单飞防并发)
 class WebViewBottomBar extends StatelessWidget {
   final String currentUrl;
-  final bool isLoading;
+  final bool isInitialized;
+  final bool isSyncing;
   final String? statusMessage;
   final VoidCallback onSyncAll;
   final VoidCallback onSyncCurrentPage;
@@ -12,17 +13,20 @@ class WebViewBottomBar extends StatelessWidget {
   const WebViewBottomBar({
     super.key,
     required this.currentUrl,
-    required this.isLoading,
+    this.isInitialized = true,
+    bool? isSyncing,
+    bool? isLoading,
     this.statusMessage,
     required this.onSyncAll,
     required this.onSyncCurrentPage,
-  });
+  }) : isSyncing = isSyncing ?? isLoading ?? false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final activeNav = NavDestination.fromUrl(currentUrl);
     final pageSyncInfo = activeNav.syncInfo;
+    final disableButtons = !isInitialized || isSyncing;
 
     return SafeArea(
       child: Container(
@@ -41,7 +45,7 @@ class WebViewBottomBar extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             // 异步阶段进度提示条
-            if (isLoading && statusMessage != null && statusMessage!.isNotEmpty) ...[
+            if (isSyncing && statusMessage != null && statusMessage!.isNotEmpty) ...[
               Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
                 child: Row(
@@ -74,7 +78,7 @@ class WebViewBottomBar extends StatelessWidget {
                 Expanded(
                   flex: 6,
                   child: FilledButton.icon(
-                    onPressed: isLoading ? null : onSyncAll,
+                    onPressed: disableButtons ? null : onSyncAll,
                     icon: const Icon(Icons.cloud_sync_rounded),
                     label: const Text(
                       '一键同步全部',
@@ -94,7 +98,7 @@ class WebViewBottomBar extends StatelessWidget {
                 Expanded(
                   flex: 5,
                   child: FilledButton.tonalIcon(
-                    onPressed: isLoading ? null : onSyncCurrentPage,
+                    onPressed: disableButtons ? null : onSyncCurrentPage,
                     icon: Icon(pageSyncInfo.icon, size: 18),
                     label: Text(
                       pageSyncInfo.label,
