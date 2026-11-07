@@ -372,6 +372,16 @@ class ScheduleProvider extends ChangeNotifier {
     await calibrateFromStartDate(monday, semester: semester);
   }
 
+  /// 仅更新学期名称（当未检测到周次但识别到新学期名称时使用）
+  Future<void> setSemesterNameOnly(String semester) async {
+    final trimmed = semester.trim();
+    if (trimmed.isNotEmpty && trimmed != _semesterName) {
+      _semesterName = trimmed;
+      notifyListeners();
+      await StorageService.saveSemesterName(_semesterName);
+    }
+  }
+
   static String _formatDate(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 

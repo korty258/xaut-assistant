@@ -149,7 +149,7 @@ SOFTWARE.
 | **webview_flutter** | BSD-3-Clause | Android 端内嵌系统官方登录 WebView 容器 |
 | **webview_windows** | MIT License | Windows 桌面端 Edge WebView2 运行时嵌入容器 |
 | **encrypt** | BSD-3-Clause | AEAD AES-256-GCM 本地全量学业数据信封加密 |
-| **flutter_secure_storage** | BSD-3-Clause | 硬件级加密根密钥托管 (Android Keystore / Windows DPAPI) |
+| **flutter_secure_storage** | BSD-3-Clause | 系统安全根密钥托管 (Android Keystore 硬件级 / Windows DPAPI 用户凭据隔离) |
 | **path_provider** | BSD-3-Clause | 跨平台本地目录与日历文件路径解析 |
 | **share_plus** | BSD-3-Clause | 跨平台系统原生分享面板直达系统日历 |
 | **flutter_markdown_plus** | BSD-3-Clause | 客户端离线法律合规文档富文本排版渲染 |

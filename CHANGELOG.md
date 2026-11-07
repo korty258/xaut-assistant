@@ -6,6 +6,27 @@
 
 ## [Unreleased]
 
+## [2.3.0-rc2] - 2026-11-07
+
+本版本为 `v2.3.0` 第二候选发布版（Release Candidate 2），重点闭环异步桥接全局异常 `success: false` 拦截与四态缓存防误清纵深加固、页面销毁与 Windows 校内导航生命周期对齐、学期确认与新课表写入原子一致性以及合规文本精细化对齐。
+
+### Fixed
+- **彻底阻断全局脚本异常包 `success: false` 误判为 `empty` 清空本地缓存 (`WebViewPlatformAdapter` & `ParserService`)**：
+  - 跨端桥接层在消息分发第一时间拦截 `parsed['success'] == false` 与 `type == 'error'` 异常包，以 `StateError` 拒绝挂起异步任务，彻底阻断异常结果流入业务解析流程。
+  - 解析层纵深防御：严禁将缺失显式 `status` 的异常对象或未知状态默认判为 `empty`，`SyncModuleStatus.fromString` 默认回退值统一收紧为 `SyncModuleStatus.error`；`parseSyncAllResult`、`parseCourseSyncResult`、`parseGradesResult` 与 `parseExamsDetailedResult` 全面加固，任何携带 `success: false` 或异常诊断的载荷均严格判定为 `error` 状态并保留既有本地缓存。
+- **页面销毁与同步生命周期安全闭环 (`WebViewSyncCoordinator` & `WebViewPlatformAdapter`)**：
+  - 调整 `WebViewLoginScreen.dispose()` 销毁顺序为先释放原生平台适配器并取消挂起任务，再释放同步调度协调器。
+  - `WebViewSyncCoordinator` 引入 `isDisposed` 状态守卫与 `_setSyncingState` 安全分发辅助方法，杜绝在同步请求执行中或页面关闭后读写已销毁 `ValueNotifier` 抛出异常。
+  - Windows 端补齐校内链接点击跳转的主动任务取消：在 WebView2 URL 监听器中检测跨页导航（排除同页 `#hash` 锚点变化与首次启动加载），主动取消正在进行的同步任务，与 Android 行为严格对齐。
+- **学期基准变更确认与新课表写入原子一致性 (`ScheduleProvider` & `WebViewSyncCoordinator`)**：
+  - 重构 `_applyDetectedWeekCalibration` 评估确认流程并前置至写入本地课表之前：当检测到跨学期或开学日大幅跳变且用户选择「保持原设置」时，同时保留原课表与原学期基准，杜绝新课表与旧学期日期错位混用。
+  - 修复未识别到开学日或周次但识别到新学期名称时误报“已自动对齐第 X 周”的问题；`ScheduleProvider` 补充 `setSemesterNameOnly`，提示用户手动校准开学日。
+
+### Security & Compliance
+- **合规文本客观措辞与跨端安全根密钥说明精细化对齐**：
+  - 《用户服务协议》与《开源软件致谢》准确阐述跨平台安全根密钥托管形态：明确 Android 端为 Keystore 硬件级密钥库托管，Windows 端为 DPAPI 绑定当前登录用户凭据隔离。
+  - 《隐私政策》收敛正文中少数绝对化修饰词为客观严谨的工程与密码学表述（防止系统备份通道导出、大幅降低离线明文泄露风险、使残留密文在密码学上失效不可还原、明确 Windows 端被占用缓存含下次冷启动补偿清理等）。保持合规门禁版本 `2026-11-06.v7` 不变。
+
 ## [2.3.0-rc1] - 2026-11-07
 
 本版本为 `v2.3.0` 发布候选版（Release Candidate 1），完成异步同步生命周期隔离、防抖与四态缓存语义加固、学期基准跳变确认保护、主密钥写后强一致校验、Windows 撤回授权冷启动补偿擦除、隐私政策 `v7` 对齐以及 CI `SHA256SUMS.txt` 校验清单集成。
@@ -259,7 +280,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-rc1...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-rc2...HEAD
+[2.3.0-rc2]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-rc1...v2.3.0-rc2
 [2.3.0-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-pre1...v2.3.0-rc1
 [2.3.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.2.0...v2.3.0-pre1
 [2.2.0]: https://github.com/korty258/xaut-assistant/compare/v2.1.2...v2.2.0

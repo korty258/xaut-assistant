@@ -59,6 +59,13 @@ class WebViewPlatformAdapter {
     return '${prefix}_${nowMicros}_${++_requestSeq}';
   }
 
+  /// 去除 URL 中的 hash 锚点片段并规范化
+  static String _stripUrlFragment(String url) {
+    final hashIndex = url.indexOf('#');
+    final clean = hashIndex != -1 ? url.substring(0, hashIndex) : url;
+    return clean.trim();
+  }
+
   /// 校验目标域名是否属于西安理工大学校内合法域名且强制全链路 HTTPS 加密（防钓鱼、防窃听与防明文降级）
   static bool isAllowedUrl(String url) {
     final trimmed = url.trim();
@@ -92,7 +99,11 @@ class WebViewPlatformAdapter {
         winController.loadUrl(WebViewConstants.defaultUrl);
         return;
       }
+      final prevUrl = currentUrlNotifier.value;
       currentUrlNotifier.value = url;
+      if (isInitializedNotifier.value && _stripUrlFragment(prevUrl) != _stripUrlFragment(url)) {
+        cancelActiveBridgeTasks('页面已跳转至新地址，已取消正在进行的同步任务');
+      }
     });
 
     _winLoadingSub = winController.loadingState.listen((state) {
@@ -181,7 +192,7 @@ class WebViewPlatformAdapter {
         return;
       }
 
-      if (type == 'error') {
+      if (type == 'error' || parsed['success'] == false) {
         _pendingBridgeRequests.remove(requestId);
         final error = parsed['error']?.toString() ?? '同步脚本执行失败';
         if (!pending.completer.isCompleted) {
@@ -211,6 +222,21 @@ class WebViewPlatformAdapter {
     isInitializedNotifier.value = true;
     currentUrlNotifier.value = testUrl;
     isLoadingNotifier.value = false;
+  }
+
+  @visibleForTesting
+  void simulateUrlNavigationForTest(String newUrl) {
+    if (!isAllowedUrl(newUrl)) {
+      cancelActiveBridgeTasks('检测到非校内链接，已取消正在进行的同步任务');
+      onBlockedUrl?.call(newUrl);
+      currentUrlNotifier.value = WebViewConstants.defaultUrl;
+      return;
+    }
+    final prevUrl = currentUrlNotifier.value;
+    currentUrlNotifier.value = newUrl;
+    if (isInitializedNotifier.value && _stripUrlFragment(prevUrl) != _stripUrlFragment(newUrl)) {
+      cancelActiveBridgeTasks('页面已跳转至新地址，已取消正在进行的同步任务');
+    }
   }
 
   @visibleForTesting

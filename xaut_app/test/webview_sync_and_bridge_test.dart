@@ -564,4 +564,843 @@ void main() {
       adapter.dispose();
     });
   });
+
+  group('5. A1 Global Exception Cache Preservation Tests', () {
+    testWidgets('syncAll preserves all old caches on success: false global script error and allows subsequent success', (tester) async {
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (script) async {};
+
+      late ScheduleProvider scheduleProvider;
+      late GradesProvider gradesProvider;
+      late ExamsProvider examsProvider;
+      late WebViewSyncCoordinator coordinator;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => ScheduleProvider()),
+            ChangeNotifierProvider(create: (_) => GradesProvider()),
+            ChangeNotifierProvider(create: (_) => ExamsProvider()),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                scheduleProvider = context.read<ScheduleProvider>();
+                gradesProvider = context.read<GradesProvider>();
+                examsProvider = context.read<ExamsProvider>();
+                coordinator = WebViewSyncCoordinator(
+                  getContext: () => context,
+                  adapter: adapter,
+                  onStateChanged: (_, _) {},
+                );
+                return const Scaffold(body: Text('Sync'));
+              },
+            ),
+          ),
+        ),
+      );
+
+      // 预先写入本地历史数据
+      const oldCourse = Course(
+        name: '离散数学',
+        teacher: '任课教师A',
+        room: '教2-101',
+        day: 1,
+        startSection: 1,
+        stepCount: 2,
+        weeks: [1, 2, 3],
+        rawWeekStr: '1-3周',
+      );
+      const oldGrade = GradeItem(
+        semester: '2026-2027-1',
+        courseCode: 'CS202',
+        courseName: '计算机网络',
+        score: '88',
+        credit: 3.0,
+        gpa: 3.8,
+        category: '必修',
+        examType: '正常考试',
+      );
+      const oldExam = ExamItem(
+        campus: '金花',
+        batch: '期末',
+        courseCode: 'CS101',
+        courseName: '操作系统',
+        teacher: '监考教师B',
+        examTime: '2026-12-20 09:00-11:00',
+        room: '教3-201',
+      );
+
+      await scheduleProvider.updateCourses([oldCourse]);
+      await gradesProvider.updateGrades([oldGrade]);
+      await examsProvider.updateExams([oldExam]);
+
+      // 1. 发起同步，收到 success: false 全局脚本异常包
+      final syncAllFuture = coordinator.syncAll();
+      await tester.pump();
+
+      final pendingReqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': pendingReqId,
+        'type': 'sync_all_result',
+        'success': false,
+        'error': 'Origin guard error',
+      }));
+
+      await syncAllFuture;
+      await tester.pumpAndSettle();
+
+      // 验证：显示错误提示，绝不显示“暂无已发布的教务数据”
+      expect(find.text('暂无已发布的教务数据'), findsNothing);
+      expect(find.textContaining('Origin guard error'), findsOneWidget);
+
+      // 验证：本地旧数据全部严格保留
+      expect(scheduleProvider.courses.length, equals(1));
+      expect(scheduleProvider.courses.first.name, equals('离散数学'));
+      expect(gradesProvider.grades.length, equals(1));
+      expect(gradesProvider.grades.first.courseName, equals('计算机网络'));
+      expect(examsProvider.exams.length, equals(1));
+      expect(examsProvider.exams.first.courseName, equals('操作系统'));
+
+      // 2. 模拟随后一轮正常同步，应能正常成功写入新数据
+      coordinator.resetCooldownForTest();
+      const newCourse = Course(
+        name: '算法设计',
+        teacher: '教师C',
+        room: '教1-302',
+        day: 2,
+        startSection: 3,
+        stepCount: 2,
+        weeks: [1, 2],
+        rawWeekStr: '1-2周',
+      );
+      final secondSyncFuture = coordinator.syncAll();
+      await tester.pump();
+
+      final secondReqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': secondReqId,
+        'type': 'sync_all_result',
+        'success': true,
+        'data': {
+          'courses': [newCourse.toJson()],
+          'gradesData': {'grades': [oldGrade.toJson()]},
+          'exams': [oldExam.toJson()],
+          'status': {
+            'courses': 'ok',
+            'grades': 'ok',
+            'exams': 'ok',
+          },
+        },
+      }));
+
+      await secondSyncFuture;
+      await tester.pumpAndSettle();
+
+      expect(scheduleProvider.courses.length, equals(1));
+      expect(scheduleProvider.courses.first.name, equals('算法设计'));
+      expect(find.text('全量教务同步完成'), findsOneWidget);
+
+      coordinator.dispose();
+      adapter.dispose();
+    });
+
+    test('ParserService methods classify success: false or missing status as SyncModuleStatus.error', () {
+      final failMap = {'success': false, 'error': 'Fetch timeout'};
+      final errMap = {'error': 'Unknown error'};
+
+      // parseSyncAllResult
+      final syncAllFail = ParserService.parseSyncAllResult(failMap);
+      expect(syncAllFail.statusCourses, equals(SyncModuleStatus.error));
+      expect(syncAllFail.statusGrades, equals(SyncModuleStatus.error));
+      expect(syncAllFail.statusExams, equals(SyncModuleStatus.error));
+      expect(syncAllFail.error, contains('Fetch timeout'));
+
+      final syncAllErr = ParserService.parseSyncAllResult(errMap);
+      expect(syncAllErr.statusCourses, equals(SyncModuleStatus.error));
+      expect(syncAllErr.statusGrades, equals(SyncModuleStatus.error));
+      expect(syncAllErr.statusExams, equals(SyncModuleStatus.error));
+
+      // parseCourseSyncResult
+      final courseFail = ParserService.parseCourseSyncResult(failMap);
+      expect(courseFail.status, equals(SyncModuleStatus.error));
+      expect(courseFail.error, contains('Fetch timeout'));
+
+      final courseErr = ParserService.parseCourseSyncResult(errMap);
+      expect(courseErr.status, equals(SyncModuleStatus.error));
+
+      // parseGradesResult
+      final gradesFail = ParserService.parseGradesResult(failMap);
+      expect(gradesFail.status, equals(SyncModuleStatus.error));
+      expect(gradesFail.error, contains('Fetch timeout'));
+
+      final gradesErr = ParserService.parseGradesResult(errMap);
+      expect(gradesErr.status, equals(SyncModuleStatus.error));
+
+      // parseExamsDetailedResult
+      final examsFail = ParserService.parseExamsDetailedResult(failMap);
+      expect(examsFail.status, equals(SyncModuleStatus.error));
+      expect(examsFail.error, contains('Fetch timeout'));
+
+      final examsErr = ParserService.parseExamsDetailedResult(errMap);
+      expect(examsErr.status, equals(SyncModuleStatus.error));
+    });
+
+    testWidgets('Single-module sync preserves cache on success: false error payload', (tester) async {
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (script) async {};
+
+      late ScheduleProvider scheduleProvider;
+      late GradesProvider gradesProvider;
+      late ExamsProvider examsProvider;
+      late WebViewSyncCoordinator coordinator;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => ScheduleProvider()),
+            ChangeNotifierProvider(create: (_) => GradesProvider()),
+            ChangeNotifierProvider(create: (_) => ExamsProvider()),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                scheduleProvider = context.read<ScheduleProvider>();
+                gradesProvider = context.read<GradesProvider>();
+                examsProvider = context.read<ExamsProvider>();
+                coordinator = WebViewSyncCoordinator(
+                  getContext: () => context,
+                  adapter: adapter,
+                  onStateChanged: (_, _) {},
+                );
+                return const Scaffold(body: Text('SingleModule'));
+              },
+            ),
+          ),
+        ),
+      );
+
+      const oldCourse = Course(
+        name: '编译原理',
+        teacher: '教师A',
+        room: '教2-202',
+        day: 3,
+        startSection: 1,
+        stepCount: 2,
+        weeks: [1, 2],
+        rawWeekStr: '1-2周',
+      );
+      const oldGrade = GradeItem(
+        semester: '2026-2027-1',
+        courseCode: 'CS301',
+        courseName: '操作系统',
+        score: '92',
+        credit: 3.5,
+        gpa: 4.0,
+        category: '必修',
+        examType: '正常考试',
+      );
+      const oldExam = ExamItem(
+        campus: '金花',
+        batch: '期末',
+        courseCode: 'CS301',
+        courseName: '操作系统',
+        teacher: '监考C',
+        examTime: '2026-12-25 14:00-16:00',
+        room: '教1-101',
+      );
+
+      await scheduleProvider.updateCourses([oldCourse]);
+      await gradesProvider.updateGrades([oldGrade]);
+      await examsProvider.updateExams([oldExam]);
+
+      // 1. syncSchedule 收到 success: false
+      final courseFuture = coordinator.syncSchedule();
+      await tester.pump();
+      final courseReqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': courseReqId,
+        'type': 'sync_course_result',
+        'success': false,
+        'error': 'Course error',
+      }));
+      await courseFuture;
+      await tester.pumpAndSettle();
+      expect(scheduleProvider.courses.length, equals(1));
+      expect(scheduleProvider.courses.first.name, equals('编译原理'));
+
+      // 2. syncGrades 收到 success: false
+      coordinator.resetCooldownForTest();
+      final gradesFuture = coordinator.syncGrades();
+      await tester.pump();
+      final gradesReqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': gradesReqId,
+        'type': 'sync_grades_result',
+        'success': false,
+        'error': 'Grades error',
+      }));
+      await gradesFuture;
+      await tester.pumpAndSettle();
+      expect(gradesProvider.grades.length, equals(1));
+      expect(gradesProvider.grades.first.courseName, equals('操作系统'));
+
+      // 3. syncExams 收到 success: false
+      coordinator.resetCooldownForTest();
+      final examsFuture = coordinator.syncExams();
+      await tester.pump();
+      final examsReqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': examsReqId,
+        'type': 'sync_exams_result',
+        'success': false,
+        'error': 'Exams error',
+      }));
+      await examsFuture;
+      await tester.pumpAndSettle();
+      expect(examsProvider.exams.length, equals(1));
+      expect(examsProvider.exams.first.courseName, equals('操作系统'));
+
+      coordinator.dispose();
+      adapter.dispose();
+    });
+  });
+
+  group('6. A2 Dispose Lifecycle & Windows Navigation Cancellation Tests', () {
+    testWidgets('disposing adapter before coordinator while sync is in flight throws no ValueNotifier exception', (tester) async {
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      final completer = Completer<void>();
+      adapter.debugRawJsExecutor = (script) async {
+        await completer.future;
+      };
+
+      late WebViewSyncCoordinator coordinator;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => ScheduleProvider()),
+            ChangeNotifierProvider(create: (_) => GradesProvider()),
+            ChangeNotifierProvider(create: (_) => ExamsProvider()),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                coordinator = WebViewSyncCoordinator(
+                  getContext: () => context,
+                  adapter: adapter,
+                  onStateChanged: (_, _) {},
+                );
+                return const Scaffold(body: Text('DisposeGuard'));
+              },
+            ),
+          ),
+        ),
+      );
+
+      final syncFuture = coordinator.syncAll();
+      await tester.pump();
+      expect(coordinator.isSyncing, isTrue);
+
+      // 模拟标准销毁顺序：先 adapter.dispose() 再 coordinator.dispose()
+      expect(() {
+        adapter.dispose();
+        coordinator.dispose();
+      }, returnsNormally);
+
+      completer.complete();
+      await syncFuture;
+      await tester.pump();
+
+      expect(coordinator.isDisposed, isTrue);
+    });
+
+    testWidgets('disposing coordinator before adapter while sync is in flight is also safely guarded', (tester) async {
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      final completer = Completer<void>();
+      adapter.debugRawJsExecutor = (script) async {
+        await completer.future;
+      };
+
+      late WebViewSyncCoordinator coordinator;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => ScheduleProvider()),
+            ChangeNotifierProvider(create: (_) => GradesProvider()),
+            ChangeNotifierProvider(create: (_) => ExamsProvider()),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                coordinator = WebViewSyncCoordinator(
+                  getContext: () => context,
+                  adapter: adapter,
+                  onStateChanged: (_, _) {},
+                );
+                return const Scaffold(body: Text('ReverseDisposeGuard'));
+              },
+            ),
+          ),
+        ),
+      );
+
+      final syncFuture = coordinator.syncAll();
+      await tester.pump();
+
+      // 逆序销毁测试：先 coordinator.dispose() 再 adapter.dispose()
+      expect(() {
+        coordinator.dispose();
+        adapter.dispose();
+      }, returnsNormally);
+
+      completer.complete();
+      await syncFuture;
+      await tester.pump();
+    });
+
+    test('Windows simulateUrlNavigationForTest cancels active bridge tasks on cross-page navigation but retains on hash change', () async {
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest('https://jwgl.xaut.edu.cn/jsxsd/framework/xsMain.jsp');
+      adapter.debugRawJsExecutor = (script) async {};
+
+      // 1. 发起挂起请求
+      const reqId = 'req_nav_test';
+      final future = adapter.executeBridgeScript(
+        script: '/* script */',
+        expectedType: 'sync_all_result',
+        requestId: reqId,
+      );
+
+      // 2. 同页锚点改变：#tab1 -> 不应取消
+      adapter.simulateUrlNavigationForTest('https://jwgl.xaut.edu.cn/jsxsd/framework/xsMain.jsp#tab1');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(adapter.pendingRequestIdsForTest.contains(reqId), isTrue);
+
+      // 3. 跨页导航至新校内页面 -> 立即取消
+      final cancelExpectation = expectLater(
+        future,
+        throwsA(isA<StateError>().having((e) => e.message, 'message', contains('页面已跳转至新地址'))),
+      );
+
+      adapter.simulateUrlNavigationForTest('https://jwgl.xaut.edu.cn/jsxsd/kscj/cjcx_list');
+      await cancelExpectation;
+      expect(adapter.pendingRequestIdsForTest.contains(reqId), isFalse);
+
+      // 4. 迟到的响应被丢弃
+      expect(
+        () => adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+          'requestId': reqId,
+          'type': 'sync_all_result',
+          'success': true,
+          'data': {},
+        })),
+        returnsNormally,
+      );
+
+      adapter.dispose();
+    });
+  });
+
+  group('7. A3 Semester Confirmation & Schedule Atomic Consistency Tests', () {
+    testWidgets('syncAll skips course update when user rejects semester calibration override', (tester) async {
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (script) async {};
+
+      late ScheduleProvider scheduleProvider;
+      late GradesProvider gradesProvider;
+      late ExamsProvider examsProvider;
+      late WebViewSyncCoordinator coordinator;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(
+              create: (_) => ScheduleProvider(nowProvider: () => DateTime(2026, 11, 2)),
+            ),
+            ChangeNotifierProvider(create: (_) => GradesProvider()),
+            ChangeNotifierProvider(create: (_) => ExamsProvider()),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                scheduleProvider = context.read<ScheduleProvider>();
+                gradesProvider = context.read<GradesProvider>();
+                examsProvider = context.read<ExamsProvider>();
+                coordinator = WebViewSyncCoordinator(
+                  getContext: () => context,
+                  adapter: adapter,
+                  onStateChanged: (_, _) {},
+                  confirmSemesterCalibrationOverride: (_) async => false, // 拒绝更新基准！
+                );
+                return const Scaffold(body: Text('SemesterConsistency'));
+              },
+            ),
+          ),
+        ),
+      );
+
+      // 初始：2026-2027-1 学期课表与开学日
+      const initialCourse = Course(
+        name: '数字逻辑',
+        teacher: '教师A',
+        room: '教2-101',
+        day: 1,
+        startSection: 1,
+        stepCount: 2,
+        weeks: [1, 2, 3],
+        rawWeekStr: '1-3周',
+      );
+      await scheduleProvider.updateCourses([initialCourse]);
+      await scheduleProvider.calibrateFromCurrentWeek(
+        9,
+        semester: '2026-2027-1',
+        referenceDate: DateTime(2026, 11, 2),
+      );
+
+      final oldStartMonday = scheduleProvider.semesterStartDate;
+      expect(scheduleProvider.semesterName, equals('2026-2027-1'));
+
+      // 同步返回 2026-2027-2 的新课表（触发跨学期变更确认）
+      const newCourse = Course(
+        name: '微机原理',
+        teacher: '教师B',
+        room: '教3-202',
+        day: 2,
+        startSection: 3,
+        stepCount: 2,
+        weeks: [1, 2],
+        rawWeekStr: '1-2周',
+      );
+      const newGrade = GradeItem(
+        semester: '2026-2027-2',
+        courseCode: 'CS401',
+        courseName: '嵌入式系统',
+        score: '85',
+        credit: 3.0,
+        gpa: 3.5,
+        category: '必修',
+        examType: '正常考试',
+      );
+
+      final syncFuture = coordinator.syncAll();
+      await tester.pump();
+
+      final reqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': reqId,
+        'type': 'sync_all_result',
+        'success': true,
+        'data': {
+          'courses': [newCourse.toJson()],
+          'gradesData': {'grades': [newGrade.toJson()]},
+          'exams': [],
+          'weekInfo': {
+            'currentWeek': 1,
+            'semester': '2026-2027-2',
+          },
+          'status': {
+            'courses': 'ok',
+            'grades': 'ok',
+            'exams': 'empty',
+          },
+        },
+      }));
+
+      await syncFuture;
+      await tester.pumpAndSettle();
+
+      // 断言：由于用户拒绝了更新基准，旧课表与旧学期基准必须完整保留！
+      expect(scheduleProvider.courses.length, equals(1));
+      expect(scheduleProvider.courses.first.name, equals('数字逻辑'));
+      expect(scheduleProvider.semesterName, equals('2026-2027-1'));
+      expect(scheduleProvider.semesterStartDate, equals(oldStartMonday));
+
+      // 成绩与考试属于独立模块，仍正常按各自状态处理
+      expect(gradesProvider.grades.length, equals(1));
+      expect(gradesProvider.grades.first.courseName, equals('嵌入式系统'));
+      expect(examsProvider.exams, isEmpty);
+
+      // 弹窗文案断言
+      expect(find.text('已按您的选择保留原课表与原学期基准'), findsOneWidget);
+      expect(find.text('已保持原学期基准不变'), findsOneWidget);
+
+      coordinator.dispose();
+      adapter.dispose();
+    });
+
+    testWidgets('syncSchedule skips course update and displays prompt when user rejects override', (tester) async {
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (script) async {};
+
+      late ScheduleProvider scheduleProvider;
+      late WebViewSyncCoordinator coordinator;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(
+              create: (_) => ScheduleProvider(nowProvider: () => DateTime(2026, 11, 2)),
+            ),
+            ChangeNotifierProvider(create: (_) => GradesProvider()),
+            ChangeNotifierProvider(create: (_) => ExamsProvider()),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                scheduleProvider = context.read<ScheduleProvider>();
+                coordinator = WebViewSyncCoordinator(
+                  getContext: () => context,
+                  adapter: adapter,
+                  onStateChanged: (_, _) {},
+                  confirmSemesterCalibrationOverride: (_) async => false, // 拒绝更新！
+                );
+                return const Scaffold(body: Text('SingleScheduleConsistency'));
+              },
+            ),
+          ),
+        ),
+      );
+
+      const initialCourse = Course(
+        name: '数字逻辑',
+        teacher: '教师A',
+        room: '教2-101',
+        day: 1,
+        startSection: 1,
+        stepCount: 2,
+        weeks: [1, 2, 3],
+        rawWeekStr: '1-3周',
+      );
+      await scheduleProvider.updateCourses([initialCourse]);
+      await scheduleProvider.calibrateFromCurrentWeek(
+        9,
+        semester: '2026-2027-1',
+        referenceDate: DateTime(2026, 11, 2),
+      );
+
+      const newCourse = Course(
+        name: '微机原理',
+        teacher: '教师B',
+        room: '教3-202',
+        day: 2,
+        startSection: 3,
+        stepCount: 2,
+        weeks: [1, 2],
+        rawWeekStr: '1-2周',
+      );
+
+      final syncFuture = coordinator.syncSchedule();
+      await tester.pump();
+
+      final reqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': reqId,
+        'type': 'sync_course_result',
+        'success': true,
+        'data': {
+          'courses': [newCourse.toJson()],
+          'weekInfo': {
+            'currentWeek': 1,
+            'semester': '2026-2027-2',
+          },
+          'status': 'ok',
+        },
+      }));
+
+      await syncFuture;
+      await tester.pumpAndSettle();
+
+      // 旧课表保留
+      expect(scheduleProvider.courses.length, equals(1));
+      expect(scheduleProvider.courses.first.name, equals('数字逻辑'));
+      expect(scheduleProvider.semesterName, equals('2026-2027-1'));
+
+      // 弹窗提示
+      expect(find.text('已取消更新：已保持原课表与原学期基准不变'), findsOneWidget);
+
+      coordinator.dispose();
+      adapter.dispose();
+    });
+
+    testWidgets('syncAll writes new courses, semester and start date when user confirms override', (tester) async {
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (script) async {};
+
+      late ScheduleProvider scheduleProvider;
+      late WebViewSyncCoordinator coordinator;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(
+              create: (_) => ScheduleProvider(nowProvider: () => DateTime(2026, 11, 2)),
+            ),
+            ChangeNotifierProvider(create: (_) => GradesProvider()),
+            ChangeNotifierProvider(create: (_) => ExamsProvider()),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                scheduleProvider = context.read<ScheduleProvider>();
+                coordinator = WebViewSyncCoordinator(
+                  getContext: () => context,
+                  adapter: adapter,
+                  onStateChanged: (_, _) {},
+                  confirmSemesterCalibrationOverride: (_) async => true, // 确认更新！
+                );
+                return const Scaffold(body: Text('ConfirmUpdate'));
+              },
+            ),
+          ),
+        ),
+      );
+
+      await scheduleProvider.calibrateFromCurrentWeek(
+        9,
+        semester: '2026-2027-1',
+        referenceDate: DateTime(2026, 11, 2),
+      );
+
+      const newCourse = Course(
+        name: '微机原理',
+        teacher: '教师B',
+        room: '教3-202',
+        day: 2,
+        startSection: 3,
+        stepCount: 2,
+        weeks: [1, 2],
+        rawWeekStr: '1-2周',
+      );
+
+      final syncFuture = coordinator.syncAll();
+      await tester.pump();
+
+      final reqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': reqId,
+        'type': 'sync_all_result',
+        'success': true,
+        'data': {
+          'courses': [newCourse.toJson()],
+          'gradesData': {'grades': []},
+          'exams': [],
+          'weekInfo': {
+            'currentWeek': 1,
+            'semester': '2026-2027-2',
+          },
+          'status': {
+            'courses': 'ok',
+            'grades': 'empty',
+            'exams': 'empty',
+          },
+        },
+      }));
+
+      await syncFuture;
+      await tester.pumpAndSettle();
+
+      expect(scheduleProvider.courses.length, equals(1));
+      expect(scheduleProvider.courses.first.name, equals('微机原理'));
+      expect(scheduleProvider.semesterName, equals('2026-2027-2'));
+
+      coordinator.dispose();
+      adapter.dispose();
+    });
+
+    testWidgets('sync detects semester without week/date: saves semesterName without misreporting auto-aligned', (tester) async {
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (script) async {};
+
+      late ScheduleProvider scheduleProvider;
+      late WebViewSyncCoordinator coordinator;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(
+              create: (_) => ScheduleProvider(nowProvider: () => DateTime(2026, 11, 2)),
+            ),
+            ChangeNotifierProvider(create: (_) => GradesProvider()),
+            ChangeNotifierProvider(create: (_) => ExamsProvider()),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                scheduleProvider = context.read<ScheduleProvider>();
+                coordinator = WebViewSyncCoordinator(
+                  getContext: () => context,
+                  adapter: adapter,
+                  onStateChanged: (_, _) {},
+                );
+                return const Scaffold(body: Text('NoBaselineWeek'));
+              },
+            ),
+          ),
+        ),
+      );
+
+      expect(scheduleProvider.semesterStartDate, isNull);
+
+      const testCourse = Course(
+        name: '高数',
+        teacher: '教师D',
+        room: '教1-101',
+        day: 1,
+        startSection: 1,
+        stepCount: 2,
+        weeks: [1, 2],
+        rawWeekStr: '1-2周',
+      );
+
+      final syncFuture = coordinator.syncAll();
+      await tester.pump();
+
+      final reqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': reqId,
+        'type': 'sync_all_result',
+        'success': true,
+        'data': {
+          'courses': [testCourse.toJson()],
+          'gradesData': {'grades': []},
+          'exams': [],
+          'weekInfo': {
+            'currentWeek': null,
+            'semester': '2026-2027-1',
+            'semesterStartDate': null,
+          },
+          'status': {
+            'courses': 'ok',
+            'grades': 'empty',
+            'exams': 'empty',
+          },
+        },
+      }));
+
+      await syncFuture;
+      await tester.pumpAndSettle();
+
+      // 学期名称被更新
+      expect(scheduleProvider.semesterName, equals('2026-2027-1'));
+      // 没有开学基准日
+      expect(scheduleProvider.semesterStartDate, isNull);
+
+      // 弹窗文案绝不包含“已自动对齐”
+      expect(find.textContaining('已自动对齐'), findsNothing);
+      expect(find.textContaining('已识别学期 2026-2027-1，未检测到周次，请手动校准开学日'), findsOneWidget);
+
+      coordinator.dispose();
+      adapter.dispose();
+    });
+  });
 }

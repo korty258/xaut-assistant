@@ -17,6 +17,7 @@ class WebViewSyncCoordinator {
 
   final ValueNotifier<bool> isSyncingNotifier = ValueNotifier<bool>(false);
   bool _isSyncInFlight = false;
+  bool _isDisposed = false;
 
   DateTime? _lastSyncAttemptTime;
   int? _cachedDetectedWeek;
@@ -31,9 +32,23 @@ class WebViewSyncCoordinator {
   });
 
   bool get isSyncing => isSyncingNotifier.value;
+  bool get isDisposed => _isDisposed;
 
   void dispose() {
+    _isDisposed = true;
     isSyncingNotifier.dispose();
+  }
+
+  @visibleForTesting
+  void resetCooldownForTest() {
+    _lastSyncAttemptTime = null;
+  }
+
+  void _setSyncingState(bool syncing, String? message) {
+    _isSyncInFlight = syncing;
+    if (_isDisposed) return;
+    isSyncingNotifier.value = syncing;
+    onStateChanged(syncing, message);
   }
 
   /// 同步防连击保护：限制 3 秒冷却，避免被教务系统识别为高频异常脚本
@@ -86,7 +101,8 @@ class WebViewSyncCoordinator {
   }
 
   /// 应用同步时识别到的教学周或开学基准日（带内部冲突与大幅跳变确认保护）
-  Future<String?> _applyDetectedWeekCalibration(
+  Future<({String? detailMessage, bool rejectedByUser, bool isSuccess})>
+      _applyDetectedWeekCalibration(
     ScheduleProvider scheduleProvider, {
     int? detectedWeek,
     String? detectedSemester,
@@ -100,7 +116,16 @@ class WebViewSyncCoordinator {
       detectedStart: detectedStart ?? _cachedDetectedStart,
     );
 
-    if (!decision.hasUpdate) return null;
+    if (!decision.hasUpdate) {
+      if (decision.candidateMonday != null && scheduleProvider.hasSemesterStart) {
+        return (
+          detailMessage: '当前第 ${scheduleProvider.actualCurrentWeek} 周基准一致，无需变更',
+          rejectedByUser: false,
+          isSuccess: true,
+        );
+      }
+      return (detailMessage: null, rejectedByUser: false, isSuccess: false);
+    }
 
     if (!decision.requiresConfirmation) {
       if (decision.candidateMonday != null) {
@@ -110,13 +135,27 @@ class WebViewSyncCoordinator {
               ? decision.candidateSemester
               : null,
         );
+        final week = scheduleProvider.actualCurrentWeek;
+        final monday = scheduleProvider.semesterStartDate;
+        final monStr = monday != null
+            ? '${monday.year}-${monday.month.toString().padLeft(2, '0')}-${monday.day.toString().padLeft(2, '0')}'
+            : '';
+        return (
+          detailMessage: '已自动对齐第 $week 周${monStr.isNotEmpty ? " (第1周周一: $monStr)" : ""}',
+          rejectedByUser: false,
+          isSuccess: true,
+        );
+      } else {
+        // 关键修复：无基准日期（未识别到周次或开学日，仅识别到学期名称）
+        if (decision.candidateSemester.isNotEmpty) {
+          await scheduleProvider.setSemesterNameOnly(decision.candidateSemester);
+        }
+        return (
+          detailMessage: '已识别学期 ${decision.candidateSemester}，未检测到周次，请手动校准开学日',
+          rejectedByUser: false,
+          isSuccess: false,
+        );
       }
-      final week = scheduleProvider.actualCurrentWeek;
-      final monday = scheduleProvider.semesterStartDate;
-      final monStr = monday != null
-          ? '${monday.year}-${monday.month.toString().padLeft(2, '0')}-${monday.day.toString().padLeft(2, '0')}'
-          : '';
-      return '已自动对齐第 $week 周${monStr.isNotEmpty ? " (第1周周一: $monStr)" : ""}';
     }
 
     // 触发了需要确认的冲突或大幅跳变
@@ -125,32 +164,39 @@ class WebViewSyncCoordinator {
       confirmed = await confirmSemesterCalibrationOverride!(decision);
     } else {
       final context = getContext();
-      if (context.mounted) {
-        confirmed = await showDialog<bool>(
-              context: context,
-              barrierDismissible: false,
-              builder: (ctx) => AlertDialog(
-                icon: const Icon(Icons.warning_amber_rounded,
-                    color: Colors.orange, size: 36),
-                title: const Text('检测到学期基准变更或冲突'),
-                content: Text(
-                  '${decision.conflictReason ?? "教务系统返回的学期或开学周与当前本地设置存在偏差。"}\n\n'
-                  '是否确认将学期基准更新为新检测到的配置？',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(false),
-                    child: const Text('保持原设置'),
-                  ),
-                  FilledButton(
-                    onPressed: () => Navigator.of(ctx).pop(true),
-                    child: const Text('更新学期基准'),
-                  ),
-                ],
-              ),
-            ) ??
-            false;
+      if (_isDisposed || !context.mounted) {
+        return (detailMessage: '已保持原学期基准不变', rejectedByUser: true, isSuccess: false);
       }
+      confirmed = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              icon: const Icon(Icons.warning_amber_rounded,
+                  color: Colors.orange, size: 36),
+              title: const Text('检测到学期基准变更或冲突'),
+              content: Text(
+                '${decision.conflictReason ?? "教务系统返回的学期或开学周与当前本地设置存在偏差。"}\n\n'
+                '若当前同步包含新课表数据：\n'
+                '• 选择【保持原设置】：将同时保留原课表与原学期基准，避免新课表与旧学期日期错位混用；\n'
+                '• 选择【更新学期基准】：将一并应用新课表与新学期基准。',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('保持原设置'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('更新学期基准'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+    }
+
+    if (_isDisposed) {
+      return (detailMessage: '已保持原学期基准不变', rejectedByUser: true, isSuccess: false);
     }
 
     if (confirmed) {
@@ -161,10 +207,12 @@ class WebViewSyncCoordinator {
               ? decision.candidateSemester
               : null,
         );
+      } else if (decision.candidateSemester.isNotEmpty) {
+        await scheduleProvider.setSemesterNameOnly(decision.candidateSemester);
       }
-      return '已按确认更新学期基准';
+      return (detailMessage: '已按确认更新学期基准', rejectedByUser: false, isSuccess: true);
     } else {
-      return '已保持原学期基准不变';
+      return (detailMessage: '已保持原学期基准不变', rejectedByUser: true, isSuccess: false);
     }
   }
 
@@ -172,7 +220,7 @@ class WebViewSyncCoordinator {
   Future<void> syncAll() async {
     final context = getContext();
     if (_isSyncInFlight) {
-      if (context.mounted) {
+      if (!_isDisposed && context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -191,9 +239,7 @@ class WebViewSyncCoordinator {
     final gradesProvider = context.read<GradesProvider>();
     final examsProvider = context.read<ExamsProvider>();
 
-    _isSyncInFlight = true;
-    isSyncingNotifier.value = true;
-    onStateChanged(true, '正在启动全量异步同步...');
+    _setSyncingState(true, '正在启动全量异步同步...');
 
     try {
       final requestId = adapter.nextRequestId('sync_all');
@@ -206,12 +252,12 @@ class WebViewSyncCoordinator {
         expectedType: 'sync_all_result',
         requestId: requestId,
         onProgress: (msg) {
-          onStateChanged(true, msg);
+          _setSyncingState(true, msg);
         },
       );
       final result = ParserService.parseSyncAllResult(rawResult);
 
-      if (!context.mounted) return;
+      if (_isDisposed || !context.mounted) return;
 
       // 全部未登录判定
       if (result.statusCourses.isNotLoggedIn &&
@@ -240,14 +286,32 @@ class WebViewSyncCoordinator {
         return;
       }
 
-      // 全部空数据判定
-      if (result.statusCourses.isEmpty &&
+      // 0. 当课表模块有效返回（ok 或 empty）时，优先在写入本地课表前完成学期与周次校准确认
+      ({String? detailMessage, bool rejectedByUser, bool isSuccess}) calibRes = (
+        detailMessage: null,
+        rejectedByUser: false,
+        isSuccess: false,
+      );
+      if (result.statusCourses.isOk || result.statusCourses.isEmpty) {
+        calibRes = await _applyDetectedWeekCalibration(
+          scheduleProvider,
+          detectedWeek: result.detectedWeek,
+          detectedSemester: result.detectedSemester,
+          detectedStart: result.detectedSemesterStart,
+        );
+        if (_isDisposed || !context.mounted) return;
+      }
+      final bool rejectedByUser = calibRes.rejectedByUser;
+
+      // 全部空数据判定（仅当用户未拒绝跨学期基准更新时才一并清空三模块）
+      if (!rejectedByUser &&
+          result.statusCourses.isEmpty &&
           result.statusGrades.isEmpty &&
           result.statusExams.isEmpty) {
         await scheduleProvider.updateCourses(const []);
         await gradesProvider.updateGrades(const []);
         await examsProvider.updateExams(const []);
-        if (!context.mounted) return;
+        if (_isDisposed || !context.mounted) return;
 
         showDialog(
           context: context,
@@ -269,22 +333,15 @@ class WebViewSyncCoordinator {
         return;
       }
 
-      // 逐模块按四态语义处理缓存更新
-      // 1. 课表
-      if (result.statusCourses.isOk) {
-        await scheduleProvider.updateCourses(result.courses);
-      } else if (result.statusCourses.isEmpty) {
-        await scheduleProvider.updateCourses(const []);
+      // 1. 课表：仅当用户未拒绝更新基准时，才写入新课表或空课表
+      if (!rejectedByUser) {
+        if (result.statusCourses.isOk) {
+          await scheduleProvider.updateCourses(result.courses);
+        } else if (result.statusCourses.isEmpty) {
+          await scheduleProvider.updateCourses(const []);
+        }
       }
       // notLoggedIn 或 error 严格保留原有课表缓存
-
-      // 教学周校准
-      final weekDetail = await _applyDetectedWeekCalibration(
-        scheduleProvider,
-        detectedWeek: result.detectedWeek,
-        detectedSemester: result.detectedSemester,
-        detectedStart: result.detectedSemesterStart,
-      );
 
       // 2. 成绩
       if (result.statusGrades.isOk) {
@@ -302,24 +359,32 @@ class WebViewSyncCoordinator {
       }
       // notLoggedIn 或 error 严格保留原有考试缓存
 
-      if (!context.mounted) return;
+      if (_isDisposed || !context.mounted) return;
 
       final String coursesDetail;
-      switch (result.statusCourses) {
-        case SyncModuleStatus.ok:
-          coursesDetail = '成功导入 ${result.courses.length} 门课程';
-          break;
-        case SyncModuleStatus.empty:
-          coursesDetail = '当前学期暂无课表数据（已清空旧缓存）';
-          break;
-        case SyncModuleStatus.notLoggedIn:
-          coursesDetail = '未登录统一认证（已保留本地历史缓存）';
-          break;
-        case SyncModuleStatus.error:
-          coursesDetail =
-              '课表解析失败${result.errorCourses != null ? " (${result.errorCourses})" : " (页面可能已改版)"}（已保留本地历史缓存）';
-          break;
+      if (rejectedByUser) {
+        coursesDetail = '已按您的选择保留原课表与原学期基准';
+      } else {
+        switch (result.statusCourses) {
+          case SyncModuleStatus.ok:
+            coursesDetail = '成功导入 ${result.courses.length} 门课程';
+            break;
+          case SyncModuleStatus.empty:
+            coursesDetail = '当前学期暂无课表数据（已清空旧缓存）';
+            break;
+          case SyncModuleStatus.notLoggedIn:
+            coursesDetail = '未登录统一认证（已保留本地历史缓存）';
+            break;
+          case SyncModuleStatus.error:
+            coursesDetail =
+                '课表解析失败${result.errorCourses != null ? " (${result.errorCourses})" : " (页面可能已改版)"}（已保留本地历史缓存）';
+            break;
+        }
       }
+
+      final String weekDetail = rejectedByUser
+          ? '已保持原学期基准不变'
+          : (calibRes.detailMessage ?? '未识别到顶栏周次，可在课表页手动校准开学日');
 
       final String gradesDetail;
       switch (result.statusGrades) {
@@ -371,15 +436,15 @@ class WebViewSyncCoordinator {
                 icon: Icons.calendar_month,
                 title: '课表数据',
                 detail: coursesDetail,
-                isSuccess: result.statusCourses.isOk,
+                isSuccess: !rejectedByUser && result.statusCourses.isOk,
               ),
               const SizedBox(height: 10),
               _buildSyncResultRow(
                 context: ctx,
                 icon: Icons.today_rounded,
                 title: '教学周校准',
-                detail: weekDetail ?? '未识别到顶栏周次，可在课表页手动校准开学日',
-                isSuccess: weekDetail != null,
+                detail: weekDetail,
+                isSuccess: calibRes.isSuccess,
               ),
               const SizedBox(height: 10),
               _buildSyncResultRow(
@@ -411,16 +476,14 @@ class WebViewSyncCoordinator {
         ),
       );
     } catch (e) {
-      if (!context.mounted) return;
+      if (_isDisposed || !context.mounted) return;
       final errStr = e.toString();
       final isCancel = errStr.contains('取消') || errStr.contains('跳转');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(isCancel ? '同步已取消' : '全量同步异常: $e')),
       );
     } finally {
-      _isSyncInFlight = false;
-      isSyncingNotifier.value = false;
-      onStateChanged(false, null);
+      _setSyncingState(false, null);
     }
   }
 
@@ -496,7 +559,7 @@ class WebViewSyncCoordinator {
   Future<void> syncSchedule() async {
     final context = getContext();
     if (_isSyncInFlight) {
-      if (context.mounted) {
+      if (!_isDisposed && context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -512,9 +575,7 @@ class WebViewSyncCoordinator {
     if (isSyncCoolingDown()) return;
 
     final scheduleProvider = context.read<ScheduleProvider>();
-    _isSyncInFlight = true;
-    isSyncingNotifier.value = true;
-    onStateChanged(true, '正在提取课表数据...');
+    _setSyncingState(true, '正在提取课表数据...');
 
     try {
       final requestId = adapter.nextRequestId('sync_course');
@@ -529,17 +590,38 @@ class WebViewSyncCoordinator {
       );
       final syncRes = ParserService.parseCourseSyncResult(rawResult);
 
-      if (!context.mounted) return;
+      if (_isDisposed || !context.mounted) return;
 
       if (syncRes.status == SyncModuleStatus.ok || syncRes.courses.isNotEmpty) {
-        await scheduleProvider.updateCourses(syncRes.courses);
-        final weekDetail = await _applyDetectedWeekCalibration(
+        // 先执行学期基准与周次校准确认，确保原子一致性
+        final calibRes = await _applyDetectedWeekCalibration(
           scheduleProvider,
           detectedWeek: syncRes.detectedWeek,
           detectedSemester: syncRes.detectedSemester,
           detectedStart: syncRes.detectedSemesterStart,
         );
-        if (!context.mounted) return;
+        if (_isDisposed || !context.mounted) return;
+
+        if (calibRes.rejectedByUser) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              icon: const Icon(Icons.info_outline, color: Colors.orange),
+              title: const Text('已取消课表更新'),
+              content: const Text('已取消更新：已保持原课表与原学期基准不变'),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('我知道了'),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
+
+        await scheduleProvider.updateCourses(syncRes.courses);
+        if (_isDisposed || !context.mounted) return;
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -552,7 +634,7 @@ class WebViewSyncCoordinator {
             ),
             content: Text(
               '成功解析并导入 ${syncRes.courses.length} 门课程！'
-              '${weekDetail != null ? "\n$weekDetail" : ""}',
+              '${calibRes.detailMessage != null ? "\n${calibRes.detailMessage}" : ""}',
             ),
             actions: [
               FilledButton(
@@ -566,8 +648,32 @@ class WebViewSyncCoordinator {
           ),
         );
       } else if (syncRes.status == SyncModuleStatus.empty) {
+        final calibRes = await _applyDetectedWeekCalibration(
+          scheduleProvider,
+          detectedWeek: syncRes.detectedWeek,
+          detectedSemester: syncRes.detectedSemester,
+          detectedStart: syncRes.detectedSemesterStart,
+        );
+        if (_isDisposed || !context.mounted) return;
+        if (calibRes.rejectedByUser) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              icon: const Icon(Icons.info_outline, color: Colors.orange),
+              title: const Text('已取消课表更新'),
+              content: const Text('已取消更新：已保持原课表与原学期基准不变'),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('我知道了'),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
         await scheduleProvider.updateCourses(const []);
-        if (!context.mounted) return;
+        if (_isDisposed || !context.mounted) return;
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -645,16 +751,14 @@ class WebViewSyncCoordinator {
         );
       }
     } catch (e) {
-      if (!context.mounted) return;
+      if (_isDisposed || !context.mounted) return;
       final errStr = e.toString();
       final isCancel = errStr.contains('取消') || errStr.contains('跳转');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(isCancel ? '同步已取消' : '课表解析异常: $e')),
       );
     } finally {
-      _isSyncInFlight = false;
-      isSyncingNotifier.value = false;
-      onStateChanged(false, null);
+      _setSyncingState(false, null);
     }
   }
 
@@ -662,7 +766,7 @@ class WebViewSyncCoordinator {
   Future<void> syncGrades() async {
     final context = getContext();
     if (_isSyncInFlight) {
-      if (context.mounted) {
+      if (!_isDisposed && context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -678,9 +782,7 @@ class WebViewSyncCoordinator {
     if (isSyncCoolingDown()) return;
 
     final gradesProvider = context.read<GradesProvider>();
-    _isSyncInFlight = true;
-    isSyncingNotifier.value = true;
-    onStateChanged(true, '正在提取成绩数据...');
+    _setSyncingState(true, '正在提取成绩数据...');
 
     try {
       final requestId = adapter.nextRequestId('sync_grades');
@@ -695,11 +797,11 @@ class WebViewSyncCoordinator {
       );
       final result = ParserService.parseGradesResult(rawResult);
 
-      if (!context.mounted) return;
+      if (_isDisposed || !context.mounted) return;
 
       if (result.status == SyncModuleStatus.ok || result.grades.isNotEmpty) {
         await gradesProvider.updateGrades(result.grades);
-        if (!context.mounted) return;
+        if (_isDisposed || !context.mounted) return;
         final summary = gradesProvider.overallSummary;
         showDialog(
           context: context,
@@ -803,16 +905,14 @@ class WebViewSyncCoordinator {
         );
       }
     } catch (e) {
-      if (!context.mounted) return;
+      if (_isDisposed || !context.mounted) return;
       final errStr = e.toString();
       final isCancel = errStr.contains('取消') || errStr.contains('跳转');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(isCancel ? '同步已取消' : '成绩解析异常: $e')),
       );
     } finally {
-      _isSyncInFlight = false;
-      isSyncingNotifier.value = false;
-      onStateChanged(false, null);
+      _setSyncingState(false, null);
     }
   }
 
@@ -820,7 +920,7 @@ class WebViewSyncCoordinator {
   Future<void> syncExams() async {
     final context = getContext();
     if (_isSyncInFlight) {
-      if (context.mounted) {
+      if (!_isDisposed && context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -836,9 +936,7 @@ class WebViewSyncCoordinator {
     if (isSyncCoolingDown()) return;
 
     final examsProvider = context.read<ExamsProvider>();
-    _isSyncInFlight = true;
-    isSyncingNotifier.value = true;
-    onStateChanged(true, '正在提取考试安排...');
+    _setSyncingState(true, '正在提取考试安排...');
 
     try {
       final requestId = adapter.nextRequestId('sync_exams');
@@ -853,11 +951,11 @@ class WebViewSyncCoordinator {
       );
       final result = ParserService.parseExamsDetailedResult(rawResult);
 
-      if (!context.mounted) return;
+      if (_isDisposed || !context.mounted) return;
 
       if (result.status == SyncModuleStatus.ok || result.exams.isNotEmpty) {
         await examsProvider.updateExams(result.exams);
-        if (!context.mounted) return;
+        if (_isDisposed || !context.mounted) return;
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -883,7 +981,7 @@ class WebViewSyncCoordinator {
         );
       } else if (result.status == SyncModuleStatus.empty) {
         await examsProvider.updateExams(const []);
-        if (!context.mounted) return;
+        if (_isDisposed || !context.mounted) return;
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -959,16 +1057,14 @@ class WebViewSyncCoordinator {
         );
       }
     } catch (e) {
-      if (!context.mounted) return;
+      if (_isDisposed || !context.mounted) return;
       final errStr = e.toString();
       final isCancel = errStr.contains('取消') || errStr.contains('跳转');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(isCancel ? '同步已取消' : '考试解析异常: $e')),
       );
     } finally {
-      _isSyncInFlight = false;
-      isSyncingNotifier.value = false;
-      onStateChanged(false, null);
+      _setSyncingState(false, null);
     }
   }
 

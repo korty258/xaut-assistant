@@ -120,8 +120,8 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
 
   @override
   void dispose() {
-    _coordinator.dispose();
     _adapter.dispose();
+    _coordinator.dispose();
     super.dispose();
   }
 

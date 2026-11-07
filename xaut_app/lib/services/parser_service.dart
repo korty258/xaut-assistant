@@ -790,6 +790,22 @@ class ParserService {
     }
 
     if (data is Map) {
+      if (data['success'] == false || (data['error'] != null && data['status'] == null)) {
+        final errText = data['error']?.toString() ?? '同步脚本执行异常';
+        return SyncAllResult(
+          courses: const [],
+          grades: const [],
+          exams: const [],
+          statusCourses: SyncModuleStatus.error,
+          statusGrades: SyncModuleStatus.error,
+          statusExams: SyncModuleStatus.error,
+          errorCourses: errText,
+          errorGrades: errText,
+          errorExams: errText,
+          error: errText,
+        );
+      }
+
       final courses = parseCoursesResult(data['courses']);
       final gradesResult = parseGradesResult(data['gradesData']);
       final exams = parseExamsResult(data['exams']);
@@ -801,14 +817,17 @@ class ParserService {
       final statusCourses = SyncModuleStatus.fromString(
         statusMap['courses']?.toString(),
         fallbackOk: courses.isNotEmpty,
+        defaultStatus: SyncModuleStatus.error,
       );
       final statusGrades = SyncModuleStatus.fromString(
         statusMap['grades']?.toString(),
         fallbackOk: gradesResult.grades.isNotEmpty,
+        defaultStatus: SyncModuleStatus.error,
       );
       final statusExams = SyncModuleStatus.fromString(
         statusMap['exams']?.toString(),
         fallbackOk: exams.isNotEmpty,
+        defaultStatus: SyncModuleStatus.error,
       );
 
       return SyncAllResult(
@@ -833,6 +852,10 @@ class ParserService {
       courses: [],
       grades: [],
       exams: [],
+      statusCourses: SyncModuleStatus.error,
+      statusGrades: SyncModuleStatus.error,
+      statusExams: SyncModuleStatus.error,
+      error: '数据格式异常',
     );
   }
 
@@ -871,12 +894,28 @@ class ParserService {
     }
 
     if (data is Map) {
+      if (data['success'] == false || (data['error'] != null && data['status'] == null)) {
+        final error = data['error']?.toString() ?? '同步脚本执行异常';
+        return (
+          courses: <Course>[],
+          detectedWeek: null,
+          detectedSemester: null,
+          detectedSemesterStart: null,
+          status: SyncModuleStatus.error,
+          error: error,
+        );
+      }
+
       final courses = parseCoursesResult(data['courses']);
       final weekInfo = parseWeekInfoResult(data['weekInfo']);
       final statusStr = data['status']?.toString();
+      final bool hasCoursesKey = data.containsKey('courses') && data['courses'] is List;
       final status = SyncModuleStatus.fromString(
         statusStr,
         fallbackOk: courses.isNotEmpty,
+        defaultStatus: (hasCoursesKey && data['error'] == null)
+            ? SyncModuleStatus.empty
+            : SyncModuleStatus.error,
       );
       final error = data['error']?.toString();
       return (
@@ -889,14 +928,25 @@ class ParserService {
       );
     }
 
-    final courses = parseCoursesResult(data);
+    if (data is List) {
+      final courses = parseCoursesResult(data);
+      return (
+        courses: courses,
+        detectedWeek: null,
+        detectedSemester: null,
+        detectedSemesterStart: null,
+        status: courses.isNotEmpty ? SyncModuleStatus.ok : SyncModuleStatus.empty,
+        error: null,
+      );
+    }
+
     return (
-      courses: courses,
+      courses: <Course>[],
       detectedWeek: null,
       detectedSemester: null,
       detectedSemesterStart: null,
-      status: courses.isNotEmpty ? SyncModuleStatus.ok : SyncModuleStatus.empty,
-      error: null,
+      status: SyncModuleStatus.error,
+      error: '数据格式异常',
     );
   }
 
@@ -957,12 +1007,20 @@ class ParserService {
       );
     }
 
-    List<GradeItem> grades = [];
-    GradeSummary? summary;
-    SyncModuleStatus status = SyncModuleStatus.empty;
-    String? error;
-
     if (data is Map) {
+      if (data['success'] == false || (data['error'] != null && data['status'] == null)) {
+        final error = data['error']?.toString() ?? '同步脚本执行异常';
+        return (
+          grades: <GradeItem>[],
+          summary: null,
+          status: SyncModuleStatus.error,
+          error: error,
+        );
+      }
+
+      List<GradeItem> grades = [];
+      GradeSummary? summary;
+
       if (data['grades'] is List) {
         grades = (data['grades'] as List).map((item) {
           if (item is Map<String, dynamic>) {
@@ -982,11 +1040,41 @@ class ParserService {
       }
 
       final statusStr = data['status']?.toString();
-      status = SyncModuleStatus.fromString(statusStr, fallbackOk: grades.isNotEmpty);
-      error = data['error']?.toString();
+      final bool hasGradesKey = data.containsKey('grades') && data['grades'] is List;
+      final status = SyncModuleStatus.fromString(
+        statusStr,
+        fallbackOk: grades.isNotEmpty,
+        defaultStatus: (hasGradesKey && data['error'] == null)
+            ? SyncModuleStatus.empty
+            : SyncModuleStatus.error,
+      );
+      final error = data['error']?.toString();
+      return (grades: grades, summary: summary, status: status, error: error);
     }
 
-    return (grades: grades, summary: summary, status: status, error: error);
+    if (data is List) {
+      final grades = data.map((item) {
+        if (item is Map<String, dynamic>) {
+          return GradeItem.fromJson(item);
+        } else if (item is Map) {
+          return GradeItem.fromJson(Map<String, dynamic>.from(item));
+        }
+        return null;
+      }).whereType<GradeItem>().toList();
+      return (
+        grades: grades,
+        summary: null,
+        status: grades.isNotEmpty ? SyncModuleStatus.ok : SyncModuleStatus.empty,
+        error: null,
+      );
+    }
+
+    return (
+      grades: <GradeItem>[],
+      summary: null,
+      status: SyncModuleStatus.error,
+      error: '数据格式异常',
+    );
   }
 
   /// 统一处理 WebView 返回的考试安排执行结果（带状态与错误诊断）
@@ -1014,12 +1102,45 @@ class ParserService {
       );
     }
 
-    final exams = parseExamsResult(data);
-    final statusStr = data is Map ? data['status']?.toString() : null;
-    final status = SyncModuleStatus.fromString(statusStr, fallbackOk: exams.isNotEmpty);
-    final error = data is Map ? data['error']?.toString() : null;
+    if (data is Map) {
+      if (data['success'] == false || (data['error'] != null && data['status'] == null)) {
+        final error = data['error']?.toString() ?? '同步脚本执行异常';
+        return (
+          exams: <ExamItem>[],
+          status: SyncModuleStatus.error,
+          error: error,
+        );
+      }
 
-    return (exams: exams, status: status, error: error);
+      final exams = parseExamsResult(data['exams'] ?? data);
+      final statusStr = data['status']?.toString();
+      final bool hasExamsKey = data.containsKey('exams') && data['exams'] is List;
+      final status = SyncModuleStatus.fromString(
+        statusStr,
+        fallbackOk: exams.isNotEmpty,
+        defaultStatus: (hasExamsKey && data['error'] == null)
+            ? SyncModuleStatus.empty
+            : SyncModuleStatus.error,
+      );
+      final error = data['error']?.toString();
+
+      return (exams: exams, status: status, error: error);
+    }
+
+    if (data is List) {
+      final exams = parseExamsResult(data);
+      return (
+        exams: exams,
+        status: exams.isNotEmpty ? SyncModuleStatus.ok : SyncModuleStatus.empty,
+        error: null,
+      );
+    }
+
+    return (
+      exams: <ExamItem>[],
+      status: SyncModuleStatus.error,
+      error: '数据格式异常',
+    );
   }
 
   /// 统一处理 WebView 返回的考试安排执行结果
@@ -1055,7 +1176,11 @@ enum SyncModuleStatus {
   notLoggedIn,
   error;
 
-  static SyncModuleStatus fromString(String? val, {bool fallbackOk = false}) {
+  static SyncModuleStatus fromString(
+    String? val, {
+    bool fallbackOk = false,
+    SyncModuleStatus defaultStatus = SyncModuleStatus.error,
+  }) {
     switch (val?.toLowerCase()) {
       case 'ok':
         return SyncModuleStatus.ok;
@@ -1066,7 +1191,7 @@ enum SyncModuleStatus {
       case 'error':
         return SyncModuleStatus.error;
       default:
-        return fallbackOk ? SyncModuleStatus.ok : SyncModuleStatus.empty;
+        return fallbackOk ? SyncModuleStatus.ok : defaultStatus;
     }
   }
 
