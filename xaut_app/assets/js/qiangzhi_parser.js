@@ -431,45 +431,76 @@ function parseQiangZhiGrades(doc = document) {
 function parseQiangZhiExams(doc = document) {
   const exams = [];
   
-  // 智能寻找考试表格（支持外层 query 页面或内嵌 list 页面）
-  const table = findTableAcrossFrames(doc, d => {
-    return d.getElementById("dataList") || findTableByKeywords(d, ["课程名称", "考试时间"]);
-  });
+  // 智能寻找考试表格（优先选择包含数据行的表格，防止外层空表遮蔽内嵌 iframe 数据表）
+  const docs = collectDocsAcrossFrames(doc);
+  let table = null;
+  for (const d of docs) {
+    try {
+      const candidate = d.getElementById("dataList") || findTableByKeywords(d, ["课程名称", "考试时间"]);
+      if (candidate) {
+        if (!table) table = candidate;
+        const trs = candidate.querySelectorAll("tr");
+        if (trs.length >= 2 && !getNodeText(candidate).includes("未查询到数据")) {
+          table = candidate;
+          break;
+        }
+      }
+    } catch (e) {}
+  }
 
   if (!table) {
     console.error("[-] 未找到考试表格，请确认页面是否已显示考试安排数据");
     return exams;
   }
 
-  const rows = Array.from(table.rows);
+  const rows = Array.from(table.querySelectorAll("tr"));
   if (rows.length < 2) return exams;
 
-  const headerCells = Array.from(rows[0].cells).map(c => getNodeText(c).trim());
+  // 在前 3 行内定位表头行（兼容顶部带有标题横幅行的表格结构）
+  let headerRowIndex = 0;
+  let headerCells = [];
+  for (let r = 0; r < Math.min(rows.length, 3); r++) {
+    const cells = Array.from(rows[r].querySelectorAll("th, td")).map(c => getNodeText(c).trim());
+    if (cells.some(t => /课程名称|考试课程/.test(t)) || cells.some(t => /考试时间/.test(t))) {
+      headerRowIndex = r;
+      headerCells = cells;
+      break;
+    }
+  }
+  if (headerCells.length === 0) {
+    headerCells = Array.from(rows[0].querySelectorAll("th, td")).map(c => getNodeText(c).trim());
+  }
+
+  let teacherCol = headerCells.findIndex(t => /授课教师|主讲教师|任课教师/.test(t));
+  if (teacherCol === -1) {
+    teacherCol = headerCells.findIndex(t => /教师/.test(t));
+  }
+
   const colMap = {
     campus: headerCells.findIndex(t => /校区/.test(t)),
     batch: headerCells.findIndex(t => /场次|批次/.test(t)),
-    courseCode: headerCells.findIndex(t => /课程编号|课程代码/.test(t)),
-    courseName: headerCells.findIndex(t => /课程名称/.test(t)),
-    teacher: headerCells.findIndex(t => /教师/.test(t)),
+    courseCode: headerCells.findIndex(t => /课程编号|课程代码|课程号/.test(t)),
+    courseName: headerCells.findIndex(t => /课程名称|考试课程/.test(t)),
+    teacher: teacherCol,
     examTime: headerCells.findIndex(t => /考试时间/.test(t)),
-    room: headerCells.findIndex(t => /考场|地点/.test(t))
+    room: headerCells.findIndex(t => /考场|地点|教室/.test(t))
   };
 
-  for (let i = 1; i < rows.length; i++) {
-    const cells = Array.from(rows[i].cells).map(c => getNodeText(c).trim());
+  for (let i = headerRowIndex + 1; i < rows.length; i++) {
+    const cells = Array.from(rows[i].querySelectorAll("td, th")).map(c => getNodeText(c).trim());
     if (cells.length < 4) continue;
 
     const courseName = colMap.courseName !== -1 ? cells[colMap.courseName] : "";
-    if (!courseName || courseName === "未查询到数据") continue;
+    if (!courseName || courseName === "未查询到数据" || courseName === "课程名称") continue;
 
     exams.push({
-      campus: colMap.campus !== -1 ? cells[colMap.campus] : "",
-      batch: colMap.batch !== -1 ? cells[colMap.batch] : "",
-      courseCode: colMap.courseCode !== -1 ? cells[colMap.courseCode] : "",
+      campus: colMap.campus !== -1 ? (cells[colMap.campus] || "") : "",
+      batch: colMap.batch !== -1 ? (cells[colMap.batch] || "") : "",
+      courseCode: colMap.courseCode !== -1 ? (cells[colMap.courseCode] || "") : "",
       courseName: courseName,
-      teacher: colMap.teacher !== -1 ? cells[colMap.teacher] : "",
-      examTime: colMap.examTime !== -1 ? cells[colMap.examTime] : "",
-      room: colMap.room !== -1 ? cells[colMap.room] : ""
+      teacher: colMap.teacher !== -1 ? (cells[colMap.teacher] || "") : "",
+      examTime: colMap.examTime !== -1 ? (cells[colMap.examTime] || "") : "",
+      room: colMap.room !== -1 ? (cells[colMap.room] || "") : ""
     });
   }
 
@@ -482,6 +513,8 @@ function parseQiangZhiExams(doc = document) {
 function findTableByKeywords(doc, keywords) {
   const tables = doc.querySelectorAll("table");
   for (const t of tables) {
+    // 排除包含子 table 的外层布局包装表
+    if (t.querySelector("table")) continue;
     const text = getNodeText(t);
     if (keywords.every(kw => text.includes(kw))) {
       return t;
@@ -623,19 +656,27 @@ function parseQiangZhiTeachingWeek(doc = document, allowSelectFallback = true) {
   if (!info.semester) {
     for (const d of docs) {
       try {
-        const semSel = d.querySelector("select[name='xnxq01id'], select[name='xnxqid'], #xnxq01id, #xnxqid");
+        const semSel =
+          d.querySelector("select[name='xnxq01id']") ||
+          d.querySelector("select[name='xnxqid']") ||
+          d.querySelector("#xnxq01id") ||
+          d.querySelector("#xnxqid");
         if (semSel) {
-          const opt =
-            (typeof semSel.selectedIndex === "number" && semSel.selectedIndex >= 0 && semSel.options
-              ? semSel.options[semSel.selectedIndex]
-              : null) || semSel.querySelector("option[selected]");
-          if (opt) {
+          const candidates = [];
+          const explicitOpt = semSel.querySelector("option[selected]");
+          if (explicitOpt) candidates.push(explicitOpt);
+          if (typeof semSel.selectedIndex === "number" && semSel.selectedIndex >= 0 && semSel.options) {
+            candidates.push(semSel.options[semSel.selectedIndex]);
+          }
+          for (const opt of candidates) {
+            if (!opt) continue;
             const v = (opt.value || opt.textContent || "").trim();
             if (/^\d{4}-\d{4}-[12]$/.test(v)) {
               info.semester = v;
               break;
             }
           }
+          if (info.semester) break;
         }
       } catch (e) {}
     }

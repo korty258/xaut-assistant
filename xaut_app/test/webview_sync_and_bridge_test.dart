@@ -80,7 +80,16 @@ void main() {
       // 课表与全量成绩始终通过异步 fetchHtmlAsync 获取默认全量源
       expect(script.contains("fetchHtmlAsync('/jsxsd/xskb/xskb_list.do', 15000)"), isTrue);
       expect(script.contains("fetchHtmlAsync('/jsxsd/kscj/cjcx_list', 15000)"), isTrue);
+      expect(script.contains("fetchHtmlAsync('/jsxsd/xsks/xsksap_query', 12000)"), isTrue);
       expect(script.contains("fetchHtmlAsync('/jsxsd/xsks/xsksap_list', 12000)"), isTrue);
+
+      // 考试同步必须先请求 xsksap_query 提取 xnxqid，严禁被无参 xsksap_list 空表壳短路，且支持 GET + POST 穿透
+      final queryPos = script.indexOf("fetchHtmlAsync('/jsxsd/xsks/xsksap_query', 12000)");
+      final bareListPos = script.indexOf("fetchHtmlAsync('/jsxsd/xsks/xsksap_list', 12000)");
+      expect(queryPos, greaterThan(0));
+      expect(bareListPos, greaterThan(queryPos));
+      expect(script.contains("fetchHtmlAsyncPost('/jsxsd/xsks/xsksap_list'"), isTrue);
+      expect(script.contains("select[name=\"xnxqid\"], #xnxqid, select"), isFalse);
 
       // 严禁因为 currentUrl 包含 /jsxsd/xskb/ 或 /jsxsd/kscj/ 就直接读 document
       expect(script.contains("if (currentUrl.indexOf('/jsxsd/xskb/') !== -1)"), isFalse);

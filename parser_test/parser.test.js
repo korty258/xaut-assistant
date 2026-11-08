@@ -139,6 +139,35 @@ test('3. 考试安排解析回归测试 (parseQiangZhiExams)', async (t) => {
     const exams = parser.parseQiangZhiExams(doc);
     assert.deepEqual(exams, []);
   });
+
+  await t.test('外层布局 table 嵌套与带前置横幅行的考试表格正确解析', () => {
+    const html = `
+      <!DOCTYPE html><html><body>
+        <table width="100%">
+          <tr><td>查询条件：课程名称 / 考试时间</td></tr>
+          <tr><td>
+            <table id="dataList">
+              <tr><td colspan="7">2026-2027-1 学生考试安排表</td></tr>
+              <tr>
+                <th>序号</th><th>校区</th><th>考试场次</th><th>课程代码</th>
+                <th>考试课程</th><th>授课教师</th><th>监考教师</th><th>考试时间</th><th>教室</th>
+              </tr>
+              <tr>
+                <td>1</td><td>金花校区</td><td>期末第1场</td><td>CS201</td>
+                <td>数据结构</td><td>王老师</td><td>赵老师</td><td>2027-01-05 09:00-11:00</td><td>教2-305</td>
+              </tr>
+            </table>
+          </td></tr>
+        </table>
+      </body></html>
+    `;
+    const dom = new JSDOM(html, { url: 'https://jwgl.xaut.edu.cn/jsxsd/xsks/xsksap_list' });
+    const exams = parser.parseQiangZhiExams(dom.window.document);
+    assert.equal(exams.length, 1);
+    assert.equal(exams[0].courseName, '数据结构');
+    assert.equal(exams[0].teacher, '王老师');
+    assert.equal(exams[0].room, '教2-305');
+  });
 });
 
 test('4. 教学周与学期识别回归测试 (parseQiangZhiTeachingWeek)', async (t) => {
@@ -147,6 +176,21 @@ test('4. 教学周与学期识别回归测试 (parseQiangZhiTeachingWeek)', asyn
     const weekInfo = parser.parseQiangZhiTeachingWeek(doc);
 
     assert.equal(weekInfo.currentWeek, 9);
+    assert.equal(weekInfo.semester, '2026-2027-1');
+  });
+
+  await t.test('学期下拉框含前置空选项 "---请选择---" 时仍能正确识别 option[selected]', () => {
+    const html = `
+      <!DOCTYPE html><html><body>
+        <select name="xqlbmc"><option value="" selected="selected">---请选择---</option></select>
+        <select id="xnxq01id" name="xnxq01id">
+          <option value="">---请选择---</option>
+          <option value="2026-2027-1" selected="selected">2026-2027-1</option>
+        </select>
+      </body></html>
+    `;
+    const dom = new JSDOM(html, { url: 'https://jwgl.xaut.edu.cn/jsxsd/xskb/xskb_list.do' });
+    const weekInfo = parser.parseQiangZhiTeachingWeek(dom.window.document, false);
     assert.equal(weekInfo.semester, '2026-2027-1');
   });
 

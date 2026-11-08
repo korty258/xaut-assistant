@@ -217,6 +217,254 @@ class ParserService {
 
         return info;
       }
+
+      function checkAuth(doc, html, url) {
+        if (url && (url.indexOf('/authserver/login') !== -1 || url.indexOf('/authserver/') !== -1)) return true;
+        if (doc) {
+          if (doc.getElementById('casLoginForm')) return true;
+          if (doc.querySelector('form[action*="authserver"]') || doc.querySelector('form[action*="login"]')) {
+            if (doc.querySelector('input[name="username"]') && doc.querySelector('input[name="password"]')) {
+              return true;
+            }
+          }
+        }
+        if (html && typeof html === 'string') {
+          if (html.indexOf('casLoginForm') !== -1 || html.indexOf('/authserver/login') !== -1) return true;
+        }
+        return false;
+      }
+
+      function extractExamQueryMeta(qDoc) {
+        var meta = { iframeUrl: null, xnxqid: '' };
+        if (!qDoc) return meta;
+
+        try {
+          var iframes = qDoc.querySelectorAll('iframe, frame');
+          for (var f = 0; f < iframes.length; f++) {
+            var src = (iframes[f].getAttribute('src') || '').trim();
+            if (src && src !== 'about:blank' && (src.indexOf('xsksap_list') !== -1 || src.indexOf('xsks') !== -1)) {
+              meta.iframeUrl = src;
+              break;
+            }
+          }
+        } catch(e) {}
+
+        try {
+          // 必须优先精确查找学年学期下拉框，严禁使用 ', select' 导致误命中前序考试类别下拉框(#xqlbmc)
+          var sel =
+            qDoc.querySelector('select[name="xnxqid"]') ||
+            qDoc.querySelector('#xnxqid') ||
+            qDoc.querySelector('select[name="xnxq01id"]') ||
+            qDoc.querySelector('#xnxq01id');
+
+          if (!sel) {
+            var allSels = qDoc.querySelectorAll('select');
+            for (var si = 0; si < allSels.length; si++) {
+              var opts = allSels[si].querySelectorAll('option');
+              for (var oi = 0; oi < opts.length; oi++) {
+                if (/^\\d{4}-\\d{4}-\\d+\$/.test((opts[oi].value || '').trim())) {
+                  sel = allSels[si];
+                  break;
+                }
+              }
+              if (sel) break;
+            }
+          }
+
+          if (sel) {
+            var opt = sel.querySelector('option[selected]');
+            if (opt && (opt.value || '').trim()) {
+              meta.xnxqid = opt.value.trim();
+            } else if (typeof sel.value === 'string' && /^\\d{4}-\\d{4}-\\d+\$/.test(sel.value.trim())) {
+              meta.xnxqid = sel.value.trim();
+            } else if (sel.options && sel.options.length > 0) {
+              for (var k = 0; k < sel.options.length; k++) {
+                var v = (sel.options[k].value || '').trim();
+                if (/^\\d{4}-\\d{4}-\\d+\$/.test(v)) {
+                  meta.xnxqid = v;
+                  break;
+                }
+              }
+              if (!meta.xnxqid) {
+                for (var k2 = 0; k2 < sel.options.length; k2++) {
+                  var v2 = (sel.options[k2].value || '').trim();
+                  if (v2) {
+                    meta.xnxqid = v2;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        } catch(e) {}
+
+        return meta;
+      }
+
+      function buildExamTargetUrl(iframeUrl, sem) {
+        var targetUrl = '/jsxsd/xsks/xsksap_list';
+        if (iframeUrl) {
+          targetUrl = iframeUrl;
+          if (targetUrl.indexOf('/') !== 0 && targetUrl.indexOf('http') !== 0) {
+            targetUrl = '/jsxsd/xsks/' + targetUrl;
+          }
+        }
+        if (sem) {
+          if (/[?&]xnxqid=/.test(targetUrl)) {
+            targetUrl = targetUrl.replace(/([?&]xnxqid=)[^&]*/, '\$1' + encodeURIComponent(sem));
+          } else {
+            targetUrl += (targetUrl.indexOf('?') !== -1 ? '&' : '?') + 'xnxqid=' + encodeURIComponent(sem);
+          }
+        }
+        return targetUrl;
+      }
+
+      async function fetchExamScheduleAsync(fallbackSemester, gradesList, currentUrl) {
+        var foundExamTable = false;
+        var isNotLoggedIn = false;
+
+        function inspectExamDoc(doc, html) {
+          if (checkAuth(doc, html, null)) {
+            isNotLoggedIn = true;
+            return null;
+          }
+          if (!doc && html) {
+            doc = new DOMParser().parseFromString(html, 'text/html');
+          }
+          if (!doc) return null;
+          if (checkAuth(doc, null, null)) {
+            isNotLoggedIn = true;
+            return null;
+          }
+          var exTable = findTableAcrossFrames(doc, function(d) {
+            return d.getElementById('dataList') || findTableByKeywords(d, ['课程名称', '考试时间']);
+          });
+          if (exTable) {
+            foundExamTable = true;
+            var parsed = parseQiangZhiExams(doc);
+            if (parsed && parsed.length > 0) {
+              return parsed;
+            }
+          }
+          return null;
+        }
+
+        // 0. 若当前已处于考试查询页且 DOM 内已渲染出考试行，直接提取返回
+        if (currentUrl && currentUrl.indexOf('/jsxsd/xsks/') !== -1 && typeof document !== 'undefined') {
+          var liveExams = inspectExamDoc(document, null);
+          if (isNotLoggedIn) {
+            return { exams: [], status: 'not_logged_in', error: null };
+          }
+          if (liveExams && liveExams.length > 0) {
+            return { exams: liveExams, status: 'ok', error: null };
+          }
+        }
+
+        // 1. 优先请求考试查询外壳页 /jsxsd/xsks/xsksap_query 提取默认激活学年学期 (xnxqid) 与内嵌 iframe 地址
+        //    （严禁先无参请求 /jsxsd/xsks/xsksap_list 并以 hasExamTable 短路，因无参请求仍会返回空 #dataList 表壳导致跳过参数查询）
+        var qDoc = null;
+        var queryHtml = await fetchHtmlAsync('/jsxsd/xsks/xsksap_query', 12000);
+        if (queryHtml) {
+          var queryExams = inspectExamDoc(null, queryHtml);
+          if (isNotLoggedIn) {
+            return { exams: [], status: 'not_logged_in', error: null };
+          }
+          if (queryExams && queryExams.length > 0) {
+            return { exams: queryExams, status: 'ok', error: null };
+          }
+          qDoc = new DOMParser().parseFromString(queryHtml, 'text/html');
+        }
+
+        var queryMeta = extractExamQueryMeta(qDoc);
+        var liveMeta = (currentUrl && currentUrl.indexOf('/jsxsd/xsks/') !== -1 && typeof document !== 'undefined')
+          ? extractExamQueryMeta(document)
+          : { iframeUrl: null, xnxqid: '' };
+        var iframeUrl = queryMeta.iframeUrl || liveMeta.iframeUrl;
+
+        // 2. 汇总候选学年学期列表 (按 考试外壳页选中学期 -> 当前页选中学期 -> 教务顶栏/课表学期 -> 最新成绩学期 优先级去重)
+        var candidateSemesters = [];
+        function addCandidateSem(s) {
+          var trimmed = (s || '').trim();
+          if (trimmed && candidateSemesters.indexOf(trimmed) === -1) {
+            candidateSemesters.push(trimmed);
+          }
+        }
+        addCandidateSem(liveMeta.xnxqid);
+        addCandidateSem(queryMeta.xnxqid);
+        addCandidateSem(fallbackSemester);
+        if (Array.isArray(gradesList) && gradesList.length > 0) {
+          var sems = gradesList
+            .map(function(g) { return (g && g.semester ? String(g.semester) : '').trim(); })
+            .filter(function(s) { return s.length > 0; })
+            .sort();
+          if (sems.length > 0) {
+            addCandidateSem(sems[sems.length - 1]);
+          }
+        }
+
+        // 3. 携带学年学期参数请求 /jsxsd/xsks/xsksap_list（若 GET 返回空表壳 0 条记录，继续尝试 POST 表单提交）
+        for (var cIdx = 0; cIdx < candidateSemesters.length; cIdx++) {
+          var sem = candidateSemesters[cIdx];
+          var targetUrl = buildExamTargetUrl(iframeUrl, sem);
+
+          var getHtml = await fetchHtmlAsync(targetUrl, 12000);
+          if (getHtml) {
+            var getExams = inspectExamDoc(null, getHtml);
+            if (isNotLoggedIn) {
+              return { exams: [], status: 'not_logged_in', error: null };
+            }
+            if (getExams && getExams.length > 0) {
+              return { exams: getExams, status: 'ok', error: null };
+            }
+          }
+
+          var postHtml = await fetchHtmlAsyncPost('/jsxsd/xsks/xsksap_list', 'xnxqid=' + encodeURIComponent(sem), 12000);
+          if (postHtml) {
+            var postExams = inspectExamDoc(null, postHtml);
+            if (isNotLoggedIn) {
+              return { exams: [], status: 'not_logged_in', error: null };
+            }
+            if (postExams && postExams.length > 0) {
+              return { exams: postExams, status: 'ok', error: null };
+            }
+          }
+
+          var postFullHtml = await fetchHtmlAsyncPost('/jsxsd/xsks/xsksap_list', 'xqlbmc=&xnxqid=' + encodeURIComponent(sem), 12000);
+          if (postFullHtml) {
+            var postFullExams = inspectExamDoc(null, postFullHtml);
+            if (isNotLoggedIn) {
+              return { exams: [], status: 'not_logged_in', error: null };
+            }
+            if (postFullExams && postFullExams.length > 0) {
+              return { exams: postFullExams, status: 'ok', error: null };
+            }
+          }
+        }
+
+        // 4. 终极保底：无参数 GET /jsxsd/xsks/xsksap_list
+        var fallbackHtml = await fetchHtmlAsync('/jsxsd/xsks/xsksap_list', 12000);
+        if (fallbackHtml) {
+          var fbExams = inspectExamDoc(null, fallbackHtml);
+          if (isNotLoggedIn) {
+            return { exams: [], status: 'not_logged_in', error: null };
+          }
+          if (fbExams && fbExams.length > 0) {
+            return { exams: fbExams, status: 'ok', error: null };
+          }
+        }
+
+        if (isNotLoggedIn) {
+          return { exams: [], status: 'not_logged_in', error: null };
+        }
+        if (foundExamTable) {
+          return { exams: [], status: 'empty', error: null };
+        }
+        return {
+          exams: [],
+          status: 'error',
+          error: '未找到考试表格(#dataList)，教务页面可能已改版'
+        };
+      }
     ''';
   }
 
@@ -389,37 +637,38 @@ class ParserService {
       timeoutMs: timeoutMs,
     );
     return '''
-      (function() {
+      (async function() {
         try {
           $_originGuardJs
           $jsCode
           $helperJs
           try {
-            function checkAuth(doc, html, url) {
-              if (url && (url.indexOf('/authserver/login') !== -1 || url.indexOf('/authserver/') !== -1)) return true;
-              if (doc) {
-                if (doc.getElementById('casLoginForm')) return true;
-                if (doc.querySelector('form[action*="authserver"]') || doc.querySelector('form[action*="login"]')) {
-                  if (doc.querySelector('input[name="username"]') && doc.querySelector('input[name="password"]')) {
-                    return true;
-                  }
-                }
-              }
-              return false;
+            var currentUrl = window.location.href;
+            var isAuth = checkAuth(document, null, currentUrl);
+            if (isAuth) {
+              var authRes = { exams: [], status: 'not_logged_in', error: null };
+              postToFlutter({ type: 'sync_exams_result', success: true, data: authRes });
+              return JSON.stringify(authRes);
             }
-            var isAuth = checkAuth(document, null, window.location.href);
+
             var exTable = findTableAcrossFrames(document, function(d) {
               return d.getElementById('dataList') || findTableByKeywords(d, ['课程名称', '考试时间']);
             });
             var exams = parseQiangZhiExams(document);
-            var status = isAuth ? 'not_logged_in' : (!exTable ? 'error' : (exams.length > 0 ? 'ok' : 'empty'));
-            var res = {
-              exams: exams,
-              status: status,
-              error: (!exTable && !isAuth) ? '未找到考试表格' : null
-            };
-            postToFlutter({ type: 'sync_exams_result', success: true, data: res });
-            return JSON.stringify(res);
+
+            if (exams && exams.length > 0) {
+              var okRes = { exams: exams, status: 'ok', error: null };
+              postToFlutter({ type: 'sync_exams_result', success: true, data: okRes });
+              return JSON.stringify(okRes);
+            }
+
+            // 若当前处于考试查询外壳页但尚未手动点击网页内查询按钮，自动穿透获取考试列表
+            var asyncExamRes = await fetchExamScheduleAsync('', [], currentUrl);
+            if (asyncExamRes.status === 'error' && exTable) {
+              asyncExamRes = { exams: [], status: 'empty', error: null };
+            }
+            postToFlutter({ type: 'sync_exams_result', success: true, data: asyncExamRes });
+            return JSON.stringify(asyncExamRes);
           } finally {
             if (reqId && window.__jinhuaActiveTasks) {
               delete window.__jinhuaActiveTasks[reqId];
@@ -571,115 +820,12 @@ class ParserService {
             // 3. 考试安排解析（深度穿透外壳页与参数自动提取）
             try {
               postToFlutter({ type: 'progress', message: '正在查询考试安排...' });
-              var exDoc = null;
-              var listHtml = await fetchHtmlAsync('/jsxsd/xsks/xsksap_list', 12000);
-              if (checkAuth(null, listHtml, null)) {
-                result.status.exams = 'not_logged_in';
-              } else if (listHtml) {
-                exDoc = new DOMParser().parseFromString(listHtml, 'text/html');
-              }
-
-              var hasExamTable = exDoc && findTableAcrossFrames(exDoc, function(d) {
-                return d.getElementById('dataList') || findTableByKeywords(d, ['课程名称', '考试时间']);
-              });
-
-              if (result.status.exams !== 'not_logged_in' && !hasExamTable) {
-                var queryHtml = await fetchHtmlAsync('/jsxsd/xsks/xsksap_query', 12000);
-                if (checkAuth(null, queryHtml, null)) {
-                  result.status.exams = 'not_logged_in';
-                } else if (queryHtml) {
-                  var qDoc = new DOMParser().parseFromString(queryHtml, 'text/html');
-                  var iframeUrl = null;
-                  var xnxqid = '';
-
-                  var iframes = qDoc.querySelectorAll('iframe, frame');
-                  for (var f = 0; f < iframes.length; f++) {
-                    var src = iframes[f].getAttribute('src') || '';
-                    if (src.indexOf('xsksap_list') !== -1 || src.indexOf('xsks') !== -1) {
-                      iframeUrl = src;
-                      break;
-                    }
-                  }
-
-                  var sel = qDoc.querySelector('select[name="xnxqid"], #xnxqid, select');
-                  if (sel) {
-                    var opt = sel.querySelector('option[selected]');
-                    if (opt && opt.value) {
-                      xnxqid = opt.value.trim();
-                    } else if (sel.selectedIndex >= 0 && sel.options && sel.options[sel.selectedIndex]) {
-                      var sVal = (sel.options[sel.selectedIndex].value || '').trim();
-                      if (sVal) {
-                        xnxqid = sVal;
-                      }
-                    }
-                  }
-
-                  if (!xnxqid && result.weekInfo && result.weekInfo.semester) {
-                    xnxqid = result.weekInfo.semester;
-                  }
-                  if (!xnxqid && result.gradesData && result.gradesData.grades && result.gradesData.grades.length > 0) {
-                    var sems = result.gradesData.grades
-                      .map(function(g) { return (g.semester || '').trim(); })
-                      .filter(function(s) { return s.length > 0; })
-                      .sort();
-                    if (sems.length > 0) {
-                      xnxqid = sems[sems.length - 1];
-                    }
-                  }
-
-                  var listTargetUrl = iframeUrl;
-                  if (listTargetUrl) {
-                    if (listTargetUrl.indexOf('/') !== 0 && listTargetUrl.indexOf('http') !== 0) {
-                      listTargetUrl = '/jsxsd/xsks/' + listTargetUrl;
-                    }
-                  } else {
-                    listTargetUrl = '/jsxsd/xsks/xsksap_list' + (xnxqid ? ('?xnxqid=' + encodeURIComponent(xnxqid)) : '');
-                  }
-
-                  var secondaryHtml = await fetchHtmlAsync(listTargetUrl, 12000);
-                  if (checkAuth(null, secondaryHtml, null)) {
-                    result.status.exams = 'not_logged_in';
-                  } else if (secondaryHtml) {
-                    exDoc = new DOMParser().parseFromString(secondaryHtml, 'text/html');
-                  }
-
-                  if (result.status.exams !== 'not_logged_in' && (!exDoc || !exDoc.getElementById('dataList')) && xnxqid) {
-                    var postHtml = await fetchHtmlAsyncPost('/jsxsd/xsks/xsksap_list', 'xnxqid=' + encodeURIComponent(xnxqid), 12000);
-                    if (postHtml && !checkAuth(null, postHtml, null)) {
-                      exDoc = new DOMParser().parseFromString(postHtml, 'text/html');
-                    }
-                  }
-                }
-              }
-
-              // 仅当考试默认列表为空且当前正好在考试结果页 /jsxsd/xsks/ 时可回退检查 document
-              if (result.status.exams !== 'not_logged_in' && (!exDoc || !findTableAcrossFrames(exDoc, function(d) {
-                return d.getElementById('dataList') || findTableByKeywords(d, ['课程名称', '考试时间']);
-              })) && currentUrl.indexOf('/jsxsd/xsks/') !== -1) {
-                exDoc = document;
-              }
-
-              if (result.status.exams !== 'not_logged_in') {
-                if (exDoc) {
-                  if (checkAuth(exDoc, null, null)) {
-                    result.status.exams = 'not_logged_in';
-                  } else {
-                    var exTable = findTableAcrossFrames(exDoc, function(d) {
-                      return d.getElementById('dataList') || findTableByKeywords(d, ['课程名称', '考试时间']);
-                    });
-                    if (!exTable) {
-                      result.status.exams = 'error';
-                      result.errors.exams = '未找到考试表格(#dataList)，教务页面可能已改版';
-                    } else {
-                      result.exams = parseQiangZhiExams(exDoc);
-                      result.status.exams = (result.exams && result.exams.length > 0) ? 'ok' : 'empty';
-                    }
-                  }
-                } else if (result.status.exams !== 'error') {
-                  result.status.exams = 'error';
-                  result.errors.exams = '未能获取到考试列表页面文档';
-                }
-              }
+              var examGrades = (result.gradesData && result.gradesData.grades) ? result.gradesData.grades : [];
+              var examSem = (result.weekInfo && result.weekInfo.semester) ? result.weekInfo.semester : '';
+              var examRes = await fetchExamScheduleAsync(examSem, examGrades, currentUrl);
+              result.exams = examRes.exams || [];
+              result.status.exams = examRes.status || 'error';
+              result.errors.exams = examRes.error || null;
             } catch(e) {
               result.status.exams = 'error';
               result.errors.exams = String(e);

@@ -6,6 +6,27 @@
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-11-08
+
+金花助手 `v2.3.1` 正式版补丁发布！本版本重点修复在登录教务系统首页一键拉取全部时考试日程获取失败的缺陷，全面提炼共享异步考试拉取管线，增强 DOM 解析容错与表头自适应定位，并扩充回归测试套件。
+
+### Fixed
+- **修复教务首页一键拉取全部时考试日程拉取短路缺陷**：
+  - 修复登录教务系统首页后「一键拉取全部」因无参直接请求 `/jsxsd/xsks/xsksap_list` 返回空 `#dataList` 表格而短路跳过 `/jsxsd/xsks/xsksap_query` 学期提取与 POST 兜底的缺陷；
+  - 提炼共享异步考试拉取管线 `fetchExamScheduleAsync`（五级学年学期 `xnxqid` 决议 + `xsksap_query` 元数据提取 + `GET`/`POST` 双通道自动兜底 + 回退学期二次重试），并同步赋能「仅同步本页 (考试)」；
+  - 修复 `qiangzhi_parser.js` 中 `parseQiangZhiTeachingWeek` 学期下拉框包含前置 `"---请选择---"` 空选项时短路覆盖有效 `option[selected]` 的问题。
+
+### Changed & Improved
+- **增强强智教务考试表格 DOM 解析与跨 frame 容错 (`qiangzhi_parser.js`)**：
+  - 优化 `parseQiangZhiExams` 跨同源 iframe 扫描逻辑，优先选择包含非空数据行的目标表格；
+  - 严格过滤外层无表头或无数据行的布局嵌套 table；
+  - 支持前 3 行动态扫描定位有效表头，自适应处理包含前置通知横幅或修饰行的复杂强智页面。
+
+### Tests
+- **解析器与注入测试套件扩充**：
+  - Node.js JSDOM 回归测试扩充至 **20 项**（新增嵌套布局 table 过滤、前置横幅表头扫描与前置空选项下拉框学期识别断言）；
+  - Flutter 自动化单元与组件测试套件保持 **96 项** 全绿，全面覆盖异步拉取管线与跨端桥接异常拦截断言。
+
 ## [2.3.0] - 2026-11-07
 
 金花助手 `v2.3.0` 正式版发布！本版本为重大架构与可靠性升级：全面完成强智教务全量异步同步重构（彻底消除 UI 冻结）、千行核心界面单一职责解耦、异步桥接 `requestId` 生命周期隔离、四态缓存防误清纵深加固、学期基准跳变与课表原子确认保护，以及主密钥强一致校验与 Windows 撤回授权冷启动补偿擦除闭环。
@@ -318,7 +339,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/korty258/xaut-assistant/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/korty258/xaut-assistant/compare/v2.2.0...v2.3.0
 [2.3.0-rc2]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-rc1...v2.3.0-rc2
 [2.3.0-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-pre1...v2.3.0-rc1
