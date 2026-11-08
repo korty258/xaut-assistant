@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.3.1-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.3.2-brightgreen" alt="Version">
   <a href="https://github.com/korty258/xaut-assistant/actions/workflows/ci_cd.yml">
     <img src="https://github.com/korty258/xaut-assistant/actions/workflows/ci_cd.yml/badge.svg" alt="CI/CD Status">
   </a>
@@ -29,7 +29,7 @@
 ## 🌟 项目亮点
 
 - 🔒 **零第三方服务端 / 隐私安全**：完全在本地设备运行，直连西安理工大学强智教务系统，不收集、不上报任何账号、密码或个人敏感信息。
-- 🔐 **全量学业数据 AES-256-GCM 落盘加密**：课表日程、成绩与绩点 (GPA)、期末考试安排在设备本地均采用 AEAD AES-256-GCM 算法加密存储；主密钥托管于系统安全存储（Android Keystore 硬件级密钥库 / Windows DPAPI 当前用户凭据隔离加密）并支持撤回时“密码学粉碎 (Crypto-Shredding)”，杜绝离线物理导出与明文窥视。
+- 🔐 **全量学业数据 AES-256-GCM 落盘加密**：课表日程、成绩与绩点 (GPA)、期末考试安排在设备本地均采用 AEAD AES-256-GCM 算法加密存储；主密钥托管于系统安全存储（Android Keystore 硬件级密钥库 / Windows DPAPI 当前用户凭据隔离加密）并支持撤回时“密码学粉碎 (Crypto-Shredding)”，大幅降低离线明文泄露风险与非法窥视。
 - 📆 **RFC 5545 标准系统日历导出**：支持一键将整学期课程表与期末考试日程导出为标准 `.ics` 日历文件；完美兼容苹果日历、小米日历、华为日历、OPPO/vivo、Outlook 及 Google 日历，支持自定义上课与考前提醒时间，无缝联动手机系统桌面小组件与智能手表手环。
 - 🛡️ **知情同意门禁与合规防护**：深度参照《中华人民共和国个人信息保护法》(PIPL) 与网络安全合规规范，首次启动必须经过法律门禁 (`LegalGateScreen`) 完整阅读并主动勾选同意，内置完全离线可查阅的《用户服务协议》、《隐私政策》与《免责声明》；未经用户明确授权不读取或存储任何教务凭据，且支持随时在「关于与法律条款」中查阅或一键**撤回知情同意并清空本地缓存**。
 - ⚡ **一键全量同步 & 周次自动校准**：在教务主页即可通过原生 WebView 注入解析引擎，一键并发拉取 **课表 + 成绩 + 考试** 三大模块，并自动识别顶栏当前教学周（如 `2026-2027-1 第9周`）反推本学期第 1 周周一基准日期。
@@ -75,9 +75,21 @@ xaut-assistant/
 
 ---
 
-## 🚀 编译与本地运行
+## 💻 客户端运行环境要求（面向终端用户）
 
-### 运行环境要求
+- **Android 移动端**：
+  - 系统版本：**Android 7.0 (API 24)** 及以上，**64 位 (`arm64-v8a`)** 处理器设备。
+  - 系统组件：需具备系统内置 **Android System WebView**（用于加载强智教务登录页）。
+- **Windows 桌面端 (`jinhua_assistant-windows-x64.zip`)**：
+  - 系统版本：**Windows 10 (64 位)** / **Windows 11 (64 位)**，解压后双击 `jinhua_assistant.exe` 即可免安装运行。
+  - **Microsoft Edge WebView2 Runtime（常青版运行时）**：教务登录与数据同步模块依赖系统级 WebView2 组件。Windows 11 及新版 Windows 10 已系统预装；若在老旧机房或精简版 Windows 10 上提示缺少 WebView2，请前往 [Microsoft Edge WebView2 官方下载页](https://developer.microsoft.com/zh-cn/microsoft-edge/webview2/) 下载安装 **常青引导程序 (Evergreen Bootstrapper)**。
+  - **Microsoft Visual C++ 2015–2022 Redistributable (x64)**：C++ 原生宿主运行库。Windows 绿色发布包已随包内置核心运行时 DLL（`vcruntime140.dll`、`vcruntime140_1.dll`、`msvcp140.dll`）；若在极简系统环境仍提示缺少 VC++ 运行库，可下载安装 [微软官方 Visual C++ x64 运行库 (`vc_redist.x64.exe`)](https://aka.ms/vs/17/release/vc_redist.x64.exe)。
+
+---
+
+## 🚀 编译与本地运行（面向开发者）
+
+### 源码构建环境要求
 - [Flutter SDK](https://flutter.dev/) (>= 3.47.0，CI 固定为 3.47.8)
 - [Dart SDK](https://dart.dev/) (>= 3.13.7)
 - **Windows 构建**：Visual Studio 2022 (包含 C++ 桌面开发套件，需勾选“使用 C++ 的桌面开发”及 C++ ATL / MFC 组件)

@@ -274,8 +274,9 @@ jobs:
             echo "---"
             echo
             echo "### 📦 下载与安装"
-            echo "- **Android**：下载 \`jinhua_assistant-android-arm64.apk\` 直接安装（仅支持 arm64-v8a 设备）。"
-            echo "- **Windows**：下载 \`jinhua_assistant-windows-x64.zip\`，解压后运行 \`jinhua_assistant.exe\`。"
+            echo "- **Android**：下载 \`jinhua_assistant-android-arm64.apk\` 直接安装（仅支持 arm64-v8a 64 位设备）。"
+            echo "- **Windows**：下载 \`jinhua_assistant-windows-x64.zip\`，解压后双击运行 \`jinhua_assistant.exe\`（免安装绿色版，已随包附带 VC++ 核心运行库 DLL）。"
+            echo "  - **Windows 运行时说明**：教务登录与同步依赖 **Microsoft Edge WebView2 Runtime（常青版）** 与 **Microsoft Visual C++ 2015–2022 Redistributable (x64)**。Windows 11 及主流 Windows 10 已系统预装；若精简版系统缺失，请前往 [微软 WebView2 官网](https://developer.microsoft.com/zh-cn/microsoft-edge/webview2/) 或下载 [官方 VC++ x64 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe) 安装。"
           } > RELEASE_NOTES.md
 
           cat RELEASE_NOTES.md

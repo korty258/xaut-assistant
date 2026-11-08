@@ -26,6 +26,8 @@ class WebViewPlatformAdapter {
   final ValueNotifier<bool> isInitializedNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<bool> isLoadingNotifier = ValueNotifier<bool>(true);
   final ValueNotifier<String> currentUrlNotifier = ValueNotifier<String>(WebViewConstants.defaultUrl);
+  final ValueNotifier<String?> initErrorNotifier = ValueNotifier<String?>(null);
+  bool isWebView2Missing = false;
 
   final void Function(String blockedUrl)? onBlockedUrl;
   final void Function()? onPageLoadFinished;
@@ -81,6 +83,9 @@ class WebViewPlatformAdapter {
 
   /// 初始化双端控制器
   Future<void> initialize() async {
+    initErrorNotifier.value = null;
+    isWebView2Missing = false;
+    isLoadingNotifier.value = true;
     if (isWindows) {
       await _initWindows();
     } else {
@@ -89,8 +94,32 @@ class WebViewPlatformAdapter {
   }
 
   Future<void> _initWindows() async {
-    await winController.initialize();
+    try {
+      final webViewVersion = await win.WebviewController.getWebViewVersion();
+      if (webViewVersion == null || webViewVersion.trim().isEmpty) {
+        isWebView2Missing = true;
+        isLoadingNotifier.value = false;
+        const msg =
+            '未检测到 Microsoft Edge WebView2 Runtime（常青版运行时）。Windows 桌面端需要该系统级组件才能加载教务登录页面。';
+        initErrorNotifier.value = msg;
+        throw StateError(msg);
+      }
 
+      if (!winController.value.isInitialized) {
+        await winController.initialize();
+      }
+    } catch (e) {
+      isLoadingNotifier.value = false;
+      final errText = e.toString();
+      if (errText.contains('environment_creation_failed') ||
+          errText.toLowerCase().contains('webview2')) {
+        isWebView2Missing = true;
+      }
+      initErrorNotifier.value ??= '初始化内置浏览器组件失败：$e';
+      rethrow;
+    }
+
+    await _winUrlSub?.cancel();
     _winUrlSub = winController.url.listen((url) {
       if (!isAllowedUrl(url)) {
         cancelActiveBridgeTasks('检测到非校内链接，已取消正在进行的同步任务');
@@ -106,6 +135,7 @@ class WebViewPlatformAdapter {
       }
     });
 
+    await _winLoadingSub?.cancel();
     _winLoadingSub = winController.loadingState.listen((state) {
       final nowLoading = state == win.LoadingState.loading;
       isLoadingNotifier.value = nowLoading;
@@ -115,6 +145,7 @@ class WebViewPlatformAdapter {
     });
 
     // Windows WebView2 原生消息监听
+    await _winMessageSub?.cancel();
     _winMessageSub = winController.webMessage.listen((dynamic rawMsg) {
       _handleIncomingBridgeMessage(rawMsg);
     });
@@ -393,5 +424,6 @@ class WebViewPlatformAdapter {
     isInitializedNotifier.dispose();
     isLoadingNotifier.dispose();
     currentUrlNotifier.dispose();
+    initErrorNotifier.dispose();
   }
 }
