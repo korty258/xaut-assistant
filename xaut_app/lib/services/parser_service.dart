@@ -320,59 +320,59 @@ class ParserService {
       }
 
       async function fetchExamScheduleAsync(fallbackSemester, gradesList, currentUrl) {
-        var foundExamTable = false;
+        var hadTransportError = false;
+        var confirmedEmptyExamList = false;
         var isNotLoggedIn = false;
 
-        function inspectExamDoc(doc, html) {
-          if (checkAuth(doc, html, null)) {
-            isNotLoggedIn = true;
-            return null;
-          }
-          if (!doc && html) {
-            doc = new DOMParser().parseFromString(html, 'text/html');
-          }
-          if (!doc) return null;
-          if (checkAuth(doc, null, null)) {
-            isNotLoggedIn = true;
-            return null;
-          }
+        function isAuthoritativeExamListDoc(doc) {
+          if (!doc) return false;
           var exTable = findTableAcrossFrames(doc, function(d) {
             return d.getElementById('dataList') || findTableByKeywords(d, ['课程名称', '考试时间']);
           });
-          if (exTable) {
-            foundExamTable = true;
-            var parsed = parseQiangZhiExams(doc);
-            if (parsed && parsed.length > 0) {
-              return parsed;
+          if (!exTable) return false;
+          var tableText = (exTable.innerText !== undefined ? exTable.innerText : (exTable.textContent || ''));
+          if (tableText.indexOf('未查询到数据') !== -1) {
+            return true;
+          }
+          var rows = exTable.querySelectorAll('tr');
+          var maxRows = Math.min(rows.length, 3);
+          for (var r = 0; r < maxRows; r++) {
+            var rowText = (rows[r].innerText !== undefined ? rows[r].innerText : (rows[r].textContent || ''));
+            if (rowText.indexOf('课程名称') !== -1 || rowText.indexOf('考试课程') !== -1 || rowText.indexOf('考试时间') !== -1) {
+              return true;
             }
           }
-          return null;
+          return false;
         }
 
         // 0. 若当前已处于考试查询页且 DOM 内已渲染出考试行，直接提取返回
         if (currentUrl && currentUrl.indexOf('/jsxsd/xsks/') !== -1 && typeof document !== 'undefined') {
-          var liveExams = inspectExamDoc(document, null);
-          if (isNotLoggedIn) {
+          if (checkAuth(document, null, currentUrl)) {
             return { exams: [], status: 'not_logged_in', error: null };
           }
+          var liveExams = parseQiangZhiExams(document);
           if (liveExams && liveExams.length > 0) {
             return { exams: liveExams, status: 'ok', error: null };
           }
+          // 注意：当前页 DOM 中的空表壳（0 条记录）绝不能直接将 confirmedEmptyExamList 设为 true，必须继续走网络查询验证
         }
 
         // 1. 优先请求考试查询外壳页 /jsxsd/xsks/xsksap_query 提取默认激活学年学期 (xnxqid) 与内嵌 iframe 地址
         //    （严禁先无参请求 /jsxsd/xsks/xsksap_list 并以 hasExamTable 短路，因无参请求仍会返回空 #dataList 表壳导致跳过参数查询）
         var qDoc = null;
         var queryHtml = await fetchHtmlAsync('/jsxsd/xsks/xsksap_query', 12000);
-        if (queryHtml) {
-          var queryExams = inspectExamDoc(null, queryHtml);
-          if (isNotLoggedIn) {
+        if (queryHtml === null) {
+          hadTransportError = true;
+        } else {
+          qDoc = new DOMParser().parseFromString(queryHtml, 'text/html');
+          if (checkAuth(qDoc, queryHtml, null)) {
             return { exams: [], status: 'not_logged_in', error: null };
           }
+          var queryExams = parseQiangZhiExams(qDoc);
           if (queryExams && queryExams.length > 0) {
             return { exams: queryExams, status: 'ok', error: null };
           }
-          qDoc = new DOMParser().parseFromString(queryHtml, 'text/html');
+          // 查询外壳页 /jsxsd/xsks/xsksap_query 中的空 #dataList 表壳绝不能设置 confirmedEmptyExamList = true！
         }
 
         var queryMeta = extractExamQueryMeta(qDoc);
@@ -408,61 +408,89 @@ class ParserService {
           var targetUrl = buildExamTargetUrl(iframeUrl, sem);
 
           var getHtml = await fetchHtmlAsync(targetUrl, 12000);
-          if (getHtml) {
-            var getExams = inspectExamDoc(null, getHtml);
-            if (isNotLoggedIn) {
+          if (getHtml === null) {
+            hadTransportError = true;
+          } else {
+            var getDoc = new DOMParser().parseFromString(getHtml, 'text/html');
+            if (checkAuth(getDoc, getHtml, null)) {
               return { exams: [], status: 'not_logged_in', error: null };
             }
+            var getExams = parseQiangZhiExams(getDoc);
             if (getExams && getExams.length > 0) {
               return { exams: getExams, status: 'ok', error: null };
+            }
+            if (isAuthoritativeExamListDoc(getDoc)) {
+              confirmedEmptyExamList = true;
             }
           }
 
           var postHtml = await fetchHtmlAsyncPost('/jsxsd/xsks/xsksap_list', 'xnxqid=' + encodeURIComponent(sem), 12000);
-          if (postHtml) {
-            var postExams = inspectExamDoc(null, postHtml);
-            if (isNotLoggedIn) {
+          if (postHtml === null) {
+            hadTransportError = true;
+          } else {
+            var postDoc = new DOMParser().parseFromString(postHtml, 'text/html');
+            if (checkAuth(postDoc, postHtml, null)) {
               return { exams: [], status: 'not_logged_in', error: null };
             }
+            var postExams = parseQiangZhiExams(postDoc);
             if (postExams && postExams.length > 0) {
               return { exams: postExams, status: 'ok', error: null };
+            }
+            if (isAuthoritativeExamListDoc(postDoc)) {
+              confirmedEmptyExamList = true;
             }
           }
 
           var postFullHtml = await fetchHtmlAsyncPost('/jsxsd/xsks/xsksap_list', 'xqlbmc=&xnxqid=' + encodeURIComponent(sem), 12000);
-          if (postFullHtml) {
-            var postFullExams = inspectExamDoc(null, postFullHtml);
-            if (isNotLoggedIn) {
+          if (postFullHtml === null) {
+            hadTransportError = true;
+          } else {
+            var postFullDoc = new DOMParser().parseFromString(postFullHtml, 'text/html');
+            if (checkAuth(postFullDoc, postFullHtml, null)) {
               return { exams: [], status: 'not_logged_in', error: null };
             }
+            var postFullExams = parseQiangZhiExams(postFullDoc);
             if (postFullExams && postFullExams.length > 0) {
               return { exams: postFullExams, status: 'ok', error: null };
+            }
+            if (isAuthoritativeExamListDoc(postFullDoc)) {
+              confirmedEmptyExamList = true;
             }
           }
         }
 
         // 4. 终极保底：无参数 GET /jsxsd/xsks/xsksap_list
-        var fallbackHtml = await fetchHtmlAsync('/jsxsd/xsks/xsksap_list', 12000);
-        if (fallbackHtml) {
-          var fbExams = inspectExamDoc(null, fallbackHtml);
-          if (isNotLoggedIn) {
-            return { exams: [], status: 'not_logged_in', error: null };
-          }
-          if (fbExams && fbExams.length > 0) {
-            return { exams: fbExams, status: 'ok', error: null };
+        if (candidateSemesters.length === 0 || !confirmedEmptyExamList) {
+          var fallbackHtml = await fetchHtmlAsync('/jsxsd/xsks/xsksap_list', 12000);
+          if (fallbackHtml === null) {
+            hadTransportError = true;
+          } else {
+            var fbDoc = new DOMParser().parseFromString(fallbackHtml, 'text/html');
+            if (checkAuth(fbDoc, fallbackHtml, null)) {
+              return { exams: [], status: 'not_logged_in', error: null };
+            }
+            var fbExams = parseQiangZhiExams(fbDoc);
+            if (fbExams && fbExams.length > 0) {
+              return { exams: fbExams, status: 'ok', error: null };
+            }
+            if (candidateSemesters.length === 0 && isAuthoritativeExamListDoc(fbDoc)) {
+              confirmedEmptyExamList = true;
+            }
           }
         }
 
         if (isNotLoggedIn) {
           return { exams: [], status: 'not_logged_in', error: null };
         }
-        if (foundExamTable) {
+        if (!hadTransportError && confirmedEmptyExamList) {
           return { exams: [], status: 'empty', error: null };
         }
         return {
           exams: [],
           status: 'error',
-          error: '未找到考试表格(#dataList)，教务页面可能已改版'
+          error: hadTransportError
+            ? '考试安排网络请求失败或部分响应异常，已保留本地缓存'
+            : '未找到考试表格(#dataList)，教务页面可能已改版'
         };
       }
     ''';
@@ -664,9 +692,6 @@ class ParserService {
 
             // 若当前处于考试查询外壳页但尚未手动点击网页内查询按钮，自动穿透获取考试列表
             var asyncExamRes = await fetchExamScheduleAsync('', [], currentUrl);
-            if (asyncExamRes.status === 'error' && exTable) {
-              asyncExamRes = { exams: [], status: 'empty', error: null };
-            }
             postToFlutter({ type: 'sync_exams_result', success: true, data: asyncExamRes });
             return JSON.stringify(asyncExamRes);
           } finally {

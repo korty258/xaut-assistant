@@ -220,3 +220,211 @@ test('5. 复杂周次解析回归测试 (parseWeeks)', async (t) => {
     assert.deepEqual(parser.parseWeeks('1-4单周,5-8周[01-02节]'), [1, 3, 5, 6, 7, 8]);
   });
 });
+
+test('6. 考试异步拉取状态机回归测试 (fetchExamScheduleAsync)', async (t) => {
+  const dartFilePath = path.join(__dirname, '../xaut_app/lib/services/parser_service.dart');
+  const dartCode = fs.readFileSync(dartFilePath, 'utf8');
+  const helperMatch = dartCode.match(/static String _buildAsyncBridgeHelperJs[\s\S]*?return '''([\s\S]*?)''';/);
+  assert.ok(helperMatch, '未能从 parser_service.dart 提取 _buildAsyncBridgeHelperJs');
+
+  const parserJsPath = path.join(__dirname, '../xaut_app/assets/js/qiangzhi_parser.js');
+  const parserJsCode = fs.readFileSync(parserJsPath, 'utf8');
+
+  function setupSandbox({ currentUrl = 'https://jwgl.xaut.edu.cn/jsxsd/framework/xsMain.html', documentHtml = '<!DOCTYPE html><html><body></body></html>', fetchHandler } = {}) {
+    const dom = new JSDOM(documentHtml, {
+      url: currentUrl,
+      runScripts: 'dangerously',
+    });
+    const win = dom.window;
+
+    win.fetch = async (url, init = {}) => {
+      if (fetchHandler) {
+        return fetchHandler(url, init);
+      }
+      return { ok: false, status: 500, text: async () => '' };
+    };
+
+    win.eval(parserJsCode);
+
+    let helperJs = helperMatch[1]
+      .replace(/\$safeRequestId/g, '"test_req_exam"')
+      .replace(/\$timeoutMs/g, '30000')
+      .replace(/\\\$/g, '$');
+
+    helperJs += '\nwindow.fetchExamScheduleAsync = fetchExamScheduleAsync;';
+    win.eval(helperJs);
+
+    return { win, dom };
+  }
+
+  await t.test('场景1: 查询页返回含空 #dataList 表壳，后续 xsksap_list 网络全部失败 -> status 必须为 error 并保留缓存', async () => {
+    const queryHtmlWithEmptyShell = `
+      <!DOCTYPE html><html><body>
+        <select name="xnxqid"><option value="2026-2027-1" selected>2026-2027-1</option></select>
+        <table id="dataList"></table>
+      </body></html>
+    `;
+    const { win } = setupSandbox({
+      fetchHandler: async (url, init) => {
+        if (url.includes('/jsxsd/xsks/xsksap_query')) {
+          return { ok: true, status: 200, text: async () => queryHtmlWithEmptyShell };
+        }
+        return { ok: false, status: 500, text: async () => '' };
+      }
+    });
+
+    const res = await win.fetchExamScheduleAsync('', [], 'https://jwgl.xaut.edu.cn/jsxsd/framework/xsMain.html');
+    assert.equal(res.status, 'error');
+    assert.equal(res.exams.length, 0);
+    assert.ok(res.error && res.error.includes('考试安排网络请求失败'));
+  });
+
+  await t.test('场景2: 当前页存在空 #dataList 表壳，网络兜底全部失败 -> status 必须为 error 绝不误判 empty', async () => {
+    const currentDocHtml = `
+      <!DOCTYPE html><html><body>
+        <table id="dataList"></table>
+      </body></html>
+    `;
+    const { win } = setupSandbox({
+      currentUrl: 'https://jwgl.xaut.edu.cn/jsxsd/xsks/xsksap_query',
+      documentHtml: currentDocHtml,
+      fetchHandler: async (url, init) => {
+        return { ok: false, status: 502, text: async () => '' };
+      }
+    });
+
+    const res = await win.fetchExamScheduleAsync('', [], 'https://jwgl.xaut.edu.cn/jsxsd/xsks/xsksap_query');
+    assert.equal(res.status, 'error');
+    assert.equal(res.exams.length, 0);
+    assert.ok(res.error && res.error.includes('考试安排网络请求失败'));
+  });
+
+  await t.test('场景3: 查询页与权威列表页均成功，且列表页返回合法表头但无记录的空表 -> status 为 empty', async () => {
+    const queryHtml = `
+      <!DOCTYPE html><html><body>
+        <select name="xnxqid"><option value="2026-2027-1" selected>2026-2027-1</option></select>
+      </body></html>
+    `;
+    const authoritativeEmptyListHtml = `
+      <!DOCTYPE html><html><body>
+        <table id="dataList">
+          <tr><th>序号</th><th>校区</th><th>课程名称</th><th>考试时间</th><th>考场</th></tr>
+        </table>
+      </body></html>
+    `;
+    const { win } = setupSandbox({
+      fetchHandler: async (url, init) => {
+        if (url.includes('/jsxsd/xsks/xsksap_query')) {
+          return { ok: true, status: 200, text: async () => queryHtml };
+        }
+        if (url.includes('/jsxsd/xsks/xsksap_list')) {
+          return { ok: true, status: 200, text: async () => authoritativeEmptyListHtml };
+        }
+        return { ok: false, status: 404, text: async () => '' };
+      }
+    });
+
+    const res = await win.fetchExamScheduleAsync('', [], 'https://jwgl.xaut.edu.cn/jsxsd/framework/xsMain.html');
+    assert.equal(res.status, 'empty');
+    assert.equal(res.exams.length, 0);
+    assert.equal(res.error, null);
+  });
+
+  await t.test('场景4: 第一个候选学期失败但第二个候选学期成功返回数据 -> status 成功 ok 且不被前序失败掩盖', async () => {
+    const queryHtml = `
+      <!DOCTYPE html><html><body>
+        <select name="xnxqid"><option value="2026-2027-1" selected>2026-2027-1</option></select>
+      </body></html>
+    `;
+    const validExamsHtml = `
+      <!DOCTYPE html><html><body>
+        <table id="dataList">
+          <tr><th>序号</th><th>校区</th><th>课程名称</th><th>考试时间</th><th>考场</th></tr>
+          <tr><td>1</td><td>金花校区</td><td>大学物理</td><td>2027-01-10 09:00-11:00</td><td>教1-101</td></tr>
+        </table>
+      </body></html>
+    `;
+    const { win } = setupSandbox({
+      fetchHandler: async (url, init) => {
+        if (url.includes('/jsxsd/xsks/xsksap_query')) {
+          return { ok: true, status: 200, text: async () => queryHtml };
+        }
+        if (url.includes('2026-2027-1') || (init.body && init.body.includes('2026-2027-1'))) {
+          return { ok: false, status: 500, text: async () => '' };
+        }
+        if (url.includes('2025-2026-2') || (init.body && init.body.includes('2025-2026-2'))) {
+          return { ok: true, status: 200, text: async () => validExamsHtml };
+        }
+        return { ok: false, status: 404, text: async () => '' };
+      }
+    });
+
+    const res = await win.fetchExamScheduleAsync('2025-2026-2', [], 'https://jwgl.xaut.edu.cn/jsxsd/framework/xsMain.html');
+    assert.equal(res.status, 'ok');
+    assert.equal(res.exams.length, 1);
+    assert.equal(res.exams[0].courseName, '大学物理');
+    assert.equal(res.error, null);
+  });
+
+  await t.test('场景5: 所有候选学期均无数据，但存在一次传输失败 -> 必须返回 error 严防弱网误清空缓存', async () => {
+    const queryHtml = `
+      <!DOCTYPE html><html><body>
+        <select name="xnxqid"><option value="2026-2027-1" selected>2026-2027-1</option></select>
+      </body></html>
+    `;
+    const authoritativeEmptyListHtml = `
+      <!DOCTYPE html><html><body>
+        <table id="dataList">
+          <tr><th>序号</th><th>校区</th><th>课程名称</th><th>考试时间</th><th>考场</th></tr>
+        </table>
+      </body></html>
+    `;
+    const { win } = setupSandbox({
+      fetchHandler: async (url, init) => {
+        if (url.includes('/jsxsd/xsks/xsksap_query')) {
+          return { ok: true, status: 200, text: async () => queryHtml };
+        }
+        if (init.method === 'GET' && url.includes('2026-2027-1')) {
+          return { ok: false, status: 504, text: async () => '' };
+        }
+        return { ok: true, status: 200, text: async () => authoritativeEmptyListHtml };
+      }
+    });
+
+    const res = await win.fetchExamScheduleAsync('', [], 'https://jwgl.xaut.edu.cn/jsxsd/framework/xsMain.html');
+    assert.equal(res.status, 'error');
+    assert.equal(res.exams.length, 0);
+    assert.ok(res.error && res.error.includes('考试安排网络请求失败'));
+  });
+
+  await t.test('场景6: 所有候选学期请求全部成功且均为权威空表（零传输失败） -> status 为 empty', async () => {
+    const queryHtml = `
+      <!DOCTYPE html><html><body>
+        <select name="xnxqid"><option value="2026-2027-1" selected>2026-2027-1</option></select>
+      </body></html>
+    `;
+    const authoritativeEmptyListHtml = `
+      <!DOCTYPE html><html><body>
+        <table id="dataList">
+          <tr><th>序号</th><th>校区</th><th>课程名称</th><th>考试时间</th><th>考场</th></tr>
+        </table>
+      </body></html>
+    `;
+    const { win } = setupSandbox({
+      fetchHandler: async (url, init) => {
+        if (url.includes('/jsxsd/xsks/xsksap_query')) {
+          return { ok: true, status: 200, text: async () => queryHtml };
+        }
+        if (url.includes('/jsxsd/xsks/xsksap_list')) {
+          return { ok: true, status: 200, text: async () => authoritativeEmptyListHtml };
+        }
+        return { ok: false, status: 404, text: async () => '' };
+      }
+    });
+
+    const res = await win.fetchExamScheduleAsync('2025-2026-2', [], 'https://jwgl.xaut.edu.cn/jsxsd/framework/xsMain.html');
+    assert.equal(res.status, 'empty');
+    assert.equal(res.exams.length, 0);
+    assert.equal(res.error, null);
+  });
+});

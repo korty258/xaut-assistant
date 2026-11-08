@@ -6,6 +6,34 @@
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-11-08
+
+金花助手 `v2.3.2` 正式版发布！本版本重点重构考试日程同步状态机，精确区分「空表壳、权威空列表与网络异常」，杜绝弱网与异常网络下误清空本地考试缓存；同时完善 Windows 桌面端运行环境（CMake 随包自动分发 MSVC 运行时 DLL、WebView2 运行时预检与缺失诊断引导卡片），统一合规声明措辞并扩充全套状态机回归测试。
+
+### Fixed
+- **考试同步状态机状态精确区分与防误清加固 (`ParserService`)**：
+  - 重构 `fetchExamScheduleAsync`，显式拆分并严格维护 `hadTransportError`（网络传输失败）、`confirmedEmptyExamList`（权威空列表确认）与 `isNotLoggedIn`（未登录）三元独立状态；
+  - 引入 `isAuthoritativeExamListDoc` 辅助断言，仅当查询列表响应中包含带有合法考试表头（`课程名称`/`考试课程`/`考试时间`）或明确含 `"未查询到数据"` 的表格且全量请求零传输失败时，才返回权威 `empty` 状态允许清空本地旧缓存；
+  - 阻断当前页 DOM 与查询外壳页 `/jsxsd/xsks/xsksap_query` 的无数据 `#dataList` 空表壳误触 `confirmedEmptyExamList`；
+  - 修复 `buildExamsInjectionScript` 中因当前页存在空表壳将网络 `error` 强转为 `empty` 的逻辑缺陷，单模块同步直接信赖状态机判定，杜绝弱网误清旧缓存；
+  - 候选学期遍历时即使发生前序网络重试错误，只要后续候选成功解析到考试记录即按 `ok` 成功返回。
+
+### Added & Improved
+- **Windows 桌面端运行环境自主完备与可视化诊断引导**：
+  - 更新 Windows `CMakeLists.txt`，构建时自动扫描并随包分发 MSVC C++ 运行时 DLL（`msvcp140.dll`、`vcruntime140.dll`、`vcruntime140_1.dll`），彻底杜绝新装纯净系统因缺失 VC++ Redistributable 导致启动闪退；
+  - 在 `WebViewPlatformAdapter` 与 `WebViewLoginScreen` 中新增 Windows Edge WebView2 运行时安装状态检测；当检测到系统未安装 WebView2 时，呈现可视化嵌入式诊断卡片与一键直达微软官方下载引导，告别白屏静默卡死；
+  - 完善 `README.md` 与发布说明中关于 Windows 桌面端运行环境（WebView2 与 x64 架构）的系统需求声明。
+
+### Compliance & Documentation
+- **统一系统级密钥存储与安全合规表述**：
+  - 更新 `THIRD_PARTY_NOTICES.md` 中 `flutter_secure_storage` 说明为「系统安全根密钥托管 (Android Keystore 硬件级 / Windows DPAPI 用户凭据隔离)」，与应用内置开源致谢条款保持严格一致；
+  - 更新 `README.md` 中数据安全表述为「大幅降低离线明文泄露风险与非法窥视」，与隐私政策权威表述严格对齐。
+
+### Tests
+- **补齐考试状态机与缓存保护回归测试套件**：
+  - Node.js JSDOM 解析器测试扩充至 **27 项**（新增测试组 6：覆盖查询外壳空表壳网络失败、当前页空表壳网络失败、权威空列表、多候选跨学期重试成功、混合网络失败防误清、全量成功权威空表 6 大边界场景）；
+  - Flutter 单元与组件测试套件扩充至 **98 项**，全量覆盖 `buildExamsInjectionScript` 强转消除断言、`buildSyncAllInjectionScript` 权威空列表状态机断言，以及 `WebViewSyncCoordinator.syncExams` 在 error、timeout、failure 下保留旧考试与 empty 下清空旧考试的断言。
+
 ## [2.3.1] - 2026-11-08
 
 金花助手 `v2.3.1` 正式版补丁发布！本版本重点修复在登录教务系统首页一键拉取全部时考试日程获取失败的缺陷，全面提炼共享异步考试拉取管线，增强 DOM 解析容错与表头自适应定位，并扩充回归测试套件。
@@ -339,7 +367,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.1...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.2...HEAD
+[2.3.2]: https://github.com/korty258/xaut-assistant/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/korty258/xaut-assistant/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/korty258/xaut-assistant/compare/v2.2.0...v2.3.0
 [2.3.0-rc2]: https://github.com/korty258/xaut-assistant/compare/v2.3.0-rc1...v2.3.0-rc2

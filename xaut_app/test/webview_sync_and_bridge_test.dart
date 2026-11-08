@@ -95,6 +95,22 @@ void main() {
       expect(script.contains("if (currentUrl.indexOf('/jsxsd/xskb/') !== -1)"), isFalse);
       expect(script.contains("if (currentUrl.indexOf('/jsxsd/kscj/') !== -1)"), isFalse);
     });
+
+    test('buildExamsInjectionScript and buildSyncAllInjectionScript reflect robust exam state machine without erroneous empty forced conversion', () async {
+      final examScript = await ParserService.buildExamsInjectionScript(
+        requestId: 'exam_verify',
+      );
+      // 验证 buildExamsInjectionScript 不再包含 asyncExamRes.status === 'error' && exTable 强转逻辑
+      expect(examScript.contains("asyncExamRes.status === 'error' && exTable"), isFalse);
+
+      final syncAllScript = await ParserService.buildSyncAllInjectionScript(
+        requestId: 'sync_all_verify',
+      );
+      // 验证 buildSyncAllInjectionScript 包含 hadTransportError 与 confirmedEmptyExamList 判定
+      expect(syncAllScript.contains('hadTransportError'), isTrue);
+      expect(syncAllScript.contains('confirmedEmptyExamList'), isTrue);
+      expect(syncAllScript.contains('isAuthoritativeExamListDoc'), isTrue);
+    });
   });
 
   group('2. WebViewPlatformAdapter Bridge & Lifecycle Tests', () {
@@ -568,6 +584,131 @@ void main() {
       // 考试 notLoggedIn -> 历史缓存严格保留！
       expect(examsProvider.exams.length, equals(1));
       expect(examsProvider.exams.first.courseName, equals('操作系统'));
+
+      coordinator.dispose();
+      adapter.dispose();
+    });
+
+    testWidgets('syncExams preserves cached exams on error, timeout or failure, and only clears on empty', (tester) async {
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (script) async {};
+
+      late ExamsProvider examsProvider;
+      late WebViewSyncCoordinator coordinator;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => ScheduleProvider()),
+            ChangeNotifierProvider(create: (_) => GradesProvider()),
+            ChangeNotifierProvider(create: (_) => ExamsProvider()),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                examsProvider = context.read<ExamsProvider>();
+                coordinator = WebViewSyncCoordinator(
+                  getContext: () => context,
+                  adapter: adapter,
+                  onStateChanged: (_, _) {},
+                );
+                return const Scaffold(body: Text('ExamsSync'));
+              },
+            ),
+          ),
+        ),
+      );
+
+      // 先在 ExamsProvider 预置 1 门旧考试缓存
+      const oldExam = ExamItem(
+        campus: '金花',
+        batch: '期末',
+        courseCode: 'MATH101',
+        courseName: '高等数学',
+        teacher: '高老师',
+        examTime: '2026-12-28 09:00-11:00',
+        room: '教1-101',
+      );
+      await examsProvider.updateExams([oldExam]);
+      expect(examsProvider.exams.length, equals(1));
+      expect(examsProvider.exams.first.courseName, equals('高等数学'));
+
+      // 1. 模拟 syncExams 返回 status: 'error'
+      coordinator.resetCooldownForTest();
+      final syncExamsFuture1 = coordinator.syncExams();
+      await tester.pump();
+
+      final pendingReqId1 = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': pendingReqId1,
+        'type': 'sync_exams_result',
+        'success': true,
+        'data': {
+          'exams': [],
+          'status': 'error',
+          'error': '考试安排网络请求失败或部分响应异常，已保留本地缓存',
+        },
+      }));
+
+      await syncExamsFuture1;
+      await tester.pumpAndSettle();
+      // 断言 ExamsProvider.exams 依然保留该门旧考试
+      expect(examsProvider.exams.length, equals(1));
+      expect(examsProvider.exams.first.courseName, equals('高等数学'));
+      if (find.text('我知道了').evaluate().isNotEmpty) {
+        await tester.tap(find.text('我知道了').last);
+        await tester.pumpAndSettle();
+      }
+
+      // 2. 模拟 syncExams 触发全局 success: false 或异常
+      coordinator.resetCooldownForTest();
+      final syncExamsFuture2 = coordinator.syncExams();
+      await tester.pump();
+
+      final pendingReqId2 = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': pendingReqId2,
+        'type': 'sync_exams_result',
+        'success': false,
+        'error': 'JS 执行超时异常',
+      }));
+
+      await syncExamsFuture2;
+      await tester.pumpAndSettle();
+      // 断言 ExamsProvider.exams 依然保留该门旧考试
+      expect(examsProvider.exams.length, equals(1));
+      expect(examsProvider.exams.first.courseName, equals('高等数学'));
+      if (find.text('我知道了').evaluate().isNotEmpty) {
+        await tester.tap(find.text('我知道了').last);
+        await tester.pumpAndSettle();
+      }
+
+      // 3. 模拟 syncExams 返回权威 status: 'empty'
+      coordinator.resetCooldownForTest();
+      final syncExamsFuture3 = coordinator.syncExams();
+      await tester.pump();
+
+      final pendingReqId3 = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': pendingReqId3,
+        'type': 'sync_exams_result',
+        'success': true,
+        'data': {
+          'exams': [],
+          'status': 'empty',
+          'error': null,
+        },
+      }));
+
+      await syncExamsFuture3;
+      await tester.pumpAndSettle();
+      // 断言 ExamsProvider.exams 被正常清空
+      expect(examsProvider.exams, isEmpty);
+      if (find.text('我知道了').evaluate().isNotEmpty) {
+        await tester.tap(find.text('我知道了').last);
+        await tester.pumpAndSettle();
+      }
 
       coordinator.dispose();
       adapter.dispose();

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart' as af;
 import 'package:webview_windows/webview_windows.dart' as win;
 import 'webview/webview_constants.dart';
@@ -125,16 +126,147 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     super.dispose();
   }
 
+  static const String _webView2DownloadUrl =
+      'https://developer.microsoft.com/zh-cn/microsoft-edge/webview2/';
+  static const String _vcRedistDownloadUrl =
+      'https://aka.ms/vs/17/release/vc_redist.x64.exe';
+
+  Widget _buildInitErrorView(String errorMsg) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Card(
+            elevation: 0,
+            color: colorScheme.errorContainer.withValues(alpha: 0.25),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: colorScheme.error.withValues(alpha: 0.3)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.extension_off_rounded,
+                    size: 52,
+                    color: colorScheme.error,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    _adapter.isWebView2Missing
+                        ? '缺少 Microsoft Edge WebView2 运行时'
+                        : '内置浏览器组件初始化失败',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    errorMsg,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surface.withValues(alpha: 0.8),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Windows 桌面端运行环境说明：',
+                          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          '1. Microsoft Edge WebView2 Runtime（常青版）：Windows 11 默认自带，若精简版或旧版 Windows 10 缺失，请下载并安装官方常青引导程序。\n'
+                          '2. Microsoft Visual C++ 2015–2022 Redistributable (x64)：C++ 原生宿主运行库（绿色版已随包附带核心 DLL）。',
+                          style: TextStyle(fontSize: 13, height: 1.5),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 10,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.copy_rounded, size: 18),
+                        label: const Text('复制 WebView2 官方下载链接'),
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            const ClipboardData(text: _webView2DownloadUrl),
+                          );
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  '已复制 WebView2 官方下载链接，请粘贴到系统浏览器中下载安装',
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.copy_rounded, size: 18),
+                        label: const Text('复制 VC++ 运行库链接'),
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            const ClipboardData(text: _vcRedistDownloadUrl),
+                          );
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  '已复制 VC++ x64 运行库官方下载链接，请粘贴到浏览器下载安装',
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                      FilledButton.icon(
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: const Text('重新检测并加载'),
+                        onPressed: _initAdapter,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: Listenable.merge([
         _adapter.isInitializedNotifier,
         _adapter.isLoadingNotifier,
+        _adapter.initErrorNotifier,
         _coordinator.isSyncingNotifier,
       ]),
       builder: (context, _) {
         final isBusy = _adapter.isLoading || _coordinator.isSyncing;
+        final initError = _adapter.initErrorNotifier.value;
         return ValueListenableBuilder<String>(
           valueListenable: _adapter.currentUrlNotifier,
           builder: (context, currentUrl, _) {
@@ -191,11 +323,13 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
 
                   // 2. 双端 WebView 渲染容器
                   Expanded(
-                    child: !_adapter.isInitialized
-                        ? const Center(child: CircularProgressIndicator())
-                        : _adapter.isWindows
-                            ? win.Webview(_adapter.winController)
-                            : af.WebViewWidget(controller: _adapter.mobileController),
+                    child: initError != null
+                        ? _buildInitErrorView(initError)
+                        : !_adapter.isInitialized
+                            ? const Center(child: CircularProgressIndicator())
+                            : _adapter.isWindows
+                                ? win.Webview(_adapter.winController)
+                                : af.WebViewWidget(controller: _adapter.mobileController),
                   ),
 
                   // 3. 底部全异步同步操作条 (状态独立解耦)
