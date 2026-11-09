@@ -1,4 +1,4 @@
-import 'dart:io' show Directory, File, Platform;
+﻿import 'dart:io' show Directory, File, Platform;
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,7 +12,7 @@ import 'app_crypto_service.dart';
 /// 文本内容与 assets/legal/*.md 严格对应。
 class LegalService {
   /// 当前客户端对外统一发布版本号
-  static const String appVersion = 'v2.3.2';
+  static const String appVersion = 'v2.3.3';
 
   /// 当前合规文本版本。当协议有实质性变更时必须递增此常量，
   /// 系统检测到本地记录与该版本不一致时会自动重新唤起同意页面。

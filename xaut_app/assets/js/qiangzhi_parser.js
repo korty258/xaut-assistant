@@ -349,23 +349,6 @@ function parseQiangZhiGrades(doc = document) {
     examType: headerCells.findIndex(t => /考核方式|考试性质/.test(t))
   };
 
-  let totalCredits = 0;
-  let scoreCredits = 0;
-  let gpaCredits = 0;
-  let totalWeightedScore = 0;
-  let totalWeightedGpa = 0;
-
-  const levelMap = {
-    "优": { score: 95, gpa: 4.5, gpaCourse: true },
-    "优秀": { score: 95, gpa: 4.5, gpaCourse: true },
-    "良": { score: 85, gpa: 3.5, gpaCourse: true },
-    "良好": { score: 85, gpa: 3.5, gpaCourse: true },
-    "中": { score: 75, gpa: 2.5, gpaCourse: true },
-    "中等": { score: 75, gpa: 2.5, gpaCourse: true },
-    "及格": { score: 65, gpa: 1.5, gpaCourse: true },
-    "不及格": { score: 50, gpa: 0, gpaCourse: true }
-  };
-
   for (let i = 1; i < rows.length; i++) {
     const cells = Array.from(rows[i].querySelectorAll("td")).map(c => getNodeText(c).trim());
     if (cells.length < 3) continue;
@@ -376,7 +359,6 @@ function parseQiangZhiGrades(doc = document) {
     const scoreStr = (colMap.score !== -1 ? cells[colMap.score] : "").trim();
     const credit = colMap.credit !== -1 ? parseFloat(cells[colMap.credit]) || 0 : 0;
     const gpa = colMap.gpa !== -1 ? parseFloat(cells[colMap.gpa]) || 0 : 0;
-    const numericScore = Number(scoreStr !== "" ? scoreStr : NaN);
 
     const gradeItem = {
       semester: colMap.semester !== -1 ? cells[colMap.semester] : "",
@@ -390,39 +372,10 @@ function parseQiangZhiGrades(doc = document) {
     };
 
     grades.push(gradeItem);
-
-    if (credit > 0 && scoreStr && !/^(缓考|缺考|免考)$/.test(scoreStr)) {
-      totalCredits += credit;
-
-      if (!isNaN(numericScore)) {
-        scoreCredits += credit;
-        totalWeightedScore += numericScore * credit;
-        const effGpa = gpa > 0 ? gpa : (numericScore >= 60 ? (numericScore - 50) / 10 : 0);
-        gpaCredits += credit;
-        totalWeightedGpa += effGpa * credit;
-      } else if (levelMap[scoreStr]) {
-        const lv = levelMap[scoreStr];
-        scoreCredits += credit;
-        totalWeightedScore += lv.score * credit;
-        const effGpa = gpa > 0 ? gpa : lv.gpa;
-        gpaCredits += credit;
-        totalWeightedGpa += effGpa * credit;
-      } else if (gpa > 0) {
-        // 合格/通过等二级制或其它带有明确绩点的课程
-        gpaCredits += credit;
-        totalWeightedGpa += gpa * credit;
-      }
-    }
   }
 
-  const summary = {
-    totalCourses: grades.length,
-    totalCredits: parseFloat(totalCredits.toFixed(2)),
-    averageScore: scoreCredits > 0 ? parseFloat((totalWeightedScore / scoreCredits).toFixed(2)) : 0,
-    averageGpa: gpaCredits > 0 ? parseFloat((totalWeightedGpa / gpaCredits).toFixed(2)) : 0
-  };
-
-  return { grades, summary };
+  // 架构原则：JS 仅负责 DOM 原始字段提取，GPA 与学分加权统一由 Dart 端 GradeCalculator 计算
+  return { grades, summary: {} };
 }
 
 

@@ -6,6 +6,37 @@
 
 ## [Unreleased]
 
+## [2.3.3] - 2026-11-09
+
+金花助手 `v2.3.3` 正式版发布！本版本重点进行解析层与状态协调层的模块化重构解耦：收敛 GPA 与学分加权至统一的 Dart 计算器、纯化 JS 为无副作用 DOM 提取器（彻底杜绝双端规则漂移）、清理未使用的死字段、统一跨模块 Bridge 与 CAS 认证工具；同时在工程层面引入 GitHub Dependabot 自动化 pub / npm 依赖安全巡检机制。
+
+### Refactored & Improved
+- **GPA 与学分演算权责单一化 (`GradeCalculator`)**：
+  - 新建 `GradeCalculator`，统筹西安理工大学百分制、五级制（优/良/中/及格/不及格）与二级制（合格/通过）折算规则；
+  - 纯化 `qiangzhi_parser.js` 中 `parseQiangZhiGrades`：JS 仅负责 DOM 原始字段抽取，不再在 WebView 渲染线程中执行重复的浮点加权运算；
+  - 彻底消除 JS 端与 Dart 端关于 GPA 折算算法的双重维护与潜在规则漂移隐患。
+- **解析层模块化解耦与 Facade 门面化 (`ParserService`)**：
+  - 将庞大的 `ParserService`（原 1422 行）解耦为职责单一的独立子模块：
+    - `parser/sync_script_builder.dart`：专注跨端 Bridge 注入脚本与异步管线拼接；
+    - `parser/sync_result_parser.dart`：专注 JSON 反序列化与实体模型组装；
+    - `parser/sync_models.dart`：收敛四态同步状态机与跨模块结果定义；
+    - `parser_service.dart`：精简为不足 120 行的高内聚 Facade 门面，完全向后兼容原有静态 API。
+- **清除代码冗余与死字段清理**：
+  - 彻底移除 `SyncAllResult.gradesSummary` 死字段与相关无用装配逻辑；
+  - 提取单一的 `checkAuthJs` 统一认证守卫常量，消除原先在多个注入脚本中重复手写的 4 份 `checkAuth` 函数。
+
+### CI/CD & Engineering
+- **引入 GitHub Dependabot 依赖自动化检测**：
+  - 新增 `.github/dependabot.yml`，对主工程 `/xaut_app` 的 pub 依赖实施每周（weekly）自动化健康扫描；
+  - 对 `/parser_test` 的 npm 测试依赖实施每月（monthly）版本巡检；
+  - 针对 Windows C++ 原生插件（`webview_windows`）与 Android Keystore 根密钥托管插件（`flutter_secure_storage`）配置严格的 semver-major 升级保护；
+  - 自动复用既有的 GitHub Actions PR 双端编译门禁（`Lint & Tests` + `Build Android` + `Build Windows`），实现依赖升级自动提 PR、全链路编译与单测拦截验证。
+
+### Tests
+- **新增纯 Dart GPA 演算单元测试套件**：
+  - 新增 `xaut_app/test/grade_calculator_test.dart`（2 项纯 Dart 单元测试），全量覆盖混合制五级/二级折算、缓考/缺考/免考过滤与 0 学分安全处理；
+  - Flutter 单元与组件测试用例总数扩充至 **100 项** 全绿通过；
+  - 同步更新 Node.js 解析器回归测试，保持 **27 项** 持续全通。
 ## [2.3.2] - 2026-11-08
 
 金花助手 `v2.3.2` 正式版发布！本版本重点重构考试日程同步状态机，精确区分「空表壳、权威空列表与网络异常」，杜绝弱网与异常网络下误清空本地考试缓存；同时完善 Windows 桌面端运行环境（CMake 随包自动分发 MSVC 运行时 DLL、WebView2 运行时预检与缺失诊断引导卡片），统一合规声明措辞并扩充全套状态机回归测试。
@@ -367,7 +398,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.2...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.3...HEAD
+[2.3.3]: https://github.com/korty258/xaut-assistant/compare/v2.3.2...v2.3.3
 [2.3.2]: https://github.com/korty258/xaut-assistant/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/korty258/xaut-assistant/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/korty258/xaut-assistant/compare/v2.2.0...v2.3.0
