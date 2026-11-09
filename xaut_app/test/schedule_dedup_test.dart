@@ -158,7 +158,7 @@ void main() {
     expect(result.hasGrades, true);
     expect(result.grades.length, 1);
     expect(result.grades.first.courseName, '高等数学');
-    expect(result.gradeSummary?.averageGpa, 3.85);
+    expect(result.grades.first.credit, 4.0);
 
     expect(result.hasExams, true);
     expect(result.exams.length, 1);

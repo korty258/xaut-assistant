@@ -1,4 +1,4 @@
-const test = require('node:test');
+﻿const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -91,20 +91,29 @@ test('1. 课表解析回归测试 (parseQiangZhiCourses)', async (t) => {
 });
 
 test('2. 成绩解析回归测试 (parseQiangZhiGrades)', async (t) => {
-  await t.test('混合制样本 (grades_mixed.html) 能够正确折算五级/二级制与 GPA', () => {
+  await t.test('混合制样本 (grades_mixed.html) 能够正确抽取各列原始数据（包含百分制、等级制与缓考）', () => {
     const doc = loadDomFixture('grades_mixed.html');
     const result = parser.parseQiangZhiGrades(doc);
 
     assert.ok(result.grades, 'grades 字段应存在');
     assert.equal(result.grades.length, 6, '应解析出 6 条成绩记录');
 
-    // 缓考不计入加权，有效学分 = 4 + 3 + 3 + 1 + 2 = 13.0
-    assert.equal(result.summary.totalCourses, 6);
-    assert.equal(result.summary.totalCredits, 13.0);
-    // 加权平均分 = (88*4 + 95*3 + 85*3 + 65*1) / 11 = 957 / 11 = 87.0
-    assert.equal(result.summary.averageScore, 87.0);
-    // 加权平均 GPA = (3.8*4 + 4.5*3 + 3.5*3 + 1.5*1) / 11 = 40.7 / 11 = 3.7
-    assert.equal(result.summary.averageGpa, 3.7);
+    // 验证各列原始数据抽取精度（GPA与学分折算统一交由Dart端GradeCalculator处理）
+    assert.equal(result.grades[0].courseName, '高等数学(上)');
+    assert.equal(result.grades[0].score, '88');
+    assert.equal(result.grades[0].credit, 4.0);
+
+    assert.equal(result.grades[1].courseName, '大学英语(三)');
+    assert.equal(result.grades[1].score, '优');
+    assert.equal(result.grades[1].credit, 3.0);
+
+    assert.equal(result.grades[4].courseName, '军事理论');
+    assert.equal(result.grades[4].score, '合格');
+    assert.equal(result.grades[4].credit, 2.0);
+
+    assert.equal(result.grades[5].courseName, '创新创业实践');
+    assert.equal(result.grades[5].score, '缓考');
+    assert.equal(result.grades[5].credit, 1.0);
   });
 
   await t.test('登录页负例 (login_page.html) 返回空成绩与空统计', () => {
@@ -222,10 +231,14 @@ test('5. 复杂周次解析回归测试 (parseWeeks)', async (t) => {
 });
 
 test('6. 考试异步拉取状态机回归测试 (fetchExamScheduleAsync)', async (t) => {
-  const dartFilePath = path.join(__dirname, '../xaut_app/lib/services/parser_service.dart');
+  const builderPath = path.join(__dirname, '../xaut_app/lib/services/parser/sync_script_builder.dart');
+  const legacyPath = path.join(__dirname, '../xaut_app/lib/services/parser_service.dart');
+  const dartFilePath = fs.existsSync(builderPath) ? builderPath : legacyPath;
   const dartCode = fs.readFileSync(dartFilePath, 'utf8');
-  const helperMatch = dartCode.match(/static String _buildAsyncBridgeHelperJs[\s\S]*?return '''([\s\S]*?)''';/);
-  assert.ok(helperMatch, '未能从 parser_service.dart 提取 _buildAsyncBridgeHelperJs');
+  const checkAuthMatch = dartCode.match(/static const String checkAuthJs = '''([\s\S]*?)''';/);
+  const checkAuthJs = checkAuthMatch ? checkAuthMatch[1] : '';
+  const helperMatch = dartCode.match(/static String (?:_)?buildAsyncBridgeHelperJs[\s\S]*?return '''([\s\S]*?)''';/);
+  assert.ok(helperMatch, '未能提取 buildAsyncBridgeHelperJs');
 
   const parserJsPath = path.join(__dirname, '../xaut_app/assets/js/qiangzhi_parser.js');
   const parserJsCode = fs.readFileSync(parserJsPath, 'utf8');
@@ -249,6 +262,7 @@ test('6. 考试异步拉取状态机回归测试 (fetchExamScheduleAsync)', asyn
     let helperJs = helperMatch[1]
       .replace(/\$safeRequestId/g, '"test_req_exam"')
       .replace(/\$timeoutMs/g, '30000')
+      .replace(/\$checkAuthJs/g, checkAuthJs)
       .replace(/\\\$/g, '$');
 
     helperJs += '\nwindow.fetchExamScheduleAsync = fetchExamScheduleAsync;';
