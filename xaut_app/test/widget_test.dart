@@ -129,6 +129,19 @@ void main() {
 
     final indexedStack = tester.widget<IndexedStack>(find.byType(IndexedStack));
     expect(indexedStack.index, equals(3));
+    final diagBtn = find.text('查看并复制诊断摘要');
+    expect(diagBtn, findsOneWidget);
+    expect(find.text('复制开源仓库 / 问题反馈地址'), findsOneWidget);
+
+    // Scroll button into view inside SingleChildScrollView and tap
+    await tester.ensureVisible(diagBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(diagBtn);
+    await tester.pumpAndSettle();
+    expect(find.text('客户端脱敏诊断摘要'), findsOneWidget);
+    expect(find.text('复制到剪贴板'), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
   });
 
   test('WebViewLoginScreen.isAllowedUrl strictly enforces HTTPS and xaut.edu.cn domain', () {

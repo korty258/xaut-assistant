@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/exam.dart';
 import '../services/app_crypto_service.dart';
+import '../services/storage_service.dart';
 
 class ExamsProvider extends ChangeNotifier {
   static const String _keyExams = 'xaut_cached_exams';
@@ -12,10 +13,12 @@ class ExamsProvider extends ChangeNotifier {
   List<ExamItem> _exams = [];
   bool _isLoading = true;
   bool _hasDecryptionError = false;
+  DateTime? _lastSyncTime;
 
   DateTime get now => _nowProvider();
   bool get isLoading => _isLoading;
   bool get hasDecryptionError => _hasDecryptionError;
+  DateTime? get lastSyncTime => _lastSyncTime;
 
   /// 智能排序后的考试列表：即将开考（按时间升序） -> 时间待定 -> 已结束（沉底弱化）
   List<ExamItem> get exams => sortExams(_exams, now);
@@ -86,6 +89,8 @@ class ExamsProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
+    _lastSyncTime = await StorageService.loadExamsSyncTime();
+
     final prefs = await SharedPreferences.getInstance();
     try {
       final examsStr = await AppCryptoService.loadEncryptedString(prefs, _keyExams);
@@ -111,25 +116,35 @@ class ExamsProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> updateExams(List<ExamItem> exams) async {
+  Future<void> updateExams(
+    List<ExamItem> exams, {
+    bool updateSyncTime = true,
+  }) async {
     _exams = exams;
     _hasDecryptionError = false;
-    notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
-    await AppCryptoService.saveEncryptedString(
+    final ok = await AppCryptoService.saveEncryptedString(
       prefs,
       _keyExams,
       jsonEncode(_exams.map((e) => e.toJson()).toList()),
     );
+    if (ok && updateSyncTime) {
+      final t = _nowProvider();
+      await StorageService.saveExamsSyncTime(t);
+      _lastSyncTime = t;
+    }
+    notifyListeners();
   }
 
   Future<void> clearAll() async {
     _exams = [];
     _hasDecryptionError = false;
+    _lastSyncTime = null;
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyExams);
+    await prefs.remove(StorageService.keyLastExamsSync);
   }
 }

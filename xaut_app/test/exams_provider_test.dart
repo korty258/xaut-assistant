@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/models/exam.dart';
 import 'package:xaut_app/providers/exams_provider.dart';
+import 'package:xaut_app/services/app_crypto_service.dart';
 
 ExamItem _makeExam({
   required String courseName,
@@ -28,6 +29,7 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    AppCryptoService.allowInMemoryTestKey = true;
   });
 
   group('ExamsProvider Smart Sorting & Countdown Tests', () {

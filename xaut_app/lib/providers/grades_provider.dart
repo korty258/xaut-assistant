@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/grade.dart';
 import '../services/app_crypto_service.dart';
 import '../services/grade_calculator.dart';
+import '../services/storage_service.dart';
 
 class GradesProvider extends ChangeNotifier {
   static const String _keyGrades = 'xaut_cached_grades';
@@ -13,12 +14,14 @@ class GradesProvider extends ChangeNotifier {
   String _selectedSemester = '全部';
   bool _isLoading = true;
   bool _hasDecryptionError = false;
+  DateTime? _lastSyncTime;
 
   List<GradeItem> get grades => _grades;
   String get selectedSemester => _selectedSemester;
   bool get isLoading => _isLoading;
   bool get hasDecryptionError => _hasDecryptionError;
   bool get isAllSemesters => _selectedSemester == '全部';
+  DateTime? get lastSyncTime => _lastSyncTime;
 
   List<String> get availableSemesters {
     final sems = _grades.map((g) => g.semester).where((s) => s.isNotEmpty).toSet().toList();
@@ -51,6 +54,8 @@ class GradesProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
+    _lastSyncTime = await StorageService.loadGradesSyncTime();
+
     final prefs = await SharedPreferences.getInstance();
     try {
       final gradesStr = await AppCryptoService.loadEncryptedString(prefs, _keyGrades);
@@ -75,21 +80,29 @@ class GradesProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> updateGrades(List<GradeItem> grades) async {
+  Future<void> updateGrades(
+    List<GradeItem> grades, {
+    bool updateSyncTime = true,
+  }) async {
     _grades = grades;
     _hasDecryptionError = false;
     // 若当前选中的学期在新数据中已不存在，自动回退至「全部」
     if (_selectedSemester != '全部' && !availableSemesters.contains(_selectedSemester)) {
       _selectedSemester = '全部';
     }
-    notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
-    await AppCryptoService.saveEncryptedString(
+    final ok = await AppCryptoService.saveEncryptedString(
       prefs,
       _keyGrades,
       jsonEncode(_grades.map((g) => g.toJson()).toList()),
     );
+    if (ok && updateSyncTime) {
+      final now = DateTime.now();
+      await StorageService.saveGradesSyncTime(now);
+      _lastSyncTime = now;
+    }
+    notifyListeners();
   }
 
   /// 精确统计总学分、加权平均分与平均绩点（同时兼容百分制、五级制「优/良/中/及格」与二级制「合格/通过」）
@@ -100,10 +113,12 @@ class GradesProvider extends ChangeNotifier {
     _grades = [];
     _hasDecryptionError = false;
     _selectedSemester = '全部';
+    _lastSyncTime = null;
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyGrades);
     await prefs.remove(_legacyKeySummary);
+    await prefs.remove(StorageService.keyLastGradesSync);
   }
 }

@@ -9,6 +9,8 @@ class StorageService {
   static const String _keyCurrentWeek = 'xaut_current_week';
   static const String _keyOnlyCurrentWeek = 'xaut_only_current_week';
   static const String _keyLastSync = 'xaut_last_sync';
+  static const String keyLastGradesSync = 'xaut_last_grades_sync';
+  static const String keyLastExamsSync = 'xaut_last_exams_sync';
   static const String _keySemesterStartDate = 'xaut_semester_start_date';
   static const String _keySemesterName = 'xaut_semester_name';
 
@@ -20,10 +22,11 @@ class StorageService {
     final prefs = await SharedPreferences.getInstance();
     final jsonList = courses.map((c) => c.toJson()).toList();
     final jsonStr = jsonEncode(jsonList);
-    if (updateSyncTime) {
+    final ok = await AppCryptoService.saveEncryptedString(prefs, _keyCourses, jsonStr);
+    if (ok && updateSyncTime) {
       await prefs.setString(_keyLastSync, DateTime.now().toIso8601String());
     }
-    return AppCryptoService.saveEncryptedString(prefs, _keyCourses, jsonStr);
+    return ok;
   }
 
   /// 加载课表（解密异常向上透出，避免将密钥损坏或密文篡改静默吞成无课状态）
@@ -111,6 +114,36 @@ class StorageService {
     return DateTime.tryParse(timeStr);
   }
 
+  /// 保存成绩上次同步时间
+  static Future<bool> saveGradesSyncTime([DateTime? time]) async {
+    final prefs = await SharedPreferences.getInstance();
+    final t = time ?? DateTime.now();
+    return prefs.setString(keyLastGradesSync, t.toIso8601String());
+  }
+
+  /// 获取成绩上次同步时间
+  static Future<DateTime?> loadGradesSyncTime() async {
+    final prefs = await SharedPreferences.getInstance();
+    final timeStr = prefs.getString(keyLastGradesSync);
+    if (timeStr == null) return null;
+    return DateTime.tryParse(timeStr);
+  }
+
+  /// 保存考试日程上次同步时间
+  static Future<bool> saveExamsSyncTime([DateTime? time]) async {
+    final prefs = await SharedPreferences.getInstance();
+    final t = time ?? DateTime.now();
+    return prefs.setString(keyLastExamsSync, t.toIso8601String());
+  }
+
+  /// 获取考试日程上次同步时间
+  static Future<DateTime?> loadExamsSyncTime() async {
+    final prefs = await SharedPreferences.getInstance();
+    final timeStr = prefs.getString(keyLastExamsSync);
+    if (timeStr == null) return null;
+    return DateTime.tryParse(timeStr);
+  }
+
   /// 清空本地课表缓存
   static Future<void> clearCourses() async {
     final prefs = await SharedPreferences.getInstance();
@@ -118,6 +151,8 @@ class StorageService {
     await prefs.remove(_keyLastSync);
     await prefs.remove(_keySemesterStartDate);
     await prefs.remove(_keySemesterName);
+    await prefs.remove(keyLastGradesSync);
+    await prefs.remove(keyLastExamsSync);
   }
 
   /// 彻底重置损坏的本地加密数据（销毁主密钥并清除所有业务缓存密文）
@@ -132,5 +167,7 @@ class StorageService {
     await prefs.remove('xaut_cached_grades');
     await prefs.remove('xaut_cached_grade_summary');
     await prefs.remove('xaut_cached_exams');
+    await prefs.remove(keyLastGradesSync);
+    await prefs.remove(keyLastExamsSync);
   }
 }

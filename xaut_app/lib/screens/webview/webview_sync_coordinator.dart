@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/schedule_provider.dart';
 import '../../providers/grades_provider.dart';
 import '../../providers/exams_provider.dart';
+import '../../services/diagnostics_service.dart';
 import '../../services/parser_service.dart';
 import 'webview_constants.dart';
 import 'webview_platform_adapter.dart';
@@ -240,6 +241,7 @@ class WebViewSyncCoordinator {
     final examsProvider = context.read<ExamsProvider>();
 
     _setSyncingState(true, '正在启动全量异步同步...');
+    final stopwatch = Stopwatch()..start();
 
     try {
       final requestId = adapter.nextRequestId('sync_all');
@@ -256,6 +258,17 @@ class WebViewSyncCoordinator {
         },
       );
       final result = ParserService.parseSyncAllResult(rawResult);
+
+      DiagnosticsService.recordSyncEvent(
+        triggerMode: 'syncAll',
+        durationMs: stopwatch.elapsedMilliseconds,
+        coursesStatus: result.statusCourses,
+        gradesStatus: result.statusGrades,
+        examsStatus: result.statusExams,
+        coursesError: result.errorCourses,
+        gradesError: result.errorGrades,
+        examsError: result.errorExams,
+      );
 
       if (_isDisposed || !context.mounted) return;
 
@@ -476,6 +489,16 @@ class WebViewSyncCoordinator {
         ),
       );
     } catch (e) {
+      DiagnosticsService.recordSyncEvent(
+        triggerMode: 'syncAll',
+        durationMs: stopwatch.elapsedMilliseconds,
+        coursesStatus: SyncModuleStatus.error,
+        gradesStatus: SyncModuleStatus.error,
+        examsStatus: SyncModuleStatus.error,
+        coursesError: e,
+        gradesError: e,
+        examsError: e,
+      );
       if (_isDisposed || !context.mounted) return;
       final errStr = e.toString();
       final isCancel = errStr.contains('取消') || errStr.contains('跳转');
@@ -576,6 +599,7 @@ class WebViewSyncCoordinator {
 
     final scheduleProvider = context.read<ScheduleProvider>();
     _setSyncingState(true, '正在提取课表数据...');
+    final stopwatch = Stopwatch()..start();
 
     try {
       final requestId = adapter.nextRequestId('sync_course');
@@ -589,6 +613,13 @@ class WebViewSyncCoordinator {
         requestId: requestId,
       );
       final syncRes = ParserService.parseCourseSyncResult(rawResult);
+
+      DiagnosticsService.recordSyncEvent(
+        triggerMode: 'courses',
+        durationMs: stopwatch.elapsedMilliseconds,
+        coursesStatus: syncRes.status,
+        coursesError: syncRes.error,
+      );
 
       if (_isDisposed || !context.mounted) return;
 
@@ -751,6 +782,12 @@ class WebViewSyncCoordinator {
         );
       }
     } catch (e) {
+      DiagnosticsService.recordSyncEvent(
+        triggerMode: 'courses',
+        durationMs: stopwatch.elapsedMilliseconds,
+        coursesStatus: SyncModuleStatus.error,
+        coursesError: e,
+      );
       if (_isDisposed || !context.mounted) return;
       final errStr = e.toString();
       final isCancel = errStr.contains('取消') || errStr.contains('跳转');
@@ -783,6 +820,7 @@ class WebViewSyncCoordinator {
 
     final gradesProvider = context.read<GradesProvider>();
     _setSyncingState(true, '正在提取成绩数据...');
+    final stopwatch = Stopwatch()..start();
 
     try {
       final requestId = adapter.nextRequestId('sync_grades');
@@ -796,6 +834,13 @@ class WebViewSyncCoordinator {
         requestId: requestId,
       );
       final result = ParserService.parseGradesResult(rawResult);
+
+      DiagnosticsService.recordSyncEvent(
+        triggerMode: 'grades',
+        durationMs: stopwatch.elapsedMilliseconds,
+        gradesStatus: result.status,
+        gradesError: result.error,
+      );
 
       if (_isDisposed || !context.mounted) return;
 
@@ -905,6 +950,12 @@ class WebViewSyncCoordinator {
         );
       }
     } catch (e) {
+      DiagnosticsService.recordSyncEvent(
+        triggerMode: 'grades',
+        durationMs: stopwatch.elapsedMilliseconds,
+        gradesStatus: SyncModuleStatus.error,
+        gradesError: e,
+      );
       if (_isDisposed || !context.mounted) return;
       final errStr = e.toString();
       final isCancel = errStr.contains('取消') || errStr.contains('跳转');
@@ -937,6 +988,7 @@ class WebViewSyncCoordinator {
 
     final examsProvider = context.read<ExamsProvider>();
     _setSyncingState(true, '正在提取考试安排...');
+    final stopwatch = Stopwatch()..start();
 
     try {
       final requestId = adapter.nextRequestId('sync_exams');
@@ -950,6 +1002,13 @@ class WebViewSyncCoordinator {
         requestId: requestId,
       );
       final result = ParserService.parseExamsDetailedResult(rawResult);
+
+      DiagnosticsService.recordSyncEvent(
+        triggerMode: 'exams',
+        durationMs: stopwatch.elapsedMilliseconds,
+        examsStatus: result.status,
+        examsError: result.error,
+      );
 
       if (_isDisposed || !context.mounted) return;
 
@@ -1057,6 +1116,12 @@ class WebViewSyncCoordinator {
         );
       }
     } catch (e) {
+      DiagnosticsService.recordSyncEvent(
+        triggerMode: 'exams',
+        durationMs: stopwatch.elapsedMilliseconds,
+        examsStatus: SyncModuleStatus.error,
+        examsError: e,
+      );
       if (_isDisposed || !context.mounted) return;
       final errStr = e.toString();
       final isCancel = errStr.contains('取消') || errStr.contains('跳转');

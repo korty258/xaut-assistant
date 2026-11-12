@@ -6,6 +6,52 @@
 
 ## [Unreleased]
 
+## [2.3.4] - 2026-11-12
+
+金花助手 `v2.3.4`（稳定性、数据安全与可观测性正式版）发布！本版本全面修复安全存储故障路径（引入 Fail-Closed 主密钥安全门禁与同步时间戳先加密后落盘机制）、重构授权撤回与冷启动残留补偿机制、增加成绩与考试分模块独立同步时间戳与界面显示、引入 100% 纯端侧脱敏诊断摘要服务及 GitHub 缺陷申报模板，并完成 CI/CD 编译缓存与网络容错加固。
+
+### Security & Data Safety (Fail-Closed)
+- **安全存储故障阻断落盘 (Fail-Closed Master Key)**：
+  - 重构 `AppCryptoService._loadOrCreateMasterKey()`，消除生产环境下 `MissingPluginException` 被静默降级为临时内存密钥的安全缺陷；
+  - 生产环境下当安全存储通道不可用时，严格抛出 `CryptoKeyException` 阻断落盘，防止生成重启后永久无法解密的新数据；
+  - 仅在显式单元测试标记（`AppCryptoService.allowInMemoryTestKey = true`）下允许内存测试密钥。
+- **课表同步落盘时序原子化 (`StorageService.saveCourses`)**：
+  - 调整写入顺序：严格在 `AppCryptoService.saveEncryptedString` 加密写入成功后才更新 `xaut_last_sync` 时间戳，杜绝落盘失败导致时间戳虚假刷新的状态不一致问题。
+- **结构化撤回清理结果与冷启动残留补偿 (`RevokeCleanupResult`)**：
+  - 重构 `AppCryptoService.destroyMasterKey()` 返回物理删除真实布尔结果；
+  - `LegalService.revokeAndClearAll()` 升级为返回结构化 `RevokeCleanupResult`，明确反馈 Preferences 清理、主密钥销毁、WebView 数据与 Windows 目录清理的各分项状态；
+  - 针对 Windows 文件占用或安全存储异常导致的未删净项，设置 `pendingMasterKeyWipeKey` 与 `pendingWindowsWipeKey` 标志，在下一次冷启动最早期由 `runPendingWipeIfNeeded()` 执行补偿擦除；
+  - `LegalGateScreen` 根据清理结果向用户提供准确的反馈提示（完整清理 vs 待冷启动补偿清理）。
+
+### Observability & UI
+- **成绩与考试分模块独立同步时间戳**：
+  - `StorageService` 新增 `xaut_last_grades_sync` 与 `xaut_last_exams_sync` 持久化读写，并在清空数据或重置时安全擦除；
+  - `GradesProvider` 与 `ExamsProvider` 分别维护 `lastSyncTime`，仅在同步成功或权威空数据写入密文后刷新时间戳，失败与未登录严格保留原时间戳；
+  - `GradesScreen` 与 `ExamsScreen` 顶栏实时展示分模块上次同步时间（如 `同步于 11-12 10:30`），方便用户掌握教务数据新鲜度。
+- **100% 纯本地脱敏诊断摘要服务 (`DiagnosticsService`)**：
+  - 新增 `DiagnosticsService`，内存暂存最近一次教务同步的脱敏遥测数据（触发模式、耗时、各模块状态码与异常类别，绝不记录原始 stack trace 或 HTML 内容）；
+  - 提供 `buildDiagnosticReport()` 输出格式化 Markdown 摘要（包含 App 版本、条款版本、平台、WebView2 状态、各模块同步时间戳与最近遥测）；
+  - 严格隐私保障：经过 100% 纯本地规则过滤，绝对不含任何学号、密码、Cookie、课程名、成绩、GPA、考试名或原始教务 HTML；
+  - 在「关于与法律条款」页面开源致谢卡片底部新增「查看并复制诊断摘要」与「复制开源仓库 / 问题反馈地址」便捷入口，配合确认弹窗与剪贴板一键复制。
+
+### CI/CD & Engineering
+- **GitHub Issue 模板与反馈闭环**：
+  - 新增 `.github/ISSUE_TEMPLATE/bug_report.yml`，引导用户提供运行平台、版本号、复现步骤及脱敏诊断摘要。
+- **README 常见问题与排查指南 (FAQ)**：
+  - 新增 FAQ 章节，覆盖校园网 / WebVPN 访问说明、Windows WebView2 与 VC++ 运行库说明、`.ics` 系统日历导入指南及问题反馈途径。
+- **CI Android 编译容错与 Gradle 缓存加固**：
+  - 在 `.github/workflows/ci_cd.yml` 的 `build_android` 任务中启用 `actions/setup-java@v5` 的 `cache: 'gradle'`；
+  - 为 `flutter build apk` 配置 3 次弹性重试机制与 120 秒网络超时（`GRADLE_OPTS`），彻底消除 GitHub 下载 Kotlin 编译器等外部依赖时的偶发 504 Gateway Timeout 导致的流水线误报。
+
+### Tests
+- **新增 14 项安全与诊断测试用例**：
+  - 新增 `xaut_app/test/diagnostics_service_test.dart`（6 项用例），验证脱敏诊断摘要生成、标准异常类型识别、隐私零泄漏及分模块同步时间戳持久化；
+  - `app_crypto_service_test.dart` 扩充 4 项生产 Fail-Closed 单元测试（插件通道缺失拦截、落盘阻断、回读篡改与主密钥删除）；
+  - `legal_service_test.dart` 扩充 3 项 `RevokeCleanupResult` 分项清理与冷启动补偿擦除测试；
+  - `widget_test.dart` 扩充 1 项诊断摘要弹窗交互组件测试；
+  - Flutter 单元与组件测试用例总数扩充至 **114 项** 全绿通过；
+  - Node 24 JSDOM 解析器回归测试持续保持 **27 项** 全绿。
+
 ## [2.3.3] - 2026-11-09
 
 金花助手 `v2.3.3` 正式版发布！本版本重点进行解析层与状态协调层的模块化重构解耦：收敛 GPA 与学分加权至统一的 Dart 计算器、纯化 JS 为无副作用 DOM 提取器（彻底杜绝双端规则漂移）、清理未使用的死字段、统一跨模块 Bridge 与 CAS 认证工具；同时在工程层面引入 GitHub Dependabot 自动化 pub / npm 依赖安全巡检机制。
@@ -398,7 +444,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.3...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.4...HEAD
+[2.3.4]: https://github.com/korty258/xaut-assistant/compare/v2.3.3...v2.3.4
 [2.3.3]: https://github.com/korty258/xaut-assistant/compare/v2.3.2...v2.3.3
 [2.3.2]: https://github.com/korty258/xaut-assistant/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/korty258/xaut-assistant/compare/v2.3.0...v2.3.1

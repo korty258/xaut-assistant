@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xaut_app/services/app_crypto_service.dart';
 import 'package:xaut_app/services/legal_service.dart';
 
 void main() {
@@ -154,6 +155,53 @@ void main() {
       await LegalService.runPendingWipeIfNeeded();
 
       expect(wipeCallCount, equals(0));
+    });
+
+    test('revokeAndClearAll() returns RevokeCleanupResult with hasPendingColdStartWipe = true when master key deletion fails', () async {
+      AppCryptoService.resetForTesting();
+      AppCryptoService.debugStorageDeleter = (key) async => throw Exception('Secure storage locked');
+      SharedPreferences.setMockInitialValues({'foo': 'bar'});
+
+      final res = await LegalService.revokeAndClearAll();
+
+      expect(res.prefsCleared, isTrue);
+      expect(res.masterKeyDestroyed, isFalse);
+      expect(res.hasPendingColdStartWipe, isTrue);
+      expect(res.isFullyCleaned, isFalse);
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(LegalService.pendingMasterKeyWipeKey), isTrue);
+    });
+
+    test('runPendingWipeIfNeeded() clears pendingMasterKeyWipeKey once deletion succeeds', () async {
+      SharedPreferences.setMockInitialValues({
+        LegalService.pendingMasterKeyWipeKey: true,
+      });
+
+      AppCryptoService.resetForTesting();
+      int deleteCount = 0;
+      AppCryptoService.debugStorageDeleter = (key) async {
+        deleteCount++;
+      };
+
+      await LegalService.runPendingWipeIfNeeded();
+
+      expect(deleteCount, equals(1));
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(LegalService.pendingMasterKeyWipeKey), isNull);
+    });
+
+    test('revokeAndClearAll() returns RevokeCleanupResult with isFullyCleaned = true when all deletions succeed', () async {
+      AppCryptoService.resetForTesting();
+      AppCryptoService.debugStorageDeleter = (key) async {};
+      LegalService.debugWindowsWipeAction = () async => true;
+      SharedPreferences.setMockInitialValues({'foo': 'bar'});
+
+      final res = await LegalService.revokeAndClearAll();
+
+      expect(res.isFullyCleaned, isTrue);
+      expect(res.masterKeyDestroyed, isTrue);
+      expect(res.hasPendingColdStartWipe, isFalse);
     });
   });
 }

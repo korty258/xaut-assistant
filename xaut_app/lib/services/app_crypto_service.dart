@@ -39,10 +39,16 @@ class AppCryptoService {
   static Future<Key>? _masterKeyFuture;
 
   @visibleForTesting
+  static bool allowInMemoryTestKey = false;
+
+  @visibleForTesting
   static Future<String?> Function(String key)? debugStorageReader;
 
   @visibleForTesting
   static Future<void> Function(String key, String value)? debugStorageWriter;
+
+  @visibleForTesting
+  static Future<void> Function(String key)? debugStorageDeleter;
 
   @visibleForTesting
   static void setMockStorage(FlutterSecureStorage storage) {
@@ -61,6 +67,8 @@ class AppCryptoService {
     _masterKeyFuture = null;
     debugStorageReader = null;
     debugStorageWriter = null;
+    debugStorageDeleter = null;
+    allowInMemoryTestKey = false;
   }
 
   /// 获取或安全派生设备专属 256 位 AES 主密钥 (Master Key)
@@ -86,7 +94,10 @@ class AppCryptoService {
           ? await debugStorageReader!(_storageKeyMaster)
           : await _secureStorage.read(key: _storageKeyMaster);
     } on MissingPluginException {
-      // 纯单元测试环境下无原生宿主插件通道，在测试中允许安全回退内存密钥
+      if (!allowInMemoryTestKey) {
+        throw const CryptoKeyException('安全存储插件通道不可用 (MissingPluginException)，已阻止使用临时密钥加密落盘');
+      }
+      // 纯单元测试环境下无原生宿主插件通道，在显式允许时允许安全回退内存密钥
       debugPrint('AppCryptoService: MissingPluginException in test environment.');
     } catch (e) {
       debugPrint('AppCryptoService: SecureStorage read exception: $e');
@@ -124,9 +135,14 @@ class AppCryptoService {
             throw const CryptoKeyException('安全存储写入校验失败：回读的主密钥为空或不一致');
           }
         } on MissingPluginException {
-          // 单元测试环境
+          if (!allowInMemoryTestKey) {
+            throw const CryptoKeyException('安全存储插件通道不可用 (MissingPluginException)，已阻止使用临时密钥加密落盘');
+          }
         }
       } on MissingPluginException {
+        if (!allowInMemoryTestKey) {
+          throw const CryptoKeyException('安全存储插件通道不可用 (MissingPluginException)，已阻止使用临时密钥加密落盘');
+        }
         debugPrint('AppCryptoService: MissingPluginException on write in test environment.');
       } on CryptoException {
         rethrow;
@@ -212,12 +228,26 @@ class AppCryptoService {
   }
 
   /// 物理销毁主密钥（密码学粉碎 Crypto-Shredding）
-  /// 在用户撤回知情同意时调用，使磁盘上残留的全部旧密文碎片在数学上永久不可解
-  static Future<void> destroyMasterKey() async {
+  /// 在用户撤回知情同意时调用，使磁盘上残留的全部旧密文碎片在数学上永久不可解。
+  /// 返回 true 表示物理删除成功（或测试模式下通道正常关闭）；返回 false 表示底层存储删除异常
+  static Future<bool> destroyMasterKey() async {
     _cachedMasterKey = null;
     _masterKeyFuture = null;
     try {
-      await _secureStorage.delete(key: _storageKeyMaster);
-    } catch (_) {}
+      if (debugStorageDeleter != null) {
+        await debugStorageDeleter!(_storageKeyMaster);
+      } else {
+        await _secureStorage.delete(key: _storageKeyMaster);
+      }
+      return true;
+    } on MissingPluginException {
+      if (allowInMemoryTestKey) {
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('AppCryptoService: destroyMasterKey failed: $e');
+      return false;
+    }
   }
 }
