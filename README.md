@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.3.3-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.3.4-brightgreen" alt="Version">
   <a href="https://github.com/korty258/xaut-assistant/actions/workflows/ci_cd.yml">
     <img src="https://github.com/korty258/xaut-assistant/actions/workflows/ci_cd.yml/badge.svg" alt="CI/CD Status">
   </a>
@@ -139,6 +139,31 @@ Pre (预览测试版) ──> RC (发布候选版) ──> Official Release (正
 | **正式版** | `vX.Y.Z` | `Latest Release` | 验收通过的生产级全量发布版本，具备完整的安全加固与稳定质量保障，打上置顶 `Latest` 徽章。 |
 
 > **版本命名建议**：遵循 SemVer 2.0 规范使用中划线（如 `v2.3.0-pre1`、`v2.3.0-rc1`），保证各平台与 Git 语义化排序天然满足 `pre < rc < 正式版`。CI/CD 工作流已全面配置自动化分类与徽章分配。
+
+---
+
+## ❓ 常见问题与故障排查 (FAQ)
+
+### 1. 校园网与校外 WebVPN 访问
+- **校内直连**：连接学校 Wi-Fi（`XAUT-Student` 等）或宿舍有线网时，可直接打开教务系统完成登录与同步。
+- **校外访问**：学校强智教务系统属于校园内网服务。在校外使用时，请先登录学校官方 WebVPN（`https://webvpn.xaut.edu.cn`）或校园官方 VPN，确保网络可连通教务系统后再进入客户端进行数据同步。
+
+### 2. Windows 桌面端 WebView2 与运行库
+- **免安装绿色便携**：Windows 绿色包解压即可直接双击 `jinhua_assistant.exe` 运行，无需执行安装向导。
+- **WebView2 运行时缺失**：Windows 11 及更新版 Windows 10 系统已默认内置 WebView2；若在旧版 Windows 10 或精简版系统提示缺少组件，请前往微软官方下载安装 [WebView2 Evergreen Bootstrapper](https://developer.microsoft.com/zh-cn/microsoft-edge/webview2/)。
+- **VC++ 运行库**：发布包已随包内置常用运行库 DLL；若遇极端缺少运行库弹窗，可直接安装微软官方 [Visual C++ 2015-2022 x64 Redistributable (`vc_redist.x64.exe`)](https://aka.ms/vs/17/release/vc_redist.x64.exe)。
+
+### 3. 课表与考试日历 (.ics) 导入指南
+- **标准协议导出**：在课表或考试页面点击右上角菜单选择「导出至系统日历 (.ics)」，可自定义上课提前提醒与考前倒计时提醒。
+- **各端导入方式**：
+  - **Android**：导出后调用系统分享面板，选择系统自带日历或主流日历软件（小米、华为、OPPO、vivo 等）直接完成导入。
+  - **iOS / macOS**：通过隔空投送 (AirDrop) 或邮件将导出的 `.ics` 发送至设备，点击即可全量添加入苹果日历。
+  - **Windows**：双击导出的 `.ics` 文件即可自动调起 Outlook 或系统日历应用完成订阅。
+
+### 4. 遇到教务同步异常如何反馈？
+- **复制脱敏诊断摘要**：进入客户端右上角菜单「关于与法律条款」，滑至页面最底部点击「查看并复制诊断摘要」按钮。
+- **隐私严格承诺**：该摘要经过 100% 纯本地规则脱敏处理，**严格不含任何学号、密码、Cookie、课表、成绩或考试等个人敏感信息**，仅包含客户端版本、运行平台与教务同步状态码。
+- **提交 Issue**：前往 [GitHub Issues](https://github.com/korty258/xaut-assistant/issues) 创建反馈并将诊断摘要粘贴在对应表单中，协助开发者快速定位强智教务改版问题。
 
 ---
 

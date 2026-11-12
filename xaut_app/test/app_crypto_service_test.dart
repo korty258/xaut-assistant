@@ -1,4 +1,5 @@
 import 'package:encrypt/encrypt.dart' as enc;
+import 'package:flutter/services.dart' show MissingPluginException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/models/course.dart';
@@ -121,6 +122,7 @@ void main() {
 
     test('Single-flight getMasterKey() handles concurrent callers cleanly', () async {
       AppCryptoService.setMockMasterKey(null);
+      AppCryptoService.allowInMemoryTestKey = true;
       final futures = [
         AppCryptoService.getMasterKey(),
         AppCryptoService.getMasterKey(),
@@ -398,6 +400,114 @@ void main() {
       final cipher = await AppCryptoService.encrypt(secret);
       final plain = await AppCryptoService.decrypt(cipher);
       expect(plain, equals(secret));
+    });
+  });
+
+  group('Production Mode Fail-Closed Security & Storage Verification Tests', () {
+    const testCourse = Course(
+      name: '物理实验',
+      teacher: '李老师',
+      room: '曲江实验楼',
+      day: 1,
+      startSection: 1,
+      stepCount: 2,
+      weeks: [1],
+      rawWeekStr: '1(周)[01-02节]',
+    );
+
+    test('MissingPluginException on read in production mode throws CryptoKeyException and saveCourses aborts', () async {
+      AppCryptoService.resetForTesting();
+      AppCryptoService.allowInMemoryTestKey = false;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+
+      AppCryptoService.debugStorageReader = (key) async => throw MissingPluginException('No secure storage channel');
+
+      await expectLater(
+        () => AppCryptoService.getMasterKey(),
+        throwsA(isA<CryptoKeyException>().having(
+          (e) => e.message,
+          'message',
+          contains('安全存储插件通道不可用 (MissingPluginException)'),
+        )),
+      );
+
+      // 验证通过 StorageService.saveCourses 间接调用时，阻断落盘且严禁写时间戳
+      await expectLater(
+        () => StorageService.saveCourses([testCourse]),
+        throwsA(isA<CryptoKeyException>()),
+      );
+      expect(prefs.getString('xaut_cached_courses'), isNull);
+      expect(prefs.getString('xaut_last_sync'), isNull);
+    });
+
+    test('MissingPluginException on write in production mode throws CryptoKeyException and saveCourses aborts', () async {
+      AppCryptoService.resetForTesting();
+      AppCryptoService.allowInMemoryTestKey = false;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+
+      AppCryptoService.debugStorageReader = (key) async => null; // 首次安装冷启动无历史密钥
+      AppCryptoService.debugStorageWriter = (key, val) async => throw MissingPluginException('No write channel');
+
+      await expectLater(
+        () => StorageService.saveCourses([testCourse]),
+        throwsA(isA<CryptoKeyException>().having(
+          (e) => e.message,
+          'message',
+          contains('安全存储插件通道不可用 (MissingPluginException)'),
+        )),
+      );
+      expect(prefs.getString('xaut_cached_courses'), isNull);
+      expect(prefs.getString('xaut_last_sync'), isNull);
+    });
+
+    test('Read-back verification mismatch throws CryptoKeyException and subsequent retry recovers cleanly', () async {
+      AppCryptoService.resetForTesting();
+      AppCryptoService.allowInMemoryTestKey = false;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+
+      int readCount = 0;
+      String? storedHex;
+      AppCryptoService.debugStorageWriter = (key, val) async {
+        storedHex = val;
+      };
+      AppCryptoService.debugStorageReader = (key) async {
+        readCount++;
+        if (readCount == 1) {
+          return null; // 首次读取：无现有密钥，进入派生与写入分支
+        }
+        if (readCount == 2) {
+          return '0000000000000000000000000000000000000000000000000000000000000000'; // 写入后立即回读校验：不一致
+        }
+        return storedHex;
+      };
+
+      await expectLater(
+        () => AppCryptoService.saveEncryptedString(prefs, 'test_key', 'plain text'),
+        throwsA(isA<CryptoKeyException>().having(
+          (e) => e.message,
+          'message',
+          contains('安全存储写入校验失败：回读的主密钥为空或不一致'),
+        )),
+      );
+      expect(prefs.getString('test_key'), isNull);
+
+      // 消除异常后重试，恢复正常持久化与加解密
+      final ok = await AppCryptoService.saveEncryptedString(prefs, 'test_key', 'plain text');
+      expect(ok, isTrue);
+      final restored = await AppCryptoService.loadEncryptedString(prefs, 'test_key');
+      expect(restored, equals('plain text'));
+    });
+
+    test('destroyMasterKey() returns true on success and false on storage error', () async {
+      AppCryptoService.resetForTesting();
+      AppCryptoService.debugStorageDeleter = (key) async {};
+      expect(await AppCryptoService.destroyMasterKey(), isTrue);
+
+      AppCryptoService.debugStorageDeleter = (key) async => throw Exception('Disk lock');
+      expect(await AppCryptoService.destroyMasterKey(), isFalse);
     });
   });
 }

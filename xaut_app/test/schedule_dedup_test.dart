@@ -6,6 +6,7 @@ import 'package:xaut_app/models/grade.dart';
 import 'package:xaut_app/providers/exams_provider.dart';
 import 'package:xaut_app/providers/grades_provider.dart';
 import 'package:xaut_app/providers/schedule_provider.dart';
+import 'package:xaut_app/services/app_crypto_service.dart';
 import 'package:xaut_app/services/parser_service.dart';
 import 'package:xaut_app/services/legal_service.dart';
 import 'package:xaut_app/services/storage_service.dart';
@@ -15,6 +16,7 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    AppCryptoService.allowInMemoryTestKey = true;
   });
 
   test('ScheduleProvider deduplication collapses duplicated courses and filters - placeholder', () async {

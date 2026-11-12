@@ -10,6 +10,14 @@ import '../widgets/decryption_error_view.dart';
 class ExamsScreen extends StatelessWidget {
   const ExamsScreen({super.key});
 
+  static String _formatSyncTime(DateTime dt) {
+    final m = dt.month.toString().padLeft(2, '0');
+    final d = dt.day.toString().padLeft(2, '0');
+    final h = dt.hour.toString().padLeft(2, '0');
+    final min = dt.minute.toString().padLeft(2, '0');
+    return '$m-$d $h:$min';
+  }
+
   static ({Color bg, Color fg, IconData icon}) _resolveCountdownStyle(
     ThemeData theme,
     ExamScheduleInfo info,
@@ -68,28 +76,42 @@ class ExamsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('考试安排与考场', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            if (exams.isNotEmpty && provider.upcomingCount > 0) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '待考 ${provider.upcomingCount}',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.onPrimaryContainer,
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('考试安排与考场', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                if (exams.isNotEmpty && provider.upcomingCount > 0) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '待考 ${provider.upcomingCount}',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
+                    ),
                   ),
+                ],
+              ],
+            ),
+            if (provider.lastSyncTime != null)
+              Text(
+                '同步于 ${_formatSyncTime(provider.lastSyncTime!)}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
-            ],
           ],
         ),
         actions: [

@@ -8,6 +8,14 @@ import 'legal_gate_screen.dart';
 class GradesScreen extends StatelessWidget {
   const GradesScreen({super.key});
 
+  static String _formatSyncTime(DateTime dt) {
+    final m = dt.month.toString().padLeft(2, '0');
+    final d = dt.day.toString().padLeft(2, '0');
+    final h = dt.hour.toString().padLeft(2, '0');
+    final min = dt.minute.toString().padLeft(2, '0');
+    return '$m-$d $h:$min';
+  }
+
   static ({Color bg, Color fg}) _resolveScoreColors(ThemeData theme, String rawScore) {
     final isDark = theme.brightness == Brightness.dark;
     final s = rawScore.trim();
@@ -58,7 +66,21 @@ class GradesScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('学业成绩与绩点', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('学业成绩与绩点', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            if (provider.lastSyncTime != null)
+              Text(
+                '同步于 ${_formatSyncTime(provider.lastSyncTime!)}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.sync_rounded),

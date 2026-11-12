@@ -66,6 +66,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+          cache: 'gradle'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -101,6 +102,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+          cache: 'gradle'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -138,7 +140,20 @@ jobs:
 
       - name: Build Android Release APK (arm64-v8a)
         working-directory: xaut_app
-        run: flutter build apk --release --target-platform android-arm64
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.internal.http.connectionTimeout=120000 -Dorg.gradle.internal.http.socketTimeout=120000"
+        run: |
+          for i in 1 2 3; do
+            echo "Attempt $i to build Android APK..."
+            if flutter build apk --release --target-platform android-arm64; then
+              echo "Android build succeeded on attempt $i"
+              exit 0
+            fi
+            echo "Attempt $i failed. Waiting 10s before retry..."
+            sleep 10
+          done
+          echo "::error::Android build failed after 3 attempts"
+          exit 1
 
       - name: Prepare Artifact & Verify Signature
         env:

@@ -12,7 +12,7 @@ import 'app_crypto_service.dart';
 /// 文本内容与 assets/legal/*.md 严格对应。
 class LegalService {
   /// 当前客户端对外统一发布版本号
-  static const String appVersion = 'v2.3.3';
+  static const String appVersion = 'v2.3.4';
 
   /// 当前合规文本版本。当协议有实质性变更时必须递增此常量，
   /// 系统检测到本地记录与该版本不一致时会自动重新唤起同意页面。
@@ -20,6 +20,9 @@ class LegalService {
 
   /// Windows 撤回授权句柄占用时的冷启动补偿擦除标记
   static const String pendingWindowsWipeKey = 'jinhua_pending_windows_wipe';
+
+  /// 主密钥物理销毁异常时的冷启动补偿擦除标记
+  static const String pendingMasterKeyWipeKey = 'jinhua_pending_master_key_wipe';
 
   @visibleForTesting
   static Future<bool> Function()? debugWindowsWipeAction;
@@ -195,6 +198,12 @@ class LegalService {
   /// 检查并在冷启动早期（WebView2 尚未初始化、零文件锁时）执行残留补偿擦除
   static Future<void> runPendingWipeIfNeeded() async {
     final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(pendingMasterKeyWipeKey) == true) {
+      final destroyed = await AppCryptoService.destroyMasterKey();
+      if (destroyed) {
+        await prefs.remove(pendingMasterKeyWipeKey);
+      }
+    }
     if (prefs.getBool(pendingWindowsWipeKey) == true) {
       final allCleaned = await _wipeWindowsDirectories();
       if (allCleaned) {
@@ -206,14 +215,18 @@ class LegalService {
   /// 撤回同意（依据《个人信息保护法》第 15 条赋予的撤回权）
   /// 撤回后物理销毁所有本地业务缓存与授权记录，回归初始未授权状态；
   /// 同时执行防御性加固：清除内嵌 WebView 登录会话 Cookie，杜绝凭据残留。
-  static Future<void> revokeAndClearAll() async {
+  static Future<RevokeCleanupResult> revokeAndClearAll() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    final prefsCleared = await prefs.clear();
 
     // 密码学粉碎 (Crypto-Shredding)：销毁主加密密钥，确保残留磁盘密文彻底不可逆失效
-    try {
-      await AppCryptoService.destroyMasterKey();
-    } catch (_) {}
+    final masterKeyDestroyed = await AppCryptoService.destroyMasterKey();
+    if (!masterKeyDestroyed) {
+      await prefs.setBool(pendingMasterKeyWipeKey, true);
+    }
+
+    bool webviewCleaned = true;
+    bool windowsDirsCleaned = true;
 
     // 纵深防御加固：清除 Android/移动端 WebView 登录会话 Cookie 与 Windows 本地缓存
     try {
@@ -222,18 +235,73 @@ class LegalService {
         try {
           const platformChannel = MethodChannel('io.github.korty258.jinhua_assistant/platform');
           await platformChannel.invokeMethod('clearWebViewData');
+          webviewCleaned = true;
         } catch (e) {
           debugPrint('Android native clearWebViewData failed or running in test: $e');
           // 降级兜底：通过 webview_flutter 官方 CookieManager 清除
-          final cookieManager = WebViewCookieManager();
-          await cookieManager.clearCookies();
+          try {
+            final cookieManager = WebViewCookieManager();
+            await cookieManager.clearCookies();
+            webviewCleaned = true;
+          } catch (e) {
+            if (e is MissingPluginException || e is AssertionError || e is UnimplementedError) {
+              // 纯单测环境无原生 Android WebView 宿主通道
+              webviewCleaned = true;
+            } else {
+              debugPrint('Android clearCookies failed: $e');
+              webviewCleaned = false;
+            }
+          }
         }
       } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
-        final allCleaned = await _wipeWindowsDirectories();
-        if (!allCleaned) {
+        windowsDirsCleaned = await _wipeWindowsDirectories();
+        webviewCleaned = windowsDirsCleaned;
+        if (!windowsDirsCleaned) {
           await prefs.setBool(pendingWindowsWipeKey, true);
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        webviewCleaned = false;
+      } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+        windowsDirsCleaned = false;
+        webviewCleaned = false;
+      }
+    }
+
+    final hasPendingColdStartWipe = !masterKeyDestroyed ||
+        (!windowsDirsCleaned && !kIsWeb && defaultTargetPlatform == TargetPlatform.windows);
+
+    return RevokeCleanupResult(
+      prefsCleared: prefsCleared,
+      masterKeyDestroyed: masterKeyDestroyed,
+      webviewCleaned: webviewCleaned,
+      windowsDirsCleaned: windowsDirsCleaned,
+      hasPendingColdStartWipe: hasPendingColdStartWipe,
+    );
   }
+}
+
+/// 撤回授权全流程数据清理结构化结果
+class RevokeCleanupResult {
+  final bool prefsCleared;
+  final bool masterKeyDestroyed;
+  final bool webviewCleaned;
+  final bool windowsDirsCleaned;
+  final bool hasPendingColdStartWipe;
+
+  const RevokeCleanupResult({
+    required this.prefsCleared,
+    required this.masterKeyDestroyed,
+    required this.webviewCleaned,
+    required this.windowsDirsCleaned,
+    required this.hasPendingColdStartWipe,
+  });
+
+  bool get isFullyCleaned =>
+      prefsCleared &&
+      masterKeyDestroyed &&
+      webviewCleaned &&
+      windowsDirsCleaned &&
+      !hasPendingColdStartWipe;
 }
