@@ -365,8 +365,8 @@ void main() {
     expect(allSum.totalCourses, 4);
     expect(allSum.totalCredits, 12.0);
     expect(allSum.averageGpa, 3.9);
-    // 加权平均分 = (90*4 + 95*2 + 85*4) / 10 = 890 / 10 = 89.0
-    expect(allSum.averageScore, 89.0);
+    // 加权平均分 = (90*4 + 90*2 + 85*4) / 10 = 880 / 10 = 88.0
+    expect(allSum.averageScore, 88.0);
 
     // 2. 切换单学期「2026-2027-1」：顶部卡片动态重算该学期 3 门课
     provider.setSemester('2026-2027-1');
@@ -376,8 +376,8 @@ void main() {
     expect(semSum.totalCredits, 8.0);
     // 单学期 GPA = (4.5*2 + 3.5*4) / 6 = 23 / 6 = 3.83
     expect(semSum.averageGpa, 3.83);
-    // 单学期加权均分 = (95*2 + 85*4) / 6 = 530 / 6 = 88.33
-    expect(semSum.averageScore, 88.33);
+    // 单学期加权均分 = (90*2 + 85*4) / 6 = 520 / 6 = 86.67
+    expect(semSum.averageScore, 86.67);
   });
 
   test('ExamsProvider sorts upcoming exams first with accurate countdown badges and sinks finished exams', () async {
