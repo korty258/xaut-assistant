@@ -324,62 +324,115 @@ class ScheduleProvider extends ChangeNotifier {
   }
 
   /// 根据已知「当前教学周」反推并保存本学期第 1 周周一基准日期（教务同步或手动选周校准）
-  Future<void> calibrateFromCurrentWeek(
+  Future<bool> calibrateFromCurrentWeek(
     int week, {
     String? semester,
     DateTime? referenceDate,
   }) async {
-    if (week < 1 || week > 30) return;
+    if (week < 1 || week > 30) return false;
+    final prevMaxWeeks = _maxWeeks;
+    final prevStart = _semesterStartDate;
+    final prevSemester = _semesterName;
+
     _recalculateMaxWeeks(week);
     final ref = referenceDate ?? todayDate;
     final startMonday = calculateSemesterStartMonday(ref, week);
     _semesterStartDate = startMonday;
-    if (semester != null && semester.trim().isNotEmpty) {
-      _semesterName = semester.trim();
-      await StorageService.saveSemesterName(_semesterName);
+    final bool hasNewSemester = semester != null && semester.trim().isNotEmpty;
+    final nextSemester = hasNewSemester ? semester.trim() : _semesterName;
+    final nextCurrentWeek = actualCurrentWeek;
+
+    try {
+      final bool startOk = await StorageService.saveSemesterStartDate(startMonday);
+      final bool nameOk =
+          !hasNewSemester || await StorageService.saveSemesterName(nextSemester);
+      final bool weekOk = await StorageService.saveCurrentWeek(nextCurrentWeek);
+      if (!startOk || !nameOk || !weekOk) {
+        _maxWeeks = prevMaxWeeks;
+        _semesterStartDate = prevStart;
+        if (startOk && prevStart != null) {
+          await StorageService.saveSemesterStartDate(prevStart);
+        }
+        if (nameOk && hasNewSemester) {
+          await StorageService.saveSemesterName(prevSemester);
+        }
+        return false;
+      }
+    } catch (_) {
+      _maxWeeks = prevMaxWeeks;
+      _semesterStartDate = prevStart;
+      rethrow;
     }
-    _currentWeek = actualCurrentWeek;
+
+    _semesterName = nextSemester;
+    _currentWeek = nextCurrentWeek;
     _lastEvaluatedDay = todayDate;
     notifyListeners();
-    await StorageService.saveSemesterStartDate(startMonday);
-    await StorageService.saveCurrentWeek(_currentWeek);
+    return true;
   }
 
   /// 根据手动选定的开学第 1 周任意日期（自动对齐至该周周一）校准开学基准日
-  Future<void> calibrateFromStartDate(
+  Future<bool> calibrateFromStartDate(
     DateTime pickedDate, {
     String? semester,
   }) async {
+    final prevMaxWeeks = _maxWeeks;
+    final prevStart = _semesterStartDate;
+    final prevSemester = _semesterName;
+
     final startMonday = mondayOf(pickedDate);
     _semesterStartDate = startMonday;
-    if (semester != null && semester.trim().isNotEmpty) {
-      _semesterName = semester.trim();
-      await StorageService.saveSemesterName(_semesterName);
-    }
+    final bool hasNewSemester = semester != null && semester.trim().isNotEmpty;
+    final nextSemester = hasNewSemester ? semester.trim() : _semesterName;
     _recalculateMaxWeeks();
-    _currentWeek = actualCurrentWeek;
+    final nextCurrentWeek = actualCurrentWeek;
+
+    try {
+      final bool startOk = await StorageService.saveSemesterStartDate(startMonday);
+      final bool nameOk =
+          !hasNewSemester || await StorageService.saveSemesterName(nextSemester);
+      final bool weekOk = await StorageService.saveCurrentWeek(nextCurrentWeek);
+      if (!startOk || !nameOk || !weekOk) {
+        _maxWeeks = prevMaxWeeks;
+        _semesterStartDate = prevStart;
+        if (startOk && prevStart != null) {
+          await StorageService.saveSemesterStartDate(prevStart);
+        }
+        if (nameOk && hasNewSemester) {
+          await StorageService.saveSemesterName(prevSemester);
+        }
+        return false;
+      }
+    } catch (_) {
+      _maxWeeks = prevMaxWeeks;
+      _semesterStartDate = prevStart;
+      rethrow;
+    }
+
+    _semesterName = nextSemester;
+    _currentWeek = nextCurrentWeek;
     _lastEvaluatedDay = todayDate;
     notifyListeners();
-    await StorageService.saveSemesterStartDate(startMonday);
-    await StorageService.saveCurrentWeek(_currentWeek);
+    return true;
   }
 
   /// 手动或自动设置开学第 1 周周一基准日期
-  Future<void> setSemesterStartDate(
+  Future<bool> setSemesterStartDate(
     DateTime monday, {
     String? semester,
   }) async {
-    await calibrateFromStartDate(monday, semester: semester);
+    return calibrateFromStartDate(monday, semester: semester);
   }
 
   /// 仅更新学期名称（当未检测到周次但识别到新学期名称时使用）
-  Future<void> setSemesterNameOnly(String semester) async {
+  Future<bool> setSemesterNameOnly(String semester) async {
     final trimmed = semester.trim();
-    if (trimmed.isNotEmpty && trimmed != _semesterName) {
-      _semesterName = trimmed;
-      notifyListeners();
-      await StorageService.saveSemesterName(_semesterName);
-    }
+    if (trimmed.isEmpty || trimmed == _semesterName) return true;
+    final ok = await StorageService.saveSemesterName(trimmed);
+    if (!ok) return false;
+    _semesterName = trimmed;
+    notifyListeners();
+    return true;
   }
 
   static String _formatDate(DateTime d) =>
@@ -558,8 +611,12 @@ class ScheduleProvider extends ChangeNotifier {
     }).toList();
   }
 
-  /// 清空本地课表
+  /// 清空本地课表（先校验持久化删除成功，再提交内存清空）
   Future<void> clearAll() async {
+    final ok = await StorageService.clearCourses();
+    if (!ok) {
+      throw const StorageWriteException('清空本地课表存储失败，已保留原数据');
+    }
     _courses = [];
     _hasDecryptionError = false;
     _lastSyncTime = null;
@@ -567,7 +624,6 @@ class ScheduleProvider extends ChangeNotifier {
     _semesterName = '';
     _maxWeeks = 20;
     notifyListeners();
-    await StorageService.clearCourses();
   }
 }
 

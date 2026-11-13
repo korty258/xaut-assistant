@@ -26,7 +26,7 @@ class GradeItem {
       courseName: json['courseName'] as String? ?? '',
       score: json['score'] as String? ?? '',
       credit: (json['credit'] as num?)?.toDouble() ?? 0.0,
-      gpa: (json['gpa'] as num?)?.toDouble() ?? 0.0,
+      gpa: (json['gpa'] as num?)?.toDouble() ?? -1.0,
       category: json['category'] as String? ?? '',
       examType: json['examType'] as String? ?? '',
     );

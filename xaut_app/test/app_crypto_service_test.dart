@@ -597,5 +597,77 @@ void main() {
       AppCryptoService.debugStorageDeleter = (key) async => throw Exception('Disk lock');
       expect(await AppCryptoService.destroyMasterKey(), isFalse);
     });
+
+    test('Legacy plaintext migration fails closed when master key is unavailable (CryptoKeyException)', () async {
+      AppCryptoService.resetForTesting();
+      AppCryptoService.allowInMemoryTestKey = false;
+      AppCryptoService.debugStorageReader =
+          (key) async => throw MissingPluginException('No secure storage');
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+      await prefs.setString('legacy_courses', '[{"name":"高等数学"}]');
+
+      await expectLater(
+        () => AppCryptoService.loadEncryptedString(prefs, 'legacy_courses'),
+        throwsA(isA<CryptoKeyException>()),
+      );
+      expect(prefs.getString('legacy_courses'), equals('[{"name":"高等数学"}]'));
+    });
+
+    test('Legacy plaintext and ENC:v1 upgrade write failure records pendingMigrationKeys and recovers via retryPendingMigrations()', () async {
+      AppCryptoService.resetForTesting();
+      final mockKey = enc.Key.fromBase64('MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=');
+      AppCryptoService.setMockMasterKey(mockKey);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+
+      const legacyKey = 'legacy_plain_key';
+      const v1Key = 'legacy_v1_key';
+      const legacyPlainJson = '[{"name":"高等数学"}]';
+      await prefs.setString(legacyKey, legacyPlainJson);
+      final iv = enc.IV.fromSecureRandom(12);
+      final encryptedV1 = enc.Encrypter(enc.AES(mockKey, mode: enc.AESMode.gcm))
+          .encrypt('v1-payload', iv: iv);
+      final v1Cipher = '${AppCryptoService.envelopePrefixV1}${iv.base64}:${encryptedV1.base64}';
+      await prefs.setString(v1Key, v1Cipher);
+
+      // 模拟密文升级写盘阶段返回 false
+      AppCryptoService.debugPrefsStringWriter = (_, _, _) async => false;
+
+      final legacyRes =
+          await AppCryptoService.loadEncryptedStringWithStatus(prefs, legacyKey);
+      expect(legacyRes.value, equals(legacyPlainJson));
+      expect(legacyRes.migrationFailed, isTrue);
+
+      final v1Res =
+          await AppCryptoService.loadEncryptedStringWithStatus(prefs, v1Key);
+      expect(v1Res.value, equals('v1-payload'));
+      expect(v1Res.migrationFailed, isTrue);
+
+      expect(AppCryptoService.hasPendingMigrationFailure, isTrue);
+      expect(AppCryptoService.pendingMigrationKeys, containsAll([legacyKey, v1Key]));
+      // 原持久化内容未被篡改，仍保留旧格式
+      expect(prefs.getString(legacyKey), equals(legacyPlainJson));
+      expect(prefs.getString(v1Key), equals(v1Cipher));
+
+      // 恢复写盘能力并执行补偿重试 -> 全部升级至 ENC:v2 且清空失败集合
+      AppCryptoService.debugPrefsStringWriter = null;
+      final retried = await AppCryptoService.retryPendingMigrations(prefs);
+      expect(retried, isTrue);
+      expect(AppCryptoService.hasPendingMigrationFailure, isFalse);
+      expect(AppCryptoService.pendingMigrationKeys, isEmpty);
+      expect(prefs.getString(legacyKey)!.startsWith(AppCryptoService.envelopePrefix), isTrue);
+      expect(prefs.getString(v1Key)!.startsWith(AppCryptoService.envelopePrefix), isTrue);
+
+      final reloadedLegacy =
+          await AppCryptoService.loadEncryptedStringWithStatus(prefs, legacyKey);
+      final reloadedV1 =
+          await AppCryptoService.loadEncryptedStringWithStatus(prefs, v1Key);
+      expect(reloadedLegacy.value, equals(legacyPlainJson));
+      expect(reloadedLegacy.migrationFailed, isFalse);
+      expect(reloadedV1.value, equals('v1-payload'));
+      expect(reloadedV1.migrationFailed, isFalse);
+    });
   });
 }

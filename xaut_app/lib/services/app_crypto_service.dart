@@ -60,6 +60,15 @@ class AppCryptoService {
     String cipherText,
   )? debugPrefsStringWriter;
 
+  static final Map<String, String> _pendingMigrationFailures = <String, String>{};
+
+  /// 读取解密期间未能完成 `ENC:v2:` 落盘升级的存储键集合（可供上层诊断或重试）
+  static Set<String> get pendingMigrationKeys =>
+      Set<String>.unmodifiable(_pendingMigrationFailures.keys);
+
+  /// 是否存在待重试的密文升级失败项
+  static bool get hasPendingMigrationFailure => _pendingMigrationFailures.isNotEmpty;
+
   @visibleForTesting
   static void setMockStorage(FlutterSecureStorage storage) {
     _secureStorage = storage;
@@ -79,6 +88,7 @@ class AppCryptoService {
     debugStorageWriter = null;
     debugStorageDeleter = null;
     debugPrefsStringWriter = null;
+    _pendingMigrationFailures.clear();
     allowInMemoryTestKey = false;
   }
 
@@ -243,19 +253,50 @@ class AppCryptoService {
       plainText,
       associatedData: _storageAadForKey(key),
     );
-    return debugPrefsStringWriter != null
-        ? debugPrefsStringWriter!(prefs, key, cipherText)
-        : prefs.setString(key, cipherText);
+    final ok = debugPrefsStringWriter != null
+        ? await debugPrefsStringWriter!(prefs, key, cipherText)
+        : await prefs.setString(key, cipherText);
+    if (ok) {
+      _pendingMigrationFailures.remove(key);
+    }
+    return ok;
   }
 
-  /// 封装 SharedPreferences 读取解密数据
-  /// 自动验证 AAD 键名绑定，并将历史 `ENC:v1:` 密文与旧版明文 JSON 平滑升级转存为 `ENC:v2:`
-  static Future<String?> loadEncryptedString(
+  static Future<bool> _upgradeToV2(
+    SharedPreferences prefs,
+    String key,
+    String plainText,
+  ) async {
+    try {
+      final ok = await saveEncryptedString(prefs, key, plainText);
+      if (!ok) {
+        _pendingMigrationFailures[key] = 'prefs_write_returned_false';
+        debugPrint('AppCryptoService: Upgrade to ENC:v2 returned false for $key');
+        return false;
+      }
+      _pendingMigrationFailures.remove(key);
+      return true;
+    } on CryptoKeyException {
+      // 主密钥不可用或未通过 Fail-Closed 校验时严禁继续放行明文或降级态
+      rethrow;
+    } catch (e) {
+      _pendingMigrationFailures[key] = e.runtimeType.toString();
+      debugPrint('AppCryptoService: Failed to upgrade $key to ENC:v2: $e');
+      return false;
+    }
+  }
+
+  /// 读取并解密本地存储字符串，同时显式返回是否存在“读取成功但迁移至 ENC:v2: 失败”
+  static Future<({String? value, bool migrationFailed})>
+      loadEncryptedStringWithStatus(
     SharedPreferences prefs,
     String key,
   ) async {
     final stored = prefs.getString(key);
-    if (stored == null || stored.isEmpty) return null;
+    if (stored == null || stored.isEmpty) {
+      _pendingMigrationFailures.remove(key);
+      return (value: null, migrationFailed: false);
+    }
 
     if (stored.startsWith(_envelopeHeaderPrefix)) {
       try {
@@ -263,12 +304,13 @@ class AppCryptoService {
           stored,
           associatedData: _storageAadForKey(key),
         );
+        bool migrationFailed = false;
         if (stored.startsWith(envelopePrefixV1)) {
-          try {
-            await saveEncryptedString(prefs, key, plain);
-          } catch (_) {}
+          migrationFailed = !await _upgradeToV2(prefs, key, plain);
+        } else {
+          _pendingMigrationFailures.remove(key);
         }
-        return plain;
+        return (value: plain, migrationFailed: migrationFailed);
       } on CryptoKeyException {
         rethrow;
       } catch (e) {
@@ -280,13 +322,34 @@ class AppCryptoService {
     // 检测到存量旧版明文 JSON 数据：透明解析并自动升级重写为 ENC:v2: 密文
     final trimmed = stored.trim();
     if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-      try {
-        await saveEncryptedString(prefs, key, stored);
-      } catch (_) {}
-      return stored;
+      final upgraded = await _upgradeToV2(prefs, key, stored);
+      return (value: stored, migrationFailed: !upgraded);
     }
 
-    return stored;
+    return (value: stored, migrationFailed: false);
+  }
+
+  /// 封装 SharedPreferences 读取解密数据
+  /// 自动验证 AAD 键名绑定，并将历史 `ENC:v1:` 密文与旧版明文 JSON 平滑升级转存为 `ENC:v2:`
+  static Future<String?> loadEncryptedString(
+    SharedPreferences prefs,
+    String key,
+  ) async {
+    final res = await loadEncryptedStringWithStatus(prefs, key);
+    return res.value;
+  }
+
+  /// 重试所有待迁移的存储键，全部成功升级至 `ENC:v2:` 后返回 true
+  static Future<bool> retryPendingMigrations(SharedPreferences prefs) async {
+    final keys = _pendingMigrationFailures.keys.toList();
+    bool allSucceeded = true;
+    for (final key in keys) {
+      final res = await loadEncryptedStringWithStatus(prefs, key);
+      if (res.migrationFailed) {
+        allSucceeded = false;
+      }
+    }
+    return allSucceeded;
   }
 
   /// 物理销毁主密钥（密码学粉碎 Crypto-Shredding）

@@ -142,15 +142,19 @@ class GradesProvider extends ChangeNotifier {
       GradeCalculator.calculateSummary(list);
 
   Future<void> clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    final okGrades = await StorageService.removeKey(prefs, _keyGrades);
+    final okSummary = await StorageService.removeKey(prefs, _legacyKeySummary);
+    final okSync =
+        await StorageService.removeKey(prefs, StorageService.keyLastGradesSync);
+    if (!okGrades || !okSummary || !okSync) {
+      throw const StorageWriteException('清空本地成绩存储失败，已保留原数据');
+    }
+
     _grades = [];
     _hasDecryptionError = false;
     _selectedSemester = '全部';
     _lastSyncTime = null;
     notifyListeners();
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyGrades);
-    await prefs.remove(_legacyKeySummary);
-    await prefs.remove(StorageService.keyLastGradesSync);
   }
 }

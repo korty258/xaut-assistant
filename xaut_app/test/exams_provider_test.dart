@@ -131,5 +131,28 @@ void main() {
       expect(provider.exams.first.courseName, equals('考试A'));
       expect(provider.exams.last.courseName, equals('考试C'));
     });
+
+    test('ExamItem tryParseTime & evaluateStatus handle cross-midnight exam accurately', () {
+      final overnightExam = _makeExam(
+        courseName: '计算机系统实验(跨夜)',
+        examTime: '2026-11-20 22:00~01:00',
+      );
+
+      final parsed = overnightExam.parseTimeRange();
+      expect(parsed.start, equals(DateTime(2026, 11, 20, 22, 0)));
+      expect(parsed.end, equals(DateTime(2026, 11, 21, 1, 0)));
+
+      // 次日凌晨 00:30 仍应判定为“考试中”
+      final statusAtMidnight =
+          overnightExam.evaluateStatus(DateTime(2026, 11, 21, 0, 30));
+      expect(statusAtMidnight.status, equals(ExamStatus.ongoing));
+      expect(statusAtMidnight.badgeText, equals('考试中'));
+
+      // 次日 01:05 之后判定为“已结束”
+      final statusAfterEnd =
+          overnightExam.evaluateStatus(DateTime(2026, 11, 21, 1, 5));
+      expect(statusAfterEnd.status, equals(ExamStatus.finished));
+      expect(statusAfterEnd.badgeText, equals('已结束'));
+    });
   });
 }
