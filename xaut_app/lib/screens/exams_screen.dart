@@ -3,9 +3,9 @@ import 'package:provider/provider.dart';
 import '../models/exam.dart';
 import '../providers/exams_provider.dart';
 import 'webview_login_screen.dart';
-import 'legal_gate_screen.dart';
 import '../widgets/calendar_export_dialog.dart';
 import '../widgets/decryption_error_view.dart';
+import '../widgets/diagnostics_dialog.dart';
 
 class ExamsScreen extends StatelessWidget {
   const ExamsScreen({super.key});
@@ -132,10 +132,8 @@ class ExamsScreen extends StatelessWidget {
                 CalendarExportDialog.show(context, preferExams: true);
               } else if (val == 'clear') {
                 _showClearExamsDialog(context, provider);
-              } else if (val == 'about_legal') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: false)),
-                );
+              } else {
+                DiagnosticsDialog.handleSupportMenuSelection(context, val);
               }
             },
             itemBuilder: (context) => [
@@ -160,17 +158,7 @@ class ExamsScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              const PopupMenuDivider(),
-              const PopupMenuItem(
-                value: 'about_legal',
-                child: Row(
-                  children: [
-                    Icon(Icons.policy_outlined, size: 18),
-                    SizedBox(width: 8),
-                    Text('关于与法律条款'),
-                  ],
-                ),
-              ),
+              ...DiagnosticsDialog.buildSupportMenuEntries(),
             ],
           ),
           const SizedBox(width: 4),

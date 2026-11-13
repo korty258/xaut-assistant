@@ -8,8 +8,8 @@ import 'package:provider/provider.dart';
 import '../providers/exams_provider.dart';
 import '../providers/grades_provider.dart';
 import '../providers/schedule_provider.dart';
-import '../services/diagnostics_service.dart';
 import '../services/legal_service.dart';
+import '../widgets/diagnostics_dialog.dart';
 import 'home_screen.dart';
 
 /// 首次启动法律门禁与条款查阅页面
@@ -632,144 +632,29 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
               const SizedBox(height: 16),
             ] else if (index == 3) ...[
               const SizedBox(height: 24),
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 12,
-                runSpacing: 10,
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: () => _showDiagnosticsDialog(context),
-                    icon: const Icon(Icons.bug_report_outlined),
-                    label: const Text('查看并复制诊断摘要'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Clipboard.setData(const ClipboardData(
-                        text: 'https://github.com/korty258/xaut-assistant/issues',
-                      ));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('开源仓库问题反馈地址已复制: https://github.com/korty258/xaut-assistant/issues'),
-                          duration: Duration(seconds: 3),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.link_rounded),
-                    label: const Text('复制开源仓库 / 问题反馈地址'),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: () {
-                      showLicensePage(
-                        context: context,
-                        applicationName: '金花助手',
-                        applicationVersion: LegalService.appVersion,
-                        applicationIcon: Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: Image.asset('assets/logo.png', width: 44, height: 44),
-                        ),
-                        applicationLegalese: 'Copyright (C) 2026 Jinhua Assistant Contributors\n'
-                            '基于 GNU General Public License v3.0 (GPL-3.0) 授权',
-                      );
-                    },
-                    icon: const Icon(Icons.policy_outlined),
-                    label: const Text('打开全量开源组件许可证页面 (LicensePage)'),
-                  ),
-                ],
+              Center(
+                child: FilledButton.tonalIcon(
+                  onPressed: () {
+                    showLicensePage(
+                      context: context,
+                      applicationName: '金花助手',
+                      applicationVersion: LegalService.appVersion,
+                      applicationIcon: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Image.asset('assets/logo.png', width: 44, height: 44),
+                      ),
+                      applicationLegalese: 'Copyright (C) 2026 Jinhua Assistant Contributors\n'
+                          '基于 GNU General Public License v3.0 (GPL-3.0) 授权',
+                    );
+                  },
+                  icon: const Icon(Icons.policy_outlined),
+                  label: const Text('打开全量开源组件许可证页面 (LicensePage)'),
+                ),
               ),
               const SizedBox(height: 32),
             ],
           ],
         ),
-      ),
-    );
-  }
-
-  Future<void> _showDiagnosticsDialog(BuildContext context) async {
-    final report = await DiagnosticsService.buildDiagnosticReport();
-    if (!context.mounted) return;
-    final theme = Theme.of(context);
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.monitor_heart_outlined, color: theme.colorScheme.primary),
-            const SizedBox(width: 8),
-            const Text('客户端脱敏诊断摘要', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        content: SizedBox(
-          width: 560,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.4)),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.security_rounded, size: 18, color: theme.colorScheme.primary),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '以下诊断摘要仅含应用版本与同步状态码，不含学号、密码、Cookie、课表或成绩等任何个人数据。',
-                          style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
-                  ),
-                  child: SelectableText(
-                    report,
-                    style: TextStyle(
-                      fontFamily: defaultTargetPlatform == TargetPlatform.windows ? 'Consolas' : 'monospace',
-                      fontSize: 12,
-                      height: 1.45,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('关闭'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: report));
-              Navigator.of(ctx).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('脱敏诊断摘要已成功复制到剪贴板'),
-                  duration: Duration(seconds: 3),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-            icon: const Icon(Icons.copy_rounded, size: 16),
-            label: const Text('复制到剪贴板'),
-          ),
-        ],
       ),
     );
   }
@@ -981,6 +866,33 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              FilledButton.tonalIcon(
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                onPressed: () => DiagnosticsDialog.show(context),
+                icon: const Icon(Icons.bug_report_outlined, size: 16),
+                label: const Text('查看并复制诊断摘要'),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  textStyle: const TextStyle(fontSize: 12),
+                ),
+                onPressed: () => DiagnosticsDialog.copyIssuesUrl(context),
+                icon: const Icon(Icons.link_rounded, size: 16),
+                label: const Text('复制开源仓库 / 问题反馈地址'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
           Row(
             children: [
               Icon(Icons.verified_outlined, size: 15, color: Colors.green.shade700),

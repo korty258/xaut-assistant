@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/grades_provider.dart';
 import '../widgets/decryption_error_view.dart';
+import '../widgets/diagnostics_dialog.dart';
 import 'webview_login_screen.dart';
-import 'legal_gate_screen.dart';
 
 class GradesScreen extends StatelessWidget {
   const GradesScreen({super.key});
@@ -97,10 +97,8 @@ class GradesScreen extends StatelessWidget {
             onSelected: (val) {
               if (val == 'clear') {
                 _showClearGradesDialog(context, provider);
-              } else if (val == 'about_legal') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: false)),
-                );
+              } else {
+                DiagnosticsDialog.handleSupportMenuSelection(context, val);
               }
             },
             itemBuilder: (context) => [
@@ -114,17 +112,7 @@ class GradesScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              const PopupMenuDivider(),
-              const PopupMenuItem(
-                value: 'about_legal',
-                child: Row(
-                  children: [
-                    Icon(Icons.policy_outlined, size: 18),
-                    SizedBox(width: 8),
-                    Text('关于与法律条款'),
-                  ],
-                ),
-              ),
+              ...DiagnosticsDialog.buildSupportMenuEntries(),
             ],
           ),
           const SizedBox(width: 4),
