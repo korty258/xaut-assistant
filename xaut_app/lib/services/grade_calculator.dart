@@ -24,6 +24,27 @@ class GradeCalculator {
     '不及格': (score: 0.0, gpa: 0.0),
   };
 
+  /// 按课程代码或课程名生成统一课程聚合键
+  static String _courseKey(GradeItem item) {
+    final code = item.courseCode.trim();
+    return code.isNotEmpty ? 'code:$code' : 'name:${item.courseName.trim()}';
+  }
+
+  /// 统一提取有效绩点（官方明确非负 GPA 优先；仅当缺失或非法 `< 0` 时按西理工基准兜底推算）
+  static double _effectiveGpa(GradeItem item) {
+    if (item.gpa >= 0) return item.gpa;
+    final scoreStr = item.score.trim();
+    final numericScore = double.tryParse(scoreStr);
+    if (numericScore != null) {
+      if (numericScore >= 95) return 5.0;
+      if (numericScore >= 60) return (numericScore - 45.0) / 10.0;
+      return 0.0;
+    }
+    final lv = fiveLevelGradeMap[scoreStr];
+    if (lv != null) return lv.gpa;
+    return 0.0;
+  }
+
   /// 提取课程成绩对应的数值分值，用于同门课程去重时比对优胜记录
   static double _getScoreValue(GradeItem item) {
     final scoreStr = item.score.trim();
@@ -38,14 +59,13 @@ class GradeCalculator {
   /// 精确统计总学分、加权平均分与平均绩点
   ///
   /// 1. 过滤：跳过 0 学分、成绩为空或缓考/缺考/免考的无效记录；
-  /// 2. 同门课去重：以课程代码（或课程名）为键聚合，优先保留绩点高者；绩点相同时保留数值成绩/折算分更高者；
+  /// 2. 同门课去重：以课程代码（或课程名）为键聚合，优先保留有效绩点高者；绩点相同时保留数值成绩/折算分更高者；
   /// 3. 官方加权规则：
-  ///    - 百分制课程：优先信任教务官方给出的 non-negative item.gpa（包括补考及格 60 分官方给出的 0.0 绩点）；
-  ///      若 effGpa > 0，计入加权平均分分子 (numericScore * credit) 与 GPA (effGpa * credit)；
-  ///      若 effGpa == 0（如补考 60 分绩点 0.0 或不及格），其学分正常计入分母，但分子得分为 0.0；
-  ///    - 五级制课程：按官方映射获取折算分与绩点，effGpa > 0 时计入加权平均分分子；
+  ///    - 百分制与五级制课程：统一采用 `_effectiveGpa`（官方明确 >= 0 绩点优先，缺失 `< 0` 时启用兜底规则）；
+  ///      若 effGpa > 0，计入加权平均分分子与 GPA；
+  ///      若 effGpa == 0（如补考 60 分官方 0.0 绩点或不及格），其学分正常计入分母，但分子得分为 0.0；
   ///    - 二级制课程（合格/通过）：若官方给出明确大于 0 的绩点则参与 GPA 加权，不参与百分制加权平均分；
-  /// 4. 课程总数：去重后减去被剔除的重复记录数，确保与官方成绩单门数对齐。
+  /// 4. 课程总数：按全量记录的唯一课程键计数（独立缓考/缺考计 1 门，同课程绝不重复累加）。
   static GradeSummary calculateSummary(List<GradeItem> list) {
     if (list.isEmpty) {
       return const GradeSummary(
@@ -56,31 +76,30 @@ class GradeCalculator {
       );
     }
 
+    final Set<String> allCourseKeys = {};
     final Map<String, GradeItem> dedupedMap = {};
-    int skippedCount = 0;
 
     for (final item in list) {
+      final key = _courseKey(item);
+      allCourseKeys.add(key);
+
       final scoreStr = item.score.trim();
       if (item.credit <= 0 || scoreStr.isEmpty) {
-        skippedCount++;
         continue;
       }
       if (scoreStr == '缓考' || scoreStr == '缺考' || scoreStr == '免考') {
-        skippedCount++;
         continue;
       }
-
-      final key = item.courseCode.trim().isNotEmpty
-          ? 'code:${item.courseCode.trim()}'
-          : 'name:${item.courseName.trim()}';
 
       if (!dedupedMap.containsKey(key)) {
         dedupedMap[key] = item;
       } else {
         final existing = dedupedMap[key]!;
-        if (item.gpa > existing.gpa) {
+        final itemGpa = _effectiveGpa(item);
+        final existingGpa = _effectiveGpa(existing);
+        if (itemGpa > existingGpa) {
           dedupedMap[key] = item;
-        } else if (item.gpa == existing.gpa) {
+        } else if (itemGpa == existingGpa) {
           final itemScore = _getScoreValue(item);
           final existingScore = _getScoreValue(existing);
           if (itemScore > existingScore) {
@@ -102,11 +121,7 @@ class GradeCalculator {
 
       final numericScore = double.tryParse(scoreStr);
       if (numericScore != null) {
-        final effGpa = item.gpa >= 0
-            ? item.gpa
-            : (numericScore >= 95
-                ? 5.0
-                : (numericScore >= 60 ? (numericScore - 45.0) / 10.0 : 0.0));
+        final effGpa = _effectiveGpa(item);
 
         scoreCredits += item.credit;
         if (effGpa > 0) {
@@ -117,7 +132,7 @@ class GradeCalculator {
         weightedGpa += effGpa * item.credit;
       } else if (fiveLevelGradeMap.containsKey(scoreStr)) {
         final lv = fiveLevelGradeMap[scoreStr]!;
-        final effGpa = item.gpa > 0 ? item.gpa : lv.gpa;
+        final effGpa = _effectiveGpa(item);
 
         scoreCredits += item.credit;
         if (effGpa > 0) {
@@ -133,11 +148,8 @@ class GradeCalculator {
       }
     }
 
-    final duplicatesCount = (list.length - skippedCount) - dedupedMap.length;
-    final totalCourses = list.length - duplicatesCount;
-
     return GradeSummary(
-      totalCourses: totalCourses,
+      totalCourses: allCourseKeys.length,
       totalCredits: double.parse(totalCredits.toStringAsFixed(2)),
       averageScore: scoreCredits > 0
           ? double.parse((weightedScore / scoreCredits).toStringAsFixed(2))

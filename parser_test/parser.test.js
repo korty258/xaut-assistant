@@ -116,6 +116,38 @@ test('2. 成绩解析回归测试 (parseQiangZhiGrades)', async (t) => {
     assert.equal(result.grades[5].credit, 1.0);
   });
 
+  await t.test('缺失/非数值 GPA 单元格输出 -1 哨兵，显式 "0" 保留为 0', () => {
+    const html = `
+      <!DOCTYPE html><html><body>
+        <table id="dataList">
+          <tr>
+            <th>序号</th><th>开课学期</th><th>课程编号</th><th>课程名称</th>
+            <th>成绩</th><th>学分</th><th>绩点</th><th>课程属性</th><th>考试性质</th>
+          </tr>
+          <tr>
+            <td>1</td><td>2025-2026-2</td><td>CS301</td><td>算法分析</td>
+            <td>88</td><td>3.0</td><td></td><td>必修</td><td>正常考试</td>
+          </tr>
+          <tr>
+            <td>2</td><td>2025-2026-2</td><td>CS302</td><td>体系结构</td>
+            <td>65</td><td>2.0</td><td>0</td><td>必修</td><td>补考一</td>
+          </tr>
+          <tr>
+            <td>3</td><td>2025-2026-2</td><td>CS303</td><td>学术写作</td>
+            <td>优</td><td>1.0</td><td>--</td><td>选修</td><td>正常考试</td>
+          </tr>
+        </table>
+      </body></html>
+    `;
+    const dom = new JSDOM(html, { url: 'https://jwgl.xaut.edu.cn/jsxsd/kscj/cjcx_list' });
+    const result = parser.parseQiangZhiGrades(dom.window.document);
+
+    assert.equal(result.grades.length, 3);
+    assert.equal(result.grades[0].gpa, -1);
+    assert.equal(result.grades[1].gpa, 0);
+    assert.equal(result.grades[2].gpa, -1);
+  });
+
   await t.test('登录页负例 (login_page.html) 返回空成绩与空统计', () => {
     const doc = loadDomFixture('login_page.html');
     const result = parser.parseQiangZhiGrades(doc);

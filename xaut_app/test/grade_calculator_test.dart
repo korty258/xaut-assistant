@@ -438,5 +438,92 @@ void main() {
       expect(allSum.averageScore, 69.39);
       expect(allSum.totalCourses, 27);
     });
+
+    test('GPA 缺失哨兵 (-1) 与显式 0 分区分兜底，及同课程/缓考去重 totalCourses 口径', () {
+      final grades = [
+        // 课程 C1：正考 50 分显式 gpa=0，重修/补考 75 分但缺失 GPA (-1) -> 应回退到 2.5 并胜出
+        const GradeItem(
+          semester: '2025-2026-1',
+          courseCode: 'C001',
+          courseName: '工程力学',
+          score: '50',
+          credit: 2.0,
+          gpa: 0.0,
+          category: '必修',
+          examType: '考试',
+        ),
+        const GradeItem(
+          semester: '2025-2026-2',
+          courseCode: 'C001',
+          courseName: '工程力学',
+          score: '75',
+          credit: 2.0,
+          gpa: -1.0,
+          category: '必修',
+          examType: '重修',
+        ),
+        // 课程 C2：五级制“优”但缺失 GPA (-1) -> 应统一回退到 4.5
+        const GradeItem(
+          semester: '2025-2026-1',
+          courseCode: 'C002',
+          courseName: '英语听说',
+          score: '优',
+          credit: 2.0,
+          gpa: -1.0,
+          category: '必修',
+          examType: '考查',
+        ),
+        // 课程 C3：教务显式给出 gpa=0.0（例如 65 分补考仅保底不计高绩点），不能被误当成缺失回退
+        const GradeItem(
+          semester: '2025-2026-2',
+          courseCode: 'C003',
+          courseName: '离散数学',
+          score: '65',
+          credit: 2.0,
+          gpa: 0.0,
+          category: '必修',
+          examType: '补考',
+        ),
+        // 课程 C1 追加一条同课程“缓考” + 课程 C4 独立重复“缓考”两行 + 课程 C5 未通过
+        const GradeItem(
+          semester: '2025-2026-1',
+          courseCode: 'C001',
+          courseName: '工程力学',
+          score: '缓考',
+          credit: 2.0,
+          gpa: -1.0,
+          category: '必修',
+          examType: '考试',
+        ),
+        const GradeItem(
+          semester: '2025-2026-1',
+          courseCode: 'C004',
+          courseName: '编译原理',
+          score: '缓考',
+          credit: 3.0,
+          gpa: -1.0,
+          category: '必修',
+          examType: '考试',
+        ),
+        const GradeItem(
+          semester: '2025-2026-2',
+          courseCode: 'C004',
+          courseName: '编译原理',
+          score: '缓考',
+          credit: 3.0,
+          gpa: -1.0,
+          category: '必修',
+          examType: '补考',
+        ),
+      ];
+
+      final summary = GradeCalculator.calculateSummary(grades);
+      // C001(2.0学分, score=75, gpa=(75-45)/10=3.0) + C002(2.0学分, score=90, gpa=4.5) + C003(2.0学分, score=65, gpa=0.0)
+      // effective totalCredits = 6.0; GPA = (2*3.0 + 2*4.5 + 2*0.0) / 6.0 = 15.0 / 6.0 = 2.50
+      expect(summary.totalCredits, 6.0);
+      expect(summary.averageGpa, 2.50);
+      // 总门数应按唯一课程标识去重：C001, C002, C003, C004 共 4 门（不因同课缓考或重复缓考虚增）
+      expect(summary.totalCourses, 4);
+    });
   });
 }

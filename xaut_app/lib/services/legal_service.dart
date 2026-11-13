@@ -12,7 +12,7 @@ import 'app_crypto_service.dart';
 /// 文本内容与 assets/legal/*.md 严格对应。
 class LegalService {
   /// 当前客户端对外统一发布版本号
-  static const String appVersion = 'v2.3.9-rc2';
+  static const String appVersion = 'v2.3.9-rc3';
 
   /// 当前合规文本版本。当协议有实质性变更时必须递增此常量，
   /// 系统检测到本地记录与该版本不一致时会自动重新唤起同意页面。
@@ -31,6 +31,12 @@ class LegalService {
   static Future<bool> Function()? debugAndroidWebViewClearAction;
 
   @visibleForTesting
+  static Future<void> Function()? debugAndroidNativeWebViewClearAction;
+
+  @visibleForTesting
+  static Future<bool> Function()? debugAndroidCookieClearAction;
+
+  @visibleForTesting
   static Future<bool> Function(SharedPreferences prefs)? debugPrefsClearAction;
 
   @visibleForTesting
@@ -44,6 +50,8 @@ class LegalService {
   static void resetForTesting() {
     debugWindowsWipeAction = null;
     debugAndroidWebViewClearAction = null;
+    debugAndroidNativeWebViewClearAction = null;
+    debugAndroidCookieClearAction = null;
     debugPrefsClearAction = null;
     debugPrefsBoolWriter = null;
   }
@@ -163,9 +171,10 @@ class LegalService {
     // 3. APPDATA 真实与旧版配置目录
     final appData = Platform.environment['APPDATA'];
     if (appData != null && appData.isNotEmpty) {
-      final realDir = Directory('$appData\\Jinhua Assistant OpenSource Community\\金花助手');
-      if (await realDir.exists()) {
-        try {
+      try {
+        final realDir =
+            Directory('$appData\\Jinhua Assistant OpenSource Community\\金花助手');
+        if (await realDir.exists()) {
           for (final entry in realDir.listSync()) {
             if (entry is File && isSharedPrefsFile(entry.path)) continue;
             try {
@@ -175,20 +184,20 @@ class LegalService {
               debugPrint('LegalService: Failed to delete realDir entry: $e');
             }
           }
-        } catch (e) {
-          allCleaned = false;
-          debugPrint('LegalService: Failed to scan realDir: $e');
         }
+      } catch (e) {
+        allCleaned = false;
+        debugPrint('LegalService: Failed to scan realDir: $e');
       }
 
-      final oldDir = Directory('$appData\\io.github.korty258.jinhua_assistant');
-      if (await oldDir.exists()) {
-        try {
+      try {
+        final oldDir = Directory('$appData\\io.github.korty258.jinhua_assistant');
+        if (await oldDir.exists()) {
           await oldDir.delete(recursive: true);
-        } catch (e) {
-          allCleaned = false;
-          debugPrint('LegalService: Failed to delete oldDir: $e');
         }
+      } catch (e) {
+        allCleaned = false;
+        debugPrint('LegalService: Failed to delete oldDir: $e');
       }
     }
 
@@ -261,57 +270,63 @@ class LegalService {
     }
 
     bool webviewCleaned = true;
+    bool webviewCookiesClearedOnly = false;
     bool windowsDirsCleaned = true;
     bool windowsPendingQueued = false;
 
     // 纵深防御加固：清除 Android/移动端 WebView 登录会话 Cookie 与 Windows 本地缓存
-    try {
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-        if (debugAndroidWebViewClearAction != null) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      if (debugAndroidWebViewClearAction != null) {
+        try {
           webviewCleaned = await debugAndroidWebViewClearAction!();
-        } else {
-          // 优先通过 Android 原生 MethodChannel 调用 WebStorage.deleteAllData()、WebViewDatabase 与动态缓存彻底清除
-          try {
-            const platformChannel = MethodChannel('io.github.korty258.jinhua_assistant/platform');
+        } catch (_) {
+          webviewCleaned = false;
+        }
+      } else {
+        // 优先通过 Android 原生 MethodChannel 调用 WebStorage.deleteAllData()、WebViewDatabase 与动态缓存彻底清除
+        try {
+          if (debugAndroidNativeWebViewClearAction != null) {
+            await debugAndroidNativeWebViewClearAction!();
+          } else {
+            const platformChannel =
+                MethodChannel('io.github.korty258.jinhua_assistant/platform');
             await platformChannel.invokeMethod('clearWebViewData');
-            webviewCleaned = true;
-          } catch (e) {
-            debugPrint('Android native clearWebViewData failed or running in test: $e');
-            // 降级兜底：通过 webview_flutter 官方 CookieManager 清除
-            try {
+          }
+          webviewCleaned = true;
+        } catch (e) {
+          debugPrint('Android native clearWebViewData failed: $e');
+          webviewCleaned = false;
+          // 降级兜底：尝试清除 Cookie，但严禁将仅清 Cookie 误报为彻底清除全部 WebView 数据
+          try {
+            if (debugAndroidCookieClearAction != null) {
+              webviewCookiesClearedOnly = await debugAndroidCookieClearAction!();
+            } else {
               final cookieManager = WebViewCookieManager();
               await cookieManager.clearCookies();
-              webviewCleaned = true;
-            } catch (e) {
-              if (e is MissingPluginException || e is AssertionError || e is UnimplementedError) {
-                // 纯单测环境无原生 Android WebView 宿主通道
-                webviewCleaned = true;
-              } else {
-                debugPrint('Android clearCookies failed: $e');
-                webviewCleaned = false;
-              }
+              webviewCookiesClearedOnly = true;
             }
-          }
-        }
-      } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
-        windowsDirsCleaned = await _wipeWindowsDirectories();
-        webviewCleaned = windowsDirsCleaned;
-        if (!windowsDirsCleaned) {
-          try {
-            windowsPendingQueued = debugPrefsBoolWriter != null
-                ? await debugPrefsBoolWriter!(prefs, pendingWindowsWipeKey, true)
-                : await prefs.setBool(pendingWindowsWipeKey, true);
-          } catch (_) {
-            windowsPendingQueued = false;
+          } catch (cookieErr) {
+            debugPrint('Android clearCookies fallback failed: $cookieErr');
+            webviewCookiesClearedOnly = false;
           }
         }
       }
-    } catch (_) {
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-        webviewCleaned = false;
-      } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+    } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      try {
+        windowsDirsCleaned = await _wipeWindowsDirectories();
+      } catch (e) {
+        debugPrint('LegalService: Windows wipe threw error: $e');
         windowsDirsCleaned = false;
-        webviewCleaned = false;
+      }
+      webviewCleaned = windowsDirsCleaned;
+      if (!windowsDirsCleaned) {
+        try {
+          windowsPendingQueued = debugPrefsBoolWriter != null
+              ? await debugPrefsBoolWriter!(prefs, pendingWindowsWipeKey, true)
+              : await prefs.setBool(pendingWindowsWipeKey, true);
+        } catch (_) {
+          windowsPendingQueued = false;
+        }
       }
     }
 
@@ -319,6 +334,7 @@ class LegalService {
       prefsCleared: prefsCleared,
       masterKeyDestroyed: masterKeyDestroyed,
       webviewCleaned: webviewCleaned,
+      webviewCookiesClearedOnly: webviewCookiesClearedOnly,
       windowsDirsCleaned: windowsDirsCleaned,
       masterKeyPendingQueued: masterKeyPendingQueued,
       windowsPendingQueued: windowsPendingQueued,
@@ -331,6 +347,7 @@ class RevokeCleanupResult {
   final bool prefsCleared;
   final bool masterKeyDestroyed;
   final bool webviewCleaned;
+  final bool webviewCookiesClearedOnly;
   final bool windowsDirsCleaned;
   final bool masterKeyPendingQueued;
   final bool windowsPendingQueued;
@@ -339,6 +356,7 @@ class RevokeCleanupResult {
     required this.prefsCleared,
     required this.masterKeyDestroyed,
     required this.webviewCleaned,
+    this.webviewCookiesClearedOnly = false,
     required this.windowsDirsCleaned,
     this.masterKeyPendingQueued = false,
     this.windowsPendingQueued = false,
@@ -390,7 +408,11 @@ class RevokeCleanupResult {
                 : (windowsPendingQueued
                     ? '已加入待清理队列（随 Windows 目录于下次启动补偿）'
                     : '清除失败（未加入待清理队列）'))
-            : (webviewCleaned ? '已清除' : '清除失败（未加入待清理队列）'),
+            : (webviewCleaned
+                ? '已清除'
+                : (webviewCookiesClearedOnly
+                    ? '仅清除了 Cookie，原生 WebStorage 与缓存清理失败（未加入待清理队列）'
+                    : '清除失败（未加入待清理队列）')),
         isFailedUnqueued: isWindows
             ? (!windowsDirsCleaned && !windowsPendingQueued)
             : !webviewCleaned,

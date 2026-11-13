@@ -358,7 +358,10 @@ function parseQiangZhiGrades(doc = document) {
 
     const scoreStr = (colMap.score !== -1 ? cells[colMap.score] : "").trim();
     const credit = colMap.credit !== -1 ? parseFloat(cells[colMap.credit]) || 0 : 0;
-    const gpa = colMap.gpa !== -1 ? parseFloat(cells[colMap.gpa]) || 0 : 0;
+    const rawGpaText = colMap.gpa !== -1 ? cells[colMap.gpa] : "";
+    const parsedGpa = rawGpaText ? parseFloat(rawGpaText) : NaN;
+    // 用 -1 区分“教务缺失/非法 GPA”与“官方明确为 0 绩点”，避免缺失 GPA 阻断 Dart 端兜底折算
+    const gpa = Number.isFinite(parsedGpa) && parsedGpa >= 0 ? parsedGpa : -1;
 
     const gradeItem = {
       semester: colMap.semester !== -1 ? cells[colMap.semester] : "",

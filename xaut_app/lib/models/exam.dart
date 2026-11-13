@@ -94,7 +94,7 @@ class ExamItem {
         final em = int.parse(timeMatch.group(4)!);
         end = DateTime(year, month, day, eh, em);
         if (end.isBefore(start)) {
-          end = start.add(const Duration(hours: 2));
+          end = end.add(const Duration(days: 1));
         }
       } else {
         end = start.add(const Duration(hours: 2));

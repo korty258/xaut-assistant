@@ -11,6 +11,8 @@ import 'package:xaut_app/models/grade.dart';
 import 'package:xaut_app/providers/exams_provider.dart';
 import 'package:xaut_app/providers/grades_provider.dart';
 import 'package:xaut_app/providers/schedule_provider.dart';
+import 'package:xaut_app/screens/exams_screen.dart';
+import 'package:xaut_app/screens/grades_screen.dart';
 import 'package:xaut_app/screens/legal_gate_screen.dart';
 import 'package:xaut_app/screens/schedule_screen.dart';
 import 'package:xaut_app/screens/webview/webview_platform_adapter.dart';
@@ -396,8 +398,10 @@ void main() {
     });
 
     testWidgets('4c. LegalGateScreen alerts user honestly when prefs.clear() fails', (WidgetTester tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
       AppCryptoService.allowInMemoryTestKey = true;
       AppCryptoService.debugStorageDeleter = (_) async {};
+      LegalService.debugAndroidWebViewClearAction = () async => true;
       LegalService.debugPrefsClearAction = (_) async => false;
 
       SharedPreferences.setMockInitialValues({
@@ -405,17 +409,21 @@ void main() {
         'jinhua_legal_terms_accepted_at': '2026-11-13T00:00:00Z',
       });
 
-      await _pumpLegalGateLoaded(tester, isGate: false);
+      try {
+        await _pumpLegalGateLoaded(tester, isGate: false);
 
-      await tester.tap(find.text('撤回同意'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('确定撤回并清空'));
-      await tester.pump();
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('撤回同意'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('确定撤回并清空'));
+        await tester.pump();
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+        await tester.pumpAndSettle();
 
-      expect(find.text('部分本地数据未能完成清理'), findsOneWidget);
-      expect(find.textContaining('本地偏好设置 (Preferences)：清理失败（未加入待清理队列）'), findsOneWidget);
+        expect(find.text('部分本地数据未能完成清理'), findsOneWidget);
+        expect(find.textContaining('本地偏好设置 (Preferences)：清理失败（未加入待清理队列）'), findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
     });
 
     testWidgets('5. Write returning false keeps old UI, in-memory state, and sync timestamps unchanged', (WidgetTester tester) async {
@@ -738,6 +746,213 @@ void main() {
 
       coordinator.dispose();
       adapter.dispose();
+    });
+
+    testWidgets('8. Confirming calibration override does NOT mutate semester baseline when updateCourses write fails (survives restart)', (WidgetTester tester) async {
+      final now = DateTime(2026, 11, 13, 10, 0);
+      AppCryptoService.setMockMasterKey(enc.Key.fromBase64(fixedKeyBase64));
+      ParserService.setMockJsCode('var mockJs = true;');
+
+      final scheduleProvider = ScheduleProvider(nowProvider: () => now);
+      final gradesProvider = GradesProvider(nowProvider: () => now);
+      final examsProvider = ExamsProvider(nowProvider: () => now);
+      await tester.runAsync(() async {
+        await _waitForProviders(
+          schedule: scheduleProvider,
+          grades: gradesProvider,
+          exams: examsProvider,
+        );
+        // 写入初始基准与课表（2026-2027-1 第 9 周，基准周一为 2026-09-14）
+        await scheduleProvider.updateCourses([sampleCourseA]);
+        await scheduleProvider.calibrateFromCurrentWeek(
+          9,
+          semester: '2026-2027-1',
+          referenceDate: DateTime(2026, 11, 9),
+        );
+      });
+      final oldMonday = scheduleProvider.semesterStartDate;
+      expect(oldMonday, equals(DateTime(2026, 9, 14)));
+      expect(scheduleProvider.semesterName, equals('2026-2027-1'));
+
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (_) async {};
+      late WebViewSyncCoordinator coordinator;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<ScheduleProvider>.value(value: scheduleProvider),
+            ChangeNotifierProvider<GradesProvider>.value(value: gradesProvider),
+            ChangeNotifierProvider<ExamsProvider>.value(value: examsProvider),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                coordinator = WebViewSyncCoordinator(
+                  getContext: () => context,
+                  adapter: adapter,
+                  onStateChanged: (_, _) {},
+                  confirmSemesterCalibrationOverride: (_) async => true, // 用户确认更新学期基准
+                );
+                return const Scaffold(body: Text('AtomicCalibrationHost'));
+              },
+            ),
+          ),
+        ),
+      );
+
+      // 注入课表密文落盘失败，使 updateCourses 回滚
+      AppCryptoService.debugPrefsStringWriter = (prefs, key, value) async {
+        if (key == 'xaut_cached_courses') return false;
+        return prefs.setString(key, value);
+      };
+
+      final syncFuture = coordinator.syncAll();
+      await tester.pump();
+      final reqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': reqId,
+        'type': 'sync_all_result',
+        'success': true,
+        'data': {
+          'courses': [sampleCourseB.toJson()],
+          'gradesData': {'grades': []},
+          'exams': [],
+          'weekInfo': {
+            'currentWeek': 1,
+            'semester': '2026-2027-2',
+          },
+          'status': {
+            'courses': 'ok',
+            'grades': 'empty',
+            'exams': 'empty',
+          },
+        },
+      }));
+      await syncFuture;
+      await tester.pumpAndSettle();
+
+      // 内存仍完整保留旧课表与旧学期基准，无撕裂状态
+      expect(scheduleProvider.courses.map((c) => c.name), equals(['编译原理']));
+      expect(scheduleProvider.semesterName, equals('2026-2027-1'));
+      expect(scheduleProvider.semesterStartDate, equals(oldMonday));
+      expect(find.textContaining('由于课表保存失败，已保持原学期基准不变'), findsOneWidget);
+
+      // 模拟重启后从磁盘重新加载，基准依然为旧学期
+      AppCryptoService.debugPrefsStringWriter = null;
+      final restartedSchedule = ScheduleProvider(nowProvider: () => now);
+      await tester.runAsync(() => _waitForProviders(schedule: restartedSchedule));
+      expect(restartedSchedule.courses.map((c) => c.name), equals(['编译原理']));
+      expect(restartedSchedule.semesterName, equals('2026-2027-1'));
+      expect(restartedSchedule.semesterStartDate, equals(oldMonday));
+
+      coordinator.dispose();
+      adapter.dispose();
+    });
+
+    testWidgets('9. clearAll() disk removal failure throws StorageWriteException, preserves data across restart, and screens alert error without false success', (WidgetTester tester) async {
+      final now = DateTime(2026, 11, 13, 15, 0);
+      AppCryptoService.setMockMasterKey(enc.Key.fromBase64(fixedKeyBase64));
+
+      final scheduleProvider = ScheduleProvider(nowProvider: () => now);
+      final gradesProvider = GradesProvider(nowProvider: () => now);
+      final examsProvider = ExamsProvider(nowProvider: () => now);
+      await tester.runAsync(() async {
+        await _waitForProviders(
+          schedule: scheduleProvider,
+          grades: gradesProvider,
+          exams: examsProvider,
+        );
+        await scheduleProvider.updateCourses([sampleCourseA]);
+        await gradesProvider.updateGrades([sampleGradeA]);
+        await examsProvider.updateExams([sampleExamA]);
+      });
+
+      // 注入删除失败
+      StorageService.debugPrefsRemover = (_, _) async => false;
+
+      // 9a. Provider.clearAll() 严格抛出 StorageWriteException 且内存数据完好
+      await tester.runAsync(() async {
+        await expectLater(
+          scheduleProvider.clearAll,
+          throwsA(isA<StorageWriteException>()),
+        );
+        await expectLater(
+          gradesProvider.clearAll,
+          throwsA(isA<StorageWriteException>()),
+        );
+        await expectLater(
+          examsProvider.clearAll,
+          throwsA(isA<StorageWriteException>()),
+        );
+      });
+      expect(scheduleProvider.courses.map((c) => c.name), equals(['编译原理']));
+      expect(gradesProvider.grades.map((g) => g.courseName), equals(['微积分']));
+      expect(examsProvider.exams.map((e) => e.courseName), equals(['微积分']));
+
+      // 9b. 三个页面点击“清空 -> 确认清空”应弹出错误 SnackBar，绝不误报“已清空本地...”
+      Future<void> verifyScreenClearFailure({
+        required Widget screen,
+        required String menuLabel,
+        required String expectedErrorPrefix,
+        required String forbiddenSuccessText,
+      }) async {
+        await tester.pumpWidget(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider<ScheduleProvider>.value(value: scheduleProvider),
+              ChangeNotifierProvider<GradesProvider>.value(value: gradesProvider),
+              ChangeNotifierProvider<ExamsProvider>.value(value: examsProvider),
+            ],
+            child: MaterialApp(key: UniqueKey(), home: screen),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byTooltip('更多操作'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(menuLabel));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('确认清空'));
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining(expectedErrorPrefix), findsOneWidget);
+        expect(find.text(forbiddenSuccessText), findsNothing);
+      }
+
+      await verifyScreenClearFailure(
+        screen: const ScheduleScreen(),
+        menuLabel: '清空课表数据',
+        expectedErrorPrefix: '清空本地课表失败，已保留原有数据',
+        forbiddenSuccessText: '已清空本地课表数据',
+      );
+      await verifyScreenClearFailure(
+        screen: const GradesScreen(),
+        menuLabel: '清空成绩数据',
+        expectedErrorPrefix: '清空本地成绩失败，已保留原有数据',
+        forbiddenSuccessText: '已清空本地成绩数据',
+      );
+      await verifyScreenClearFailure(
+        screen: const ExamsScreen(),
+        menuLabel: '清空考试数据',
+        expectedErrorPrefix: '清空本地考试失败，已保留原有数据',
+        forbiddenSuccessText: '已清空本地考试数据',
+      );
+
+      // 9c. 模拟重启后磁盘密文依然存在且可完整恢复
+      StorageService.debugPrefsRemover = null;
+      final restartedSchedule = ScheduleProvider(nowProvider: () => now);
+      final restartedGrades = GradesProvider(nowProvider: () => now);
+      final restartedExams = ExamsProvider(nowProvider: () => now);
+      await tester.runAsync(() => _waitForProviders(
+            schedule: restartedSchedule,
+            grades: restartedGrades,
+            exams: restartedExams,
+          ));
+      expect(restartedSchedule.courses.map((c) => c.name), equals(['编译原理']));
+      expect(restartedGrades.grades.map((g) => g.courseName), equals(['微积分']));
+      expect(restartedExams.exams.map((e) => e.courseName), equals(['微积分']));
     });
   });
 }

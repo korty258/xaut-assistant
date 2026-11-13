@@ -42,8 +42,20 @@ class StorageService {
   )? debugSyncTimeWriter;
 
   @visibleForTesting
+  static Future<bool> Function(SharedPreferences prefs, String key)?
+      debugPrefsRemover;
+
+  @visibleForTesting
   static void resetForTesting() {
     debugSyncTimeWriter = null;
+    debugPrefsRemover = null;
+  }
+
+  /// 统一执行 SharedPreferences 键删除，支持测试故障注入与返回值校验
+  static Future<bool> removeKey(SharedPreferences prefs, String key) {
+    return debugPrefsRemover != null
+        ? debugPrefsRemover!(prefs, key)
+        : prefs.remove(key);
   }
 
   static Future<bool> _writeSyncTime(
@@ -198,27 +210,34 @@ class StorageService {
   }
 
   /// 仅清空本地课表缓存与课表同步时间，保留成绩和考试模块缓存及其同步时间
-  static Future<void> clearCourses() async {
+  /// 所有持久化键均删除成功时返回 true，任意键失败返回 false
+  static Future<bool> clearCourses() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyCourses);
-    await prefs.remove(_keyLastSync);
-    await prefs.remove(_keySemesterStartDate);
-    await prefs.remove(_keySemesterName);
+    final results = [
+      await removeKey(prefs, _keyCourses),
+      await removeKey(prefs, _keyLastSync),
+      await removeKey(prefs, _keySemesterStartDate),
+      await removeKey(prefs, _keySemesterName),
+    ];
+    return results.every((ok) => ok);
   }
 
   /// 彻底重置损坏的本地加密数据（销毁主密钥并清除所有业务缓存密文）
   /// 在解密发生严重异常时由用户触发，使持久化恢复至干净首启状态
-  static Future<void> resetCorruptedData() async {
+  static Future<bool> resetCorruptedData() async {
     final prefs = await SharedPreferences.getInstance();
-    await AppCryptoService.destroyMasterKey();
-    await prefs.remove(_keyCourses);
-    await prefs.remove(_keyLastSync);
-    await prefs.remove(_keySemesterStartDate);
-    await prefs.remove(_keySemesterName);
-    await prefs.remove('xaut_cached_grades');
-    await prefs.remove('xaut_cached_grade_summary');
-    await prefs.remove('xaut_cached_exams');
-    await prefs.remove(keyLastGradesSync);
-    await prefs.remove(keyLastExamsSync);
+    final keyDestroyed = await AppCryptoService.destroyMasterKey();
+    final results = [
+      await removeKey(prefs, _keyCourses),
+      await removeKey(prefs, _keyLastSync),
+      await removeKey(prefs, _keySemesterStartDate),
+      await removeKey(prefs, _keySemesterName),
+      await removeKey(prefs, 'xaut_cached_grades'),
+      await removeKey(prefs, 'xaut_cached_grade_summary'),
+      await removeKey(prefs, 'xaut_cached_exams'),
+      await removeKey(prefs, keyLastGradesSync),
+      await removeKey(prefs, keyLastExamsSync),
+    ];
+    return keyDestroyed && results.every((ok) => ok);
   }
 }

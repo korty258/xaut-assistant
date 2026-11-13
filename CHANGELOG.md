@@ -6,6 +6,38 @@
 
 ## [Unreleased]
 
+## [2.3.9-rc3] - 2026-11-13
+
+金花助手 `v2.3.9-rc3`（候选发布版 · 密钥/加密迁移 Fail-Closed 收口、双端授权撤回清理诚实汇报、学期基准原子提交、清空确认防假成功、成绩统计/跨夜考试与 Windows 桥接细节修复）！本候选版本逐项落地 `v2.3.9-rc2` 全量深度缺陷排查清单，并补齐完整单元与生命周期回归测试。
+
+### Fixed
+- **密钥升级与加密迁移 Fail-Closed 闭环 (`AppCryptoService`)**：
+  - 将旧明文与 `ENC:v1:` 升级至 `ENC:v2:` 的持久化逻辑收敛为统一 helper（`_upgradeToV2()`），严格检查 `saveEncryptedString` 返回值并透传密钥故障（`CryptoKeyException`），严禁将密钥异常误判为“旧数据可继续降级返回”；
+  - 新增 `loadEncryptedStringWithStatus()`、失败键追踪集合 `pendingMigrationKeys` / `hasPendingMigrationFailure` 与补偿方法 `retryPendingMigrations()`，确保升级写入失败时保留显式状态并支持就地重试。
+- **双端隐私撤回与补偿清理诚实报告 (`LegalService.revokeAndClearAll`)**：
+  - **Android**：当原生 WebView 清理失败或不可用时不再因 Cookie 兜底成功而误置 `webviewCleaned = true`；新增 `webviewCookiesClearedOnly` 状态标识，并在 `describeItems()` 中明确告知用户仅清理 Cookie、WebView 缓存未确认清理；
+  - **Windows**：将 `realDir.exists()` / `oldDir.exists()` 纳入权限异常捕获并保护 `_wipeWindowsDirectories()` 外层调用，确保目录被占用或抛出异常时可靠落盘 `pending_windows_wipe` 延迟清理标记。
+- **课表同步与学期周次校准原子提交 (`ScheduleProvider` & `WebViewSyncCoordinator`)**：
+  - 将学期校准拆分为「只读评估与用户确认（`_prepareWeekCalibration`）」与「课表落盘成功后再提交基准（`_commitPendingWeekCalibration`）」两阶段，彻底杜绝“确认更换学期基准但课表写入失败，导致新基准与旧课表混用”的状态撕裂；
+  - 同步收口 `ScheduleProvider` 校准方法（`calibrateFromCurrentWeek`、`calibrateFromStartDate`、`setSemesterNameOnly`），先持久化并通过返回值校验后再更新内存态。
+- **本地清空操作原子校验与错误反馈 (`StorageService`、三端 `Providers` & 主页 UI)**：
+  - `StorageService.clearCourses()`、`resetCorruptedData()` 与 `removeKey()` 全面核验底层删除返回值；三端 `Provider.clearAll()` 在确认磁盘清除成功后再重置内存态，失败时抛出 `StorageWriteException`；
+  - 课表、成绩、考试主页面清空确认弹窗补充异常捕获，磁盘删除失败时保留原有数据并弹出红色错误提示条，不再误报“已清空”。
+- **成绩 GPA 缺失兜底与去重门数统计 (`qiangzhi_parser.js`、`GradeItem` & `GradeCalculator`)**：
+  - `qiangzhi_parser.js` 与 `GradeItem.fromJson` 将缺失或非数值 GPA 单元格区分标记为 `-1`（明确保留教务原文 `"0"` 分绩点为 `0`），使缺失 GPA 的课程能在去重比较与 GPA 计算中统一按成绩映射表回退换算；
+  - 修复 `GradeCalculator` 中 `totalCourses` 统计口径，按课程标识（`_courseKey`）去重统计总门数（含未通过或缓考独立课程），避免同一门课补考/缓考导致门数重复累加。
+- **跨夜考试结束时间与 Windows 同 URL 重载竞态 (`Exam` & `WebViewPlatformAdapter`)**：
+  - `Exam.tryParseTime()` 当解析出的结束时间早于开始时间时顺延至次日（`Duration(days: 1)`），正确支持跨零点考试倒计时、进行中状态与 `.ics` 日历导出；
+  - `WebViewPlatformAdapter.handleWindowsLoadingStateChange()` 在初始化后任意 `false -> true` 加载开始边沿均取消未完成的 JS 桥接回调，修复 Windows 同 URL 刷新/重载残留旧请求超时或串包的问题。
+
+### Tests
+- **全面覆盖 9 项回归与故障注入测试**：
+  - `app_crypto_service_test.dart`：旧明文/`ENC:v1:` 升级遇 `CryptoKeyException` Fail-Closed 与写盘失败 `retryPendingMigrations` 恢复；
+  - `legal_service_test.dart`：Android 原生失败仅清 Cookie 的状态拆分，以及 Windows 目录删除抛异常时可靠写入 `pending_windows_wipe`；
+  - `parser.test.js` & `grade_calculator_test.dart`：缺失 GPA (`-1`) 与显式 `"0"` 区分、统一换算以及同课程重复/缓考/挂科 `totalCourses` 统计口径；
+  - `calendar_export_service_test.dart`、`exams_provider_test.dart` & `webview_sync_and_bridge_test.dart`：跨夜考试 `DTEND` / 进行中状态与 Windows `handleWindowsLoadingStateChange(true)` 同 URL 重载取消；
+  - `storage_lifecycle_smoke_test.dart`：新增全量同步课表保存失败保留原学期基准，以及三端 `clearAll()` 磁盘删除失败保留数据与 UI 错误提示烟雾测试。
+
 ## [2.3.9-rc2] - 2026-11-13
 
 金花助手 `v2.3.9-rc2`（候选发布版 · 局部同步失败建模、时间戳重试恢复与全量空数据单轮写入去重）！本候选版本响应 `v2.3.9-rc1` 专项审查反馈，进一步消除部分成功状态下的文案歧义与全量空数据分支重复落盘风险。
@@ -558,7 +590,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc2...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc3...HEAD
+[2.3.9-rc3]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc2...v2.3.9-rc3
 [2.3.9-rc2]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc1...v2.3.9-rc2
 [2.3.9-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.3.8...v2.3.9-rc1
 [2.3.8]: https://github.com/korty258/xaut-assistant/compare/v2.3.7...v2.3.8

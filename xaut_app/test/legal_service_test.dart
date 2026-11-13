@@ -195,8 +195,10 @@ void main() {
     });
 
     test('revokeAndClearAll() returns RevokeCleanupResult with isFullyCleaned = true when all deletions succeed', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
       AppCryptoService.resetForTesting();
       AppCryptoService.debugStorageDeleter = (key) async {};
+      LegalService.debugAndroidWebViewClearAction = () async => true;
       LegalService.debugWindowsWipeAction = () async => true;
       SharedPreferences.setMockInitialValues({'foo': 'bar'});
 
@@ -204,6 +206,7 @@ void main() {
 
       expect(res.isFullyCleaned, isTrue);
       expect(res.masterKeyDestroyed, isTrue);
+      expect(res.webviewCookiesClearedOnly, isFalse);
       expect(res.hasPendingColdStartWipe, isFalse);
       expect(res.hasUnqueuedFailures, isFalse);
     });
@@ -211,7 +214,9 @@ void main() {
     test('revokeAndClearAll() does NOT claim pending cold-start wipe when Android WebView clear fails', () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       AppCryptoService.debugStorageDeleter = (key) async {};
-      LegalService.debugAndroidWebViewClearAction = () async => false;
+      LegalService.debugAndroidNativeWebViewClearAction =
+          () async => throw Exception('WebStorage lock');
+      LegalService.debugAndroidCookieClearAction = () async => false;
       SharedPreferences.setMockInitialValues({'foo': 'bar'});
 
       final res = await LegalService.revokeAndClearAll();
@@ -219,6 +224,7 @@ void main() {
       expect(res.prefsCleared, isTrue);
       expect(res.masterKeyDestroyed, isTrue);
       expect(res.webviewCleaned, isFalse);
+      expect(res.webviewCookiesClearedOnly, isFalse);
       expect(res.hasPendingColdStartWipe, isFalse);
       expect(res.hasUnqueuedFailures, isTrue);
       expect(res.isFullyCleaned, isFalse);
@@ -228,6 +234,49 @@ void main() {
       expect(webviewItem.isFailedUnqueued, isTrue);
       expect(webviewItem.isQueued, isFalse);
       expect(webviewItem.status, contains('未加入待清理队列'));
+    });
+
+    test('revokeAndClearAll() keeps webviewCleaned = false and marks webviewCookiesClearedOnly when Android native clear fails but Cookie clear succeeds', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      AppCryptoService.debugStorageDeleter = (key) async {};
+      LegalService.debugAndroidNativeWebViewClearAction =
+          () async => throw Exception('WebStorage unavailable');
+      LegalService.debugAndroidCookieClearAction = () async => true;
+      SharedPreferences.setMockInitialValues({'foo': 'bar'});
+
+      final res = await LegalService.revokeAndClearAll();
+
+      expect(res.prefsCleared, isTrue);
+      expect(res.masterKeyDestroyed, isTrue);
+      expect(res.webviewCleaned, isFalse);
+      expect(res.webviewCookiesClearedOnly, isTrue);
+      expect(res.hasUnqueuedFailures, isTrue);
+      expect(res.isFullyCleaned, isFalse);
+
+      final items = res.describeItems(isWindows: false);
+      final webviewItem = items.firstWhere((i) => i.label.contains('WebView'));
+      expect(webviewItem.isFailedUnqueued, isTrue);
+      expect(webviewItem.isQueued, isFalse);
+      expect(webviewItem.status, contains('仅清除了 Cookie'));
+      expect(webviewItem.status, contains('缓存清理失败'));
+    });
+
+    test('revokeAndClearAll() queues pending_windows_wipe when Windows directory cleanup throws an exception', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      AppCryptoService.debugStorageDeleter = (key) async {};
+      LegalService.debugWindowsWipeAction =
+          () async => throw FileSystemException('EBUSY locked by WebView2');
+      SharedPreferences.setMockInitialValues({'foo': 'bar'});
+
+      final res = await LegalService.revokeAndClearAll();
+
+      expect(res.windowsDirsCleaned, isFalse);
+      expect(res.windowsPendingQueued, isTrue);
+      expect(res.hasPendingColdStartWipe, isTrue);
+      expect(res.hasUnqueuedFailures, isFalse);
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(LegalService.pendingWindowsWipeKey), isTrue);
     });
 
     test('revokeAndClearAll() marks unqueued failure when prefs.clear() returns false or compensation flag write fails', () async {

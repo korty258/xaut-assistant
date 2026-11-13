@@ -225,5 +225,28 @@ void main() {
 
       expect(ics, isNot(contains('BEGIN:VALARM')));
     });
+
+    test('generateIcs increments end date by 1 day for cross-midnight exam schedule', () {
+      final fixedNow = DateTime(2026, 11, 2, 10, 0, 0);
+
+      const exam = ExamItem(
+        campus: '金花校区',
+        batch: '2026-2027学年第一学期期末考试',
+        courseCode: 'CS3099',
+        courseName: '系统综合实验',
+        teacher: '王老师',
+        examTime: '2026-11-20 22:00~01:00',
+        room: '实验楼A101',
+      );
+
+      final ics = CalendarExportService.generateIcs(
+        courses: [],
+        exams: [exam],
+        now: fixedNow,
+      );
+
+      expect(ics, contains('DTSTART;TZID=Asia/Shanghai:20261120T220000\r\n'));
+      expect(ics, contains('DTEND;TZID=Asia/Shanghai:20261121T010000\r\n'));
+    });
   });
 }

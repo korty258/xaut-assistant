@@ -167,13 +167,17 @@ class ExamsProvider extends ChangeNotifier {
   }
 
   Future<void> clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    final okExams = await StorageService.removeKey(prefs, _keyExams);
+    final okSync =
+        await StorageService.removeKey(prefs, StorageService.keyLastExamsSync);
+    if (!okExams || !okSync) {
+      throw const StorageWriteException('清空本地考试存储失败，已保留原数据');
+    }
+
     _exams = [];
     _hasDecryptionError = false;
     _lastSyncTime = null;
     notifyListeners();
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyExams);
-    await prefs.remove(StorageService.keyLastExamsSync);
   }
 }

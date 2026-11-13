@@ -1552,5 +1552,42 @@ void main() {
       coordinator.dispose();
       adapter.dispose();
     });
+
+    test('Windows handleWindowsLoadingStateChange(true) cancels pending bridge requests on same-URL reload', () async {
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (script) async {};
+
+      final req1Future = adapter.executeBridgeScript(
+        script: '/* sync 1 */',
+        expectedType: 'sync_all_result',
+        requestId: 'win_req_1',
+      );
+      expect(adapter.pendingRequestIdsForTest, contains('win_req_1'));
+
+      // 首次从 false -> true（例如同 URL 重新加载）：必须取消在途桥接请求
+      adapter.handleWindowsLoadingStateChange(true);
+      await expectLater(
+        req1Future,
+        throwsA(isA<StateError>()),
+      );
+      expect(adapter.pendingRequestIdsForTest, isEmpty);
+
+      // 完成加载（true -> false）后再次发起请求并同 URL 重载（false -> true）
+      adapter.handleWindowsLoadingStateChange(false);
+      final req2Future = adapter.executeBridgeScript(
+        script: '/* sync 2 */',
+        expectedType: 'sync_all_result',
+        requestId: 'win_req_2',
+      );
+      adapter.handleWindowsLoadingStateChange(true);
+      await expectLater(
+        req2Future,
+        throwsA(isA<StateError>()),
+      );
+      expect(adapter.pendingRequestIdsForTest, isEmpty);
+
+      adapter.dispose();
+    });
   });
 }

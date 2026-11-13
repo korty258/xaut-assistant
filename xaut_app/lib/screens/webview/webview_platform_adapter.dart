@@ -81,6 +81,19 @@ class WebViewPlatformAdapter {
     return host == 'xaut.edu.cn' || host.endsWith('.xaut.edu.cn');
   }
 
+  /// 处理 Windows WebView 加载状态变更：同地址刷新开始新一轮文档加载时主动取消旧 Bridge 任务
+  @visibleForTesting
+  void handleWindowsLoadingStateChange(bool nowLoading) {
+    final wasLoading = isLoadingNotifier.value;
+    isLoadingNotifier.value = nowLoading;
+    if (!wasLoading && nowLoading && isInitializedNotifier.value) {
+      cancelActiveBridgeTasks('页面开始重新加载，已取消正在进行的同步任务');
+    }
+    if (!nowLoading) {
+      onPageLoadFinished?.call();
+    }
+  }
+
   /// 初始化双端控制器
   Future<void> initialize() async {
     initErrorNotifier.value = null;
@@ -137,11 +150,7 @@ class WebViewPlatformAdapter {
 
     await _winLoadingSub?.cancel();
     _winLoadingSub = winController.loadingState.listen((state) {
-      final nowLoading = state == win.LoadingState.loading;
-      isLoadingNotifier.value = nowLoading;
-      if (!nowLoading) {
-        onPageLoadFinished?.call();
-      }
+      handleWindowsLoadingStateChange(state == win.LoadingState.loading);
     });
 
     // Windows WebView2 原生消息监听

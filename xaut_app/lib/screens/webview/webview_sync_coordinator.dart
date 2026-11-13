@@ -255,9 +255,14 @@ class WebViewSyncCoordinator {
     } catch (_) {}
   }
 
-  /// 应用同步时识别到的教学周或开学基准日（带内部冲突与大幅跳变确认保护）
-  Future<({String? detailMessage, bool rejectedByUser, bool isSuccess})>
-      _applyDetectedWeekCalibration(
+  /// 阶段 1：评估并确认识别到的教学周或开学基准日（只做判定与用户确认，不提前改写磁盘或内存状态）
+  Future<
+      ({
+        SemesterCalibrationDecision? pendingDecision,
+        String? detailMessage,
+        bool rejectedByUser,
+        bool isSuccess,
+      })> _prepareWeekCalibration(
     ScheduleProvider scheduleProvider, {
     int? detectedWeek,
     String? detectedSemester,
@@ -274,22 +279,114 @@ class WebViewSyncCoordinator {
     if (!decision.hasUpdate) {
       if (decision.candidateMonday != null && scheduleProvider.hasSemesterStart) {
         return (
+          pendingDecision: null,
           detailMessage: '当前第 ${scheduleProvider.actualCurrentWeek} 周基准一致，无需变更',
           rejectedByUser: false,
           isSuccess: true,
         );
       }
-      return (detailMessage: null, rejectedByUser: false, isSuccess: false);
+      return (
+        pendingDecision: null,
+        detailMessage: null,
+        rejectedByUser: false,
+        isSuccess: false,
+      );
     }
 
-    if (!decision.requiresConfirmation) {
-      if (decision.candidateMonday != null) {
-        await scheduleProvider.setSemesterStartDate(
-          decision.candidateMonday!,
-          semester: decision.candidateSemester.isNotEmpty
-              ? decision.candidateSemester
+    if (decision.requiresConfirmation) {
+      // 触发了需要确认的冲突或大幅跳变
+      bool confirmed = false;
+      if (confirmSemesterCalibrationOverride != null) {
+        confirmed = await confirmSemesterCalibrationOverride!(decision);
+      } else {
+        final context = getContext();
+        if (_isDisposed || !context.mounted) {
+          return (
+            pendingDecision: null,
+            detailMessage: '已保持原学期基准不变',
+            rejectedByUser: true,
+            isSuccess: false,
+          );
+        }
+        confirmed = await showDialog<bool>(
+              context: context,
+              barrierDismissible: false,
+              builder: (ctx) => AlertDialog(
+                icon: const Icon(Icons.warning_amber_rounded,
+                    color: Colors.orange, size: 36),
+                title: const Text('检测到学期基准变更或冲突'),
+                content: Text(
+                  '${decision.conflictReason ?? "教务系统返回的学期或开学周与当前本地设置存在偏差。"}\n\n'
+                  '若当前同步包含新课表数据：\n'
+                  '• 选择【保持原设置】：将同时保留原课表与原学期基准，避免新课表与旧学期日期错位混用；\n'
+                  '• 选择【更新学期基准】：将一并应用新课表与新学期基准。',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('保持原设置'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('更新学期基准'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+      }
+
+      if (_isDisposed || !confirmed) {
+        return (
+          pendingDecision: null,
+          detailMessage: '已保持原学期基准不变',
+          rejectedByUser: true,
+          isSuccess: false,
+        );
+      }
+    }
+
+    return (
+      pendingDecision: decision,
+      detailMessage: null,
+      rejectedByUser: false,
+      isSuccess: false,
+    );
+  }
+
+  /// 阶段 2：仅在课表持久化成功后再提交学期与周次基准更新，保证两者原子一致
+  Future<({String? detailMessage, bool isSuccess})> _commitPendingWeekCalibration(
+    ScheduleProvider scheduleProvider, {
+    required SemesterCalibrationDecision? pendingDecision,
+    required String? preparedDetail,
+    required bool preparedSuccess,
+    required bool rejectedByUser,
+    required bool coursesPersisted,
+  }) async {
+    if (rejectedByUser) {
+      return (detailMessage: '已保持原学期基准不变', isSuccess: false);
+    }
+    if (pendingDecision == null) {
+      return (detailMessage: preparedDetail, isSuccess: preparedSuccess);
+    }
+    if (!coursesPersisted) {
+      return (detailMessage: '由于课表保存失败，已保持原学期基准不变', isSuccess: false);
+    }
+
+    try {
+      if (pendingDecision.candidateMonday != null) {
+        final ok = await scheduleProvider.setSemesterStartDate(
+          pendingDecision.candidateMonday!,
+          semester: pendingDecision.candidateSemester.isNotEmpty
+              ? pendingDecision.candidateSemester
               : null,
         );
+        if (!ok) {
+          return (detailMessage: '教学周基准保存失败，已保持原学期基准不变', isSuccess: false);
+        }
+        if (pendingDecision.requiresConfirmation) {
+          return (detailMessage: '已按确认更新学期基准', isSuccess: true);
+        }
         final week = scheduleProvider.actualCurrentWeek;
         final monday = scheduleProvider.semesterStartDate;
         final monStr = monday != null
@@ -297,77 +394,24 @@ class WebViewSyncCoordinator {
             : '';
         return (
           detailMessage: '已自动对齐第 $week 周${monStr.isNotEmpty ? " (第1周周一: $monStr)" : ""}',
-          rejectedByUser: false,
           isSuccess: true,
         );
       } else {
         // 关键修复：无基准日期（未识别到周次或开学日，仅识别到学期名称）
-        if (decision.candidateSemester.isNotEmpty) {
-          await scheduleProvider.setSemesterNameOnly(decision.candidateSemester);
+        if (pendingDecision.candidateSemester.isNotEmpty) {
+          final ok = await scheduleProvider
+              .setSemesterNameOnly(pendingDecision.candidateSemester);
+          if (!ok) {
+            return (detailMessage: '学期名称保存失败，已保持原学期基准不变', isSuccess: false);
+          }
         }
         return (
-          detailMessage: '已识别学期 ${decision.candidateSemester}，未检测到周次，请手动校准开学日',
-          rejectedByUser: false,
+          detailMessage: '已识别学期 ${pendingDecision.candidateSemester}，未检测到周次，请手动校准开学日',
           isSuccess: false,
         );
       }
-    }
-
-    // 触发了需要确认的冲突或大幅跳变
-    bool confirmed = false;
-    if (confirmSemesterCalibrationOverride != null) {
-      confirmed = await confirmSemesterCalibrationOverride!(decision);
-    } else {
-      final context = getContext();
-      if (_isDisposed || !context.mounted) {
-        return (detailMessage: '已保持原学期基准不变', rejectedByUser: true, isSuccess: false);
-      }
-      confirmed = await showDialog<bool>(
-            context: context,
-            barrierDismissible: false,
-            builder: (ctx) => AlertDialog(
-              icon: const Icon(Icons.warning_amber_rounded,
-                  color: Colors.orange, size: 36),
-              title: const Text('检测到学期基准变更或冲突'),
-              content: Text(
-                '${decision.conflictReason ?? "教务系统返回的学期或开学周与当前本地设置存在偏差。"}\n\n'
-                '若当前同步包含新课表数据：\n'
-                '• 选择【保持原设置】：将同时保留原课表与原学期基准，避免新课表与旧学期日期错位混用；\n'
-                '• 选择【更新学期基准】：将一并应用新课表与新学期基准。',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(false),
-                  child: const Text('保持原设置'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.of(ctx).pop(true),
-                  child: const Text('更新学期基准'),
-                ),
-              ],
-            ),
-          ) ??
-          false;
-    }
-
-    if (_isDisposed) {
-      return (detailMessage: '已保持原学期基准不变', rejectedByUser: true, isSuccess: false);
-    }
-
-    if (confirmed) {
-      if (decision.candidateMonday != null) {
-        await scheduleProvider.setSemesterStartDate(
-          decision.candidateMonday!,
-          semester: decision.candidateSemester.isNotEmpty
-              ? decision.candidateSemester
-              : null,
-        );
-      } else if (decision.candidateSemester.isNotEmpty) {
-        await scheduleProvider.setSemesterNameOnly(decision.candidateSemester);
-      }
-      return (detailMessage: '已按确认更新学期基准', rejectedByUser: false, isSuccess: true);
-    } else {
-      return (detailMessage: '已保持原学期基准不变', rejectedByUser: true, isSuccess: false);
+    } catch (_) {
+      return (detailMessage: '教学周基准保存失败，已保持原学期基准不变', isSuccess: false);
     }
   }
 
@@ -453,14 +497,20 @@ class WebViewSyncCoordinator {
         return;
       }
 
-      // 0. 当课表模块有效返回（ok 或 empty）时，优先在写入本地课表前完成学期与周次校准确认
-      ({String? detailMessage, bool rejectedByUser, bool isSuccess}) calibRes = (
+      // 0. 当课表模块有效返回（ok 或 empty）时，先仅做学期与周次基准冲突评估及用户确认（不提前改写磁盘或内存）
+      ({
+        SemesterCalibrationDecision? pendingDecision,
+        String? detailMessage,
+        bool rejectedByUser,
+        bool isSuccess,
+      }) prepCalib = (
+        pendingDecision: null,
         detailMessage: null,
         rejectedByUser: false,
         isSuccess: false,
       );
       if (result.statusCourses.isOk || result.statusCourses.isEmpty) {
-        calibRes = await _applyDetectedWeekCalibration(
+        prepCalib = await _prepareWeekCalibration(
           scheduleProvider,
           detectedWeek: result.detectedWeek,
           detectedSemester: result.detectedSemester,
@@ -468,7 +518,7 @@ class WebViewSyncCoordinator {
         );
         if (_isDisposed || !context.mounted) return;
       }
-      final bool rejectedByUser = calibRes.rejectedByUser;
+      final bool rejectedByUser = prepCalib.rejectedByUser;
 
       // 1. 课表：仅当用户未拒绝更新基准时，才写入新课表或空课表（单轮执行，避免全量空数据分支重复清空）
       var coursesOutcome = const _PersistOutcome.success();
@@ -481,6 +531,19 @@ class WebViewSyncCoordinator {
               await _persistSafely(() => scheduleProvider.updateCourses(const []));
         }
       }
+      if (_isDisposed) return;
+
+      // 1b. 仅当课表数据实际持久化成功时，才提交已确认的学期与周次基准变更
+      final calibRes = await _commitPendingWeekCalibration(
+        scheduleProvider,
+        pendingDecision: prepCalib.pendingDecision,
+        preparedDetail: prepCalib.detailMessage,
+        preparedSuccess: prepCalib.isSuccess,
+        rejectedByUser: rejectedByUser,
+        coursesPersisted:
+            coursesOutcome.isOk || coursesOutcome.dataSavedOnly,
+      );
+      if (_isDisposed || !context.mounted) return;
       // notLoggedIn 或 error 严格保留原有课表缓存
 
       // 2. 成绩
@@ -838,8 +901,8 @@ class WebViewSyncCoordinator {
       if (_isDisposed || !context.mounted) return;
 
       if (syncRes.status == SyncModuleStatus.ok || syncRes.courses.isNotEmpty) {
-        // 先执行学期基准与周次校准确认，确保原子一致性
-        final calibRes = await _applyDetectedWeekCalibration(
+        // 先评估并确认学期基准与周次校准（不提前改写磁盘或内存），持久化成功后再提交
+        final prepCalib = await _prepareWeekCalibration(
           scheduleProvider,
           detectedWeek: syncRes.detectedWeek,
           detectedSemester: syncRes.detectedSemester,
@@ -847,7 +910,7 @@ class WebViewSyncCoordinator {
         );
         if (_isDisposed || !context.mounted) return;
 
-        if (calibRes.rejectedByUser) {
+        if (prepCalib.rejectedByUser) {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
@@ -867,7 +930,19 @@ class WebViewSyncCoordinator {
 
         final persistOutcome =
             await _persistSafely(() => scheduleProvider.updateCourses(syncRes.courses));
+        if (_isDisposed) return;
+
+        final calibRes = await _commitPendingWeekCalibration(
+          scheduleProvider,
+          pendingDecision: prepCalib.pendingDecision,
+          preparedDetail: prepCalib.detailMessage,
+          preparedSuccess: prepCalib.isSuccess,
+          rejectedByUser: false,
+          coursesPersisted:
+              persistOutcome.isOk || persistOutcome.dataSavedOnly,
+        );
         if (_isDisposed || !context.mounted) return;
+
         if (!persistOutcome.isOk) {
           _showPersistErrorDialog(
             context,
@@ -904,14 +979,14 @@ class WebViewSyncCoordinator {
           ),
         );
       } else if (syncRes.status == SyncModuleStatus.empty) {
-        final calibRes = await _applyDetectedWeekCalibration(
+        final prepCalib = await _prepareWeekCalibration(
           scheduleProvider,
           detectedWeek: syncRes.detectedWeek,
           detectedSemester: syncRes.detectedSemester,
           detectedStart: syncRes.detectedSemesterStart,
         );
         if (_isDisposed || !context.mounted) return;
-        if (calibRes.rejectedByUser) {
+        if (prepCalib.rejectedByUser) {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
@@ -930,7 +1005,19 @@ class WebViewSyncCoordinator {
         }
         final persistOutcome =
             await _persistSafely(() => scheduleProvider.updateCourses(const []));
+        if (_isDisposed) return;
+
+        await _commitPendingWeekCalibration(
+          scheduleProvider,
+          pendingDecision: prepCalib.pendingDecision,
+          preparedDetail: prepCalib.detailMessage,
+          preparedSuccess: prepCalib.isSuccess,
+          rejectedByUser: false,
+          coursesPersisted:
+              persistOutcome.isOk || persistOutcome.dataSavedOnly,
+        );
         if (_isDisposed || !context.mounted) return;
+
         if (!persistOutcome.isOk) {
           _showPersistErrorDialog(
             context,

@@ -440,11 +440,22 @@ class GradesScreen extends StatelessWidget {
             style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
             onPressed: () async {
               Navigator.of(ctx).pop();
-              await provider.clearAll();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已清空本地成绩数据')),
-                );
+              try {
+                await provider.clearAll();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('已清空本地成绩数据')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('清空本地成绩失败，已保留原有数据 ($e)'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
               }
             },
             child: Text('确认清空', style: TextStyle(color: theme.colorScheme.onError)),
