@@ -1,9 +1,9 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../screens/legal_gate_screen.dart';
 import '../services/diagnostics_service.dart';
+import '../services/parser_service.dart';
 
 /// 客户端脱敏诊断摘要弹窗与支持菜单共享入口
 class DiagnosticsDialog {
@@ -65,9 +65,10 @@ class DiagnosticsDialog {
     );
   }
 
-  /// 弹出完全脱敏的客户端运行与同步诊断摘要
+  /// 弹出完全脱敏的客户端运行与同步诊断摘要（原生结构化展示 + 一键复制 Markdown 反馈报告）
   static Future<void> show(BuildContext context) async {
-    final report = await DiagnosticsService.buildDiagnosticReport();
+    final snapshot = await DiagnosticsService.collectSnapshot();
+    final report = snapshot.toMarkdownReport();
     if (!context.mounted) return;
     final theme = Theme.of(context);
 
@@ -78,53 +79,112 @@ class DiagnosticsDialog {
           children: [
             Icon(Icons.monitor_heart_outlined, color: theme.colorScheme.primary),
             const SizedBox(width: 8),
-            const Text('客户端脱敏诊断摘要', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            const Expanded(
+              child: Text(
+                '客户端脱敏诊断摘要',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+            ),
           ],
         ),
         content: SizedBox(
-          width: 560,
+          width: 520,
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.4)),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.security_rounded, size: 18, color: theme.colorScheme.primary),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '以下诊断摘要仅含应用版本与同步状态码，不含学号、密码、Cookie、课表或成绩等任何个人数据。',
-                          style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                _buildPrivacyBanner(theme),
                 const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
-                  ),
-                  child: SelectableText(
-                    report,
-                    style: TextStyle(
-                      fontFamily: defaultTargetPlatform == TargetPlatform.windows ? 'Consolas' : 'monospace',
-                      fontSize: 12,
-                      height: 1.45,
+                _buildSectionCard(
+                  theme,
+                  icon: Icons.devices_outlined,
+                  title: '运行环境',
+                  children: [
+                    _buildInfoRow(theme, '应用版本', snapshot.appVersion, monospace: true),
+                    _buildInfoRow(theme, '合规条款版本', snapshot.legalVersion, monospace: true),
+                    _buildInfoRow(theme, '运行平台', snapshot.platform),
+                    _buildInfoRow(theme, 'WebView2 运行时', snapshot.webView2Info),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _buildSectionCard(
+                  theme,
+                  icon: Icons.schedule_rounded,
+                  title: '模块本地同步时间',
+                  children: [
+                    _buildInfoRow(
+                      theme,
+                      '课表模块',
+                      DiagnosticsService.formatDateTime(snapshot.coursesSyncTime),
+                      monospace: true,
                     ),
-                  ),
+                    _buildInfoRow(
+                      theme,
+                      '成绩模块',
+                      DiagnosticsService.formatDateTime(snapshot.gradesSyncTime),
+                      monospace: true,
+                    ),
+                    _buildInfoRow(
+                      theme,
+                      '考试模块',
+                      DiagnosticsService.formatDateTime(snapshot.examsSyncTime),
+                      monospace: true,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _buildSectionCard(
+                  theme,
+                  icon: Icons.sync_alt_rounded,
+                  title: '最近一次教务同步遥测',
+                  children: snapshot.lastSyncTimestamp == null
+                      ? [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Text(
+                              '本次启动后尚未执行任何同步操作',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ]
+                      : [
+                          _buildInfoRow(
+                            theme,
+                            '触发时间',
+                            DiagnosticsService.formatDateTime(snapshot.lastSyncTimestamp),
+                            monospace: true,
+                          ),
+                          _buildInfoRow(theme, '触发模式', snapshot.triggerMode ?? '未知'),
+                          _buildInfoRow(
+                            theme,
+                            '总耗时',
+                            '${snapshot.durationMs ?? 0} ms',
+                            monospace: true,
+                          ),
+                          const Divider(height: 14),
+                          _buildModuleTelemetryRow(
+                            theme,
+                            '课表模块',
+                            snapshot.coursesStatus,
+                            snapshot.coursesErrorCategory,
+                          ),
+                          _buildModuleTelemetryRow(
+                            theme,
+                            '成绩模块',
+                            snapshot.gradesStatus,
+                            snapshot.gradesErrorCategory,
+                          ),
+                          _buildModuleTelemetryRow(
+                            theme,
+                            '考试模块',
+                            snapshot.examsStatus,
+                            snapshot.examsErrorCategory,
+                          ),
+                        ],
                 ),
               ],
             ),
@@ -153,5 +213,200 @@ class DiagnosticsDialog {
         ],
       ),
     );
+  }
+
+  static Widget _buildPrivacyBanner(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.security_rounded, size: 18, color: theme.colorScheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '以下诊断摘要仅含应用版本与同步状态码，不含学号、密码、Cookie、课表或成绩等任何个人数据。',
+              style: TextStyle(fontSize: 12, height: 1.4, color: theme.colorScheme.onSurface),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Widget _buildSectionCard(
+    ThemeData theme, {
+    required IconData icon,
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  static Widget _buildInfoRow(
+    ThemeData theme,
+    String label,
+    String value, {
+    bool monospace = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 112,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SelectableText(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                fontFamily: monospace ? 'monospace' : null,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Widget _buildModuleTelemetryRow(
+    ThemeData theme,
+    String moduleName,
+    SyncModuleStatus? status,
+    String errorCategory,
+  ) {
+    final badge = _resolveStatusBadge(theme, status);
+    final hasError = errorCategory.isNotEmpty && errorCategory != 'none';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Text(
+            moduleName,
+            style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const Spacer(),
+          if (hasError) ...[
+            Container(
+              margin: const EdgeInsets.only(right: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.errorContainer.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                errorCategory,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  color: theme.colorScheme.onErrorContainer,
+                ),
+              ),
+            ),
+          ],
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: badge.bg,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              badge.label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: badge.fg,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static ({String label, Color bg, Color fg}) _resolveStatusBadge(
+    ThemeData theme,
+    SyncModuleStatus? status,
+  ) {
+    final isDark = theme.brightness == Brightness.dark;
+    switch (status) {
+      case SyncModuleStatus.ok:
+        return (
+          label: '正常 (ok)',
+          bg: isDark ? Colors.green.withValues(alpha: 0.22) : Colors.green.shade50,
+          fg: isDark ? Colors.green.shade300 : Colors.green.shade800,
+        );
+      case SyncModuleStatus.empty:
+        return (
+          label: '无数据 (empty)',
+          bg: isDark ? Colors.orange.withValues(alpha: 0.22) : Colors.orange.shade50,
+          fg: isDark ? Colors.orange.shade300 : Colors.orange.shade800,
+        );
+      case SyncModuleStatus.notLoggedIn:
+        return (
+          label: '未登录',
+          bg: theme.colorScheme.surfaceContainerHighest,
+          fg: theme.colorScheme.onSurfaceVariant,
+        );
+      case SyncModuleStatus.error:
+        return (
+          label: '异常 (error)',
+          bg: theme.colorScheme.errorContainer,
+          fg: theme.colorScheme.onErrorContainer,
+        );
+      case null:
+        return (
+          label: '未触发',
+          bg: theme.colorScheme.surfaceContainerHighest,
+          fg: theme.colorScheme.onSurfaceVariant,
+        );
+    }
   }
 }

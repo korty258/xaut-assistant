@@ -6,6 +6,22 @@
 
 ## [Unreleased]
 
+## [2.3.8] - 2026-11-13
+
+金花助手 `v2.3.8`（脱敏诊断弹窗结构化 UI 重构补丁版）发布！本版本彻底改善客户端内查看诊断摘要的阅读体验，将原先弹窗内直接展示的原始 Markdown 源码重构为分段式 Material 3 原生结构化卡片与状态徽章，同时在「复制到剪贴板」时继续保留完整脱敏 Markdown 报告以便一键粘贴提交 GitHub Issue。
+
+### UX Improvements
+- **诊断弹窗原生结构化界面 (`DiagnosticsDialog` & `DiagnosticsService`)**：
+  - 在 `DiagnosticsService` 新增 `DiagnosticSnapshot` 结构化快照模型与 `collectSnapshot()`，统一服务于界面渲染与 Markdown 报告生成；
+  - 重构 `DiagnosticsDialog` 为分组 Material 3 原生卡片，直观呈现「运行环境」「模块本地同步时间」与「最近一次教务同步遥测」；
+  - 为课表、成绩、考试同步状态新增语义化徽章（`正常 (ok)` / `无数据 (empty)` / `未登录` / `异常 (error)` / `未触发`）与脱敏异常类别标签；
+  - 点击「复制到剪贴板」仍导出完整脱敏 Markdown 报告，保持与 `.github/ISSUE_TEMPLATE/bug_report.yml` 模板无缝对接。
+
+### Infrastructure & Tests
+- **CI 依赖维护与测试加固**：
+  - 在 `.github/dependabot.yml` 新增 `github-actions` 生态每周自动检查；
+  - 增强 `widget_test.dart` 诊断弹窗测试，覆盖结构化卡片、状态徽章及非原始 Markdown 直出断言，确保无敏感信息泄露。
+
 ## [2.3.7] - 2026-11-13
 
 金花助手 `v2.3.7`（脱敏诊断摘要入口前移优化补丁版）发布！本版本优化了客户端脱敏诊断摘要的触发层级，将原本隐藏在「关于与法律条款」第 4 个标签页（「开源致谢」）最底部的诊断按钮大幅前移，用户现在可直接从主页面右上角「...」菜单一键查看诊断摘要，或在进入「关于与法律条款」时无需切换标签或滚动即可在底部直接操作。
@@ -506,7 +522,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.7...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.8...HEAD
+[2.3.8]: https://github.com/korty258/xaut-assistant/compare/v2.3.7...v2.3.8
 [2.3.7]: https://github.com/korty258/xaut-assistant/compare/v2.3.6...v2.3.7
 [2.3.6]: https://github.com/korty258/xaut-assistant/compare/v2.3.5...v2.3.6
 [2.3.5]: https://github.com/korty258/xaut-assistant/compare/v2.3.4...v2.3.5

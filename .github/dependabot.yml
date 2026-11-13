@@ -25,3 +25,13 @@ updates:
     labels:
       - "dependencies"
       - "parser-test"
+
+  # 3. GitHub Actions 工作流依赖自动检测
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"
