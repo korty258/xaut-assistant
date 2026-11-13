@@ -197,6 +197,7 @@ jobs:
         with:
           name: android-apk
           path: jinhua_assistant-android-arm64.apk
+          retention-days: 7
 
   # 3. 编译 Windows 桌面端绿色版 (Tag、手动触发或 PR 门禁)
   build_windows:
@@ -236,6 +237,7 @@ jobs:
         with:
           name: windows-zip
           path: jinhua_assistant-windows-x64.zip
+          retention-days: 7
 
   # 4. 发布 GitHub Release 产物 (仅在 Tag 触发时执行)
   publish_release:
