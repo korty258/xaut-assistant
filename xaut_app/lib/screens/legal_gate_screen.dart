@@ -215,41 +215,146 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
     );
 
     if (confirmed == true) {
-      if (mounted) {
-        ScheduleProvider? sp;
-        GradesProvider? gp;
-        ExamsProvider? ep;
-        try { sp = context.read<ScheduleProvider>(); } catch (_) {}
-        try { gp = context.read<GradesProvider>(); } catch (_) {}
-        try { ep = context.read<ExamsProvider>(); } catch (_) {}
-        try { await sp?.clearAll(); } catch (_) {}
-        try { await gp?.clearAll(); } catch (_) {}
-        try { await ep?.clearAll(); } catch (_) {}
+      await _executeRevokeCleanup();
+    }
+  }
+
+  Future<void> _executeRevokeCleanup() async {
+    if (mounted) {
+      ScheduleProvider? sp;
+      GradesProvider? gp;
+      ExamsProvider? ep;
+      try { sp = context.read<ScheduleProvider>(); } catch (_) {}
+      try { gp = context.read<GradesProvider>(); } catch (_) {}
+      try { ep = context.read<ExamsProvider>(); } catch (_) {}
+      try { await sp?.clearAll(); } catch (_) {}
+      try { await gp?.clearAll(); } catch (_) {}
+      try { await ep?.clearAll(); } catch (_) {}
+    }
+
+    final cleanupResult = await LegalService.revokeAndClearAll();
+    if (!mounted) return;
+
+    final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final items = cleanupResult.describeItems(isWindows: isWindows);
+
+    if (cleanupResult.isFullyCleaned) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已成功撤回授权并彻底销毁所有本地数据与密钥'),
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: true)),
+        (_) => false,
+      );
+      return;
+    }
+
+    if (!cleanupResult.hasUnqueuedFailures && cleanupResult.hasPendingColdStartWipe) {
+      final queuedNames = <String>[];
+      if (cleanupResult.masterKeyPendingQueued) {
+        queuedNames.add('主加密密钥');
       }
-      final cleanupResult = await LegalService.revokeAndClearAll();
-      if (mounted) {
-        if (!cleanupResult.isFullyCleaned) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('已撤回同意并清空本地数据。部分底层锁定缓存或主密钥已加入待清理队列，将在下次应用启动时自动补偿擦除。'),
-              duration: Duration(seconds: 4),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('已成功撤回授权并彻底销毁所有本地数据与密钥'),
-              duration: Duration(seconds: 3),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: true)),
-          (_) => false,
-        );
+      if (cleanupResult.windowsPendingQueued) {
+        queuedNames.add('Windows 本地缓存目录');
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '已撤回同意并清空本地偏好设置。${queuedNames.join('、')}已加入待清理队列，将在下次应用启动时自动补偿擦除。',
+          ),
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: true)),
+        (_) => false,
+      );
+      return;
+    }
+
+    // 存在未能清理且未写入补偿队列的失败项时，按项诚实反馈并给出重试/手动清理指引
+    final action = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(
+          Icons.warning_amber_rounded,
+          size: 36,
+          color: Theme.of(ctx).colorScheme.error,
+        ),
+        title: const Text('部分本地数据未能完成清理'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('已执行撤回清理，各项真实处理结果如下：'),
+              const SizedBox(height: 10),
+              for (final item in items)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        item.isFailedUnqueued
+                            ? Icons.error_outline_rounded
+                            : (item.isQueued
+                                ? Icons.schedule_rounded
+                                : Icons.check_circle_outline_rounded),
+                        size: 18,
+                        color: item.isFailedUnqueued
+                            ? Theme.of(ctx).colorScheme.error
+                            : (item.isQueued ? Colors.orange : Colors.green),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${item.label}：${item.status}',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 8),
+              Text(
+                '说明：标记为“未加入待清理队列”的失败项不会在下次启动时自动补偿。'
+                '您可以点击“重试清理”，或前往${isWindows ? '应用数据目录 (%APPDATA%\\Jinhua Assistant OpenSource Community\\金花助手) 与同级 *.WebView2 目录手动删除' : '系统应用设置中手动执行“清除全部数据”'}。',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('gate'),
+            child: const Text('返回法律门禁'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop('retry'),
+            child: const Text('重试清理'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+    if (action == 'retry') {
+      await _executeRevokeCleanup();
+    } else if (action == 'gate') {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: true)),
+        (_) => false,
+      );
     }
   }
 

@@ -54,6 +54,13 @@ class AppCryptoService {
   static Future<void> Function(String key)? debugStorageDeleter;
 
   @visibleForTesting
+  static Future<bool> Function(
+    SharedPreferences prefs,
+    String key,
+    String cipherText,
+  )? debugPrefsStringWriter;
+
+  @visibleForTesting
   static void setMockStorage(FlutterSecureStorage storage) {
     _secureStorage = storage;
   }
@@ -71,6 +78,7 @@ class AppCryptoService {
     debugStorageReader = null;
     debugStorageWriter = null;
     debugStorageDeleter = null;
+    debugPrefsStringWriter = null;
     allowInMemoryTestKey = false;
   }
 
@@ -235,7 +243,9 @@ class AppCryptoService {
       plainText,
       associatedData: _storageAadForKey(key),
     );
-    return prefs.setString(key, cipherText);
+    return debugPrefsStringWriter != null
+        ? debugPrefsStringWriter!(prefs, key, cipherText)
+        : prefs.setString(key, cipherText);
   }
 
   /// 封装 SharedPreferences 读取解密数据

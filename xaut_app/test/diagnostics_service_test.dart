@@ -142,10 +142,13 @@ void main() {
       expect(loadedGrades, equals(now));
       expect(loadedExams, equals(now.add(const Duration(hours: 1))));
 
-      // clearCourses() 清理课表及各模块同步时间戳
+      // clearCourses() 仅清理课表及相关时间，不得清除成绩与考试同步时间戳
       await StorageService.clearCourses();
-      expect(await StorageService.loadGradesSyncTime(), isNull);
-      expect(await StorageService.loadExamsSyncTime(), isNull);
+      expect(await StorageService.loadGradesSyncTime(), equals(now));
+      expect(
+        await StorageService.loadExamsSyncTime(),
+        equals(now.add(const Duration(hours: 1))),
+      );
     });
 
     test('resetCorruptedData() clears all module sync timestamps', () async {

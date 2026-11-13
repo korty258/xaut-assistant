@@ -120,21 +120,33 @@ class ExamsProvider extends ChangeNotifier {
     List<ExamItem> exams, {
     bool updateSyncTime = true,
   }) async {
-    _exams = exams;
-    _hasDecryptionError = false;
-
+    final candidateExams = List<ExamItem>.from(exams);
     final prefs = await SharedPreferences.getInstance();
     final ok = await AppCryptoService.saveEncryptedString(
       prefs,
       _keyExams,
-      jsonEncode(_exams.map((e) => e.toJson()).toList()),
+      jsonEncode(candidateExams.map((e) => e.toJson()).toList()),
     );
-    if (ok && updateSyncTime) {
+    if (!ok) {
+      throw const StorageWriteException('考试日程写入本地存储失败，已保留原数据');
+    }
+
+    _exams = candidateExams;
+    _hasDecryptionError = false;
+
+    bool timeOk = true;
+    if (updateSyncTime) {
       final t = _nowProvider();
-      await StorageService.saveExamsSyncTime(t);
-      _lastSyncTime = t;
+      timeOk = await StorageService.saveExamsSyncTime(t);
+      if (timeOk) {
+        _lastSyncTime = t;
+      }
     }
     notifyListeners();
+
+    if (!timeOk) {
+      throw const StorageWriteException('考试日程已保存，但考试同步时间写入失败');
+    }
   }
 
   Future<void> clearAll() async {

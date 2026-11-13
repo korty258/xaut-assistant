@@ -10,11 +10,14 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    LegalService.debugWindowsWipeAction = null;
+    LegalService.resetForTesting();
+    AppCryptoService.resetForTesting();
   });
 
   tearDown(() {
-    LegalService.debugWindowsWipeAction = null;
+    LegalService.resetForTesting();
+    AppCryptoService.resetForTesting();
+    debugDefaultTargetPlatformOverride = null;
   });
 
   group('LegalService Compliance Tests', () {
@@ -202,6 +205,44 @@ void main() {
       expect(res.isFullyCleaned, isTrue);
       expect(res.masterKeyDestroyed, isTrue);
       expect(res.hasPendingColdStartWipe, isFalse);
+      expect(res.hasUnqueuedFailures, isFalse);
+    });
+
+    test('revokeAndClearAll() does NOT claim pending cold-start wipe when Android WebView clear fails', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      AppCryptoService.debugStorageDeleter = (key) async {};
+      LegalService.debugAndroidWebViewClearAction = () async => false;
+      SharedPreferences.setMockInitialValues({'foo': 'bar'});
+
+      final res = await LegalService.revokeAndClearAll();
+
+      expect(res.prefsCleared, isTrue);
+      expect(res.masterKeyDestroyed, isTrue);
+      expect(res.webviewCleaned, isFalse);
+      expect(res.hasPendingColdStartWipe, isFalse);
+      expect(res.hasUnqueuedFailures, isTrue);
+      expect(res.isFullyCleaned, isFalse);
+
+      final items = res.describeItems(isWindows: false);
+      final webviewItem = items.firstWhere((i) => i.label.contains('WebView'));
+      expect(webviewItem.isFailedUnqueued, isTrue);
+      expect(webviewItem.isQueued, isFalse);
+      expect(webviewItem.status, contains('未加入待清理队列'));
+    });
+
+    test('revokeAndClearAll() marks unqueued failure when prefs.clear() returns false or compensation flag write fails', () async {
+      AppCryptoService.debugStorageDeleter = (key) async => throw Exception('locked');
+      LegalService.debugPrefsClearAction = (_) async => false;
+      LegalService.debugPrefsBoolWriter = (_, _, _) async => false;
+      SharedPreferences.setMockInitialValues({'foo': 'bar'});
+
+      final res = await LegalService.revokeAndClearAll();
+
+      expect(res.prefsCleared, isFalse);
+      expect(res.masterKeyDestroyed, isFalse);
+      expect(res.masterKeyPendingQueued, isFalse);
+      expect(res.hasPendingColdStartWipe, isFalse);
+      expect(res.hasUnqueuedFailures, isTrue);
     });
   });
 }

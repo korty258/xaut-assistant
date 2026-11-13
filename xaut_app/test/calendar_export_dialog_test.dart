@@ -1,14 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/models/course.dart';
 import 'package:xaut_app/models/exam.dart';
 import 'package:xaut_app/providers/exams_provider.dart';
 import 'package:xaut_app/providers/schedule_provider.dart';
+import 'package:xaut_app/services/app_crypto_service.dart';
 import 'package:xaut_app/widgets/calendar_export_dialog.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    AppCryptoService.resetForTesting();
+    AppCryptoService.allowInMemoryTestKey = true;
+  });
+
+  tearDown(() {
+    AppCryptoService.resetForTesting();
+  });
 
   Widget buildTestApp({
     required ScheduleProvider scheduleProvider,
@@ -58,18 +70,20 @@ void main() {
     final examsProvider = ExamsProvider(nowProvider: () => DateTime(2026, 11, 2));
 
     // 预置课程数据但未设置开学日期
-    scheduleProvider.updateCourses([
-      const Course(
-        name: '大学物理',
-        teacher: '李老师',
-        room: '教3-101',
-        day: 1,
-        startSection: 1,
-        stepCount: 2,
-        weeks: [1, 2],
-        rawWeekStr: '1-2周',
-      ),
-    ]);
+    await tester.runAsync(() async {
+      await scheduleProvider.updateCourses([
+        const Course(
+          name: '大学物理',
+          teacher: '李老师',
+          room: '教3-101',
+          day: 1,
+          startSection: 1,
+          stepCount: 2,
+          weeks: [1, 2],
+          rawWeekStr: '1-2周',
+        ),
+      ]);
+    });
 
     await tester.pumpWidget(buildTestApp(
       scheduleProvider: scheduleProvider,
@@ -87,17 +101,19 @@ void main() {
     final scheduleProvider = ScheduleProvider(nowProvider: () => DateTime(2026, 11, 2));
     final examsProvider = ExamsProvider(nowProvider: () => DateTime(2026, 11, 2));
 
-    examsProvider.updateExams([
-      const ExamItem(
-        campus: '金花校区',
-        batch: '期末考',
-        courseCode: 'CS101',
-        courseName: 'C语言程序设计',
-        teacher: '张老师',
-        examTime: '2026-11-20 09:00~11:00',
-        room: '教2-202',
-      ),
-    ]);
+    await tester.runAsync(() async {
+      await examsProvider.updateExams([
+        const ExamItem(
+          campus: '金花校区',
+          batch: '期末考',
+          courseCode: 'CS101',
+          courseName: 'C语言程序设计',
+          teacher: '张老师',
+          examTime: '2026-11-20 09:00~11:00',
+          room: '教2-202',
+        ),
+      ]);
+    });
 
     await tester.pumpWidget(buildTestApp(
       scheduleProvider: scheduleProvider,

@@ -4,6 +4,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/course.dart';
 import 'app_crypto_service.dart';
 
+/// 本地存储写入失败异常（例如底层偏好设置返回 false 或写入被拒绝）
+class StorageWriteException implements Exception {
+  final String message;
+  const StorageWriteException(this.message);
+
+  @override
+  String toString() => 'StorageWriteException: $message';
+}
+
 class StorageService {
   static const String _keyCourses = 'xaut_cached_courses';
   static const String _keyCurrentWeek = 'xaut_current_week';
@@ -14,19 +23,52 @@ class StorageService {
   static const String _keySemesterStartDate = 'xaut_semester_start_date';
   static const String _keySemesterName = 'xaut_semester_name';
 
-  /// 保存课表
+  @visibleForTesting
+  static Future<bool> Function(
+    SharedPreferences prefs,
+    String key,
+    String value,
+  )? debugSyncTimeWriter;
+
+  @visibleForTesting
+  static void resetForTesting() {
+    debugSyncTimeWriter = null;
+  }
+
+  static Future<bool> _writeSyncTime(
+    SharedPreferences prefs,
+    String key,
+    DateTime time,
+  ) {
+    final iso = time.toIso8601String();
+    return debugSyncTimeWriter != null
+        ? debugSyncTimeWriter!(prefs, key, iso)
+        : prefs.setString(key, iso);
+  }
+
+  /// 保存课表（仅在密文写入成功后，按需更新课表同步时间）
   static Future<bool> saveCourses(
     List<Course> courses, {
     bool updateSyncTime = true,
+    DateTime? syncTime,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final jsonList = courses.map((c) => c.toJson()).toList();
     final jsonStr = jsonEncode(jsonList);
     final ok = await AppCryptoService.saveEncryptedString(prefs, _keyCourses, jsonStr);
-    if (ok && updateSyncTime) {
-      await prefs.setString(_keyLastSync, DateTime.now().toIso8601String());
+    if (!ok) return false;
+    if (updateSyncTime) {
+      final t = syncTime ?? DateTime.now();
+      return _writeSyncTime(prefs, _keyLastSync, t);
     }
-    return ok;
+    return true;
+  }
+
+  /// 保存课表上次同步时间
+  static Future<bool> saveCoursesSyncTime([DateTime? time]) async {
+    final prefs = await SharedPreferences.getInstance();
+    final t = time ?? DateTime.now();
+    return _writeSyncTime(prefs, _keyLastSync, t);
   }
 
   /// 加载课表（解密异常向上透出，避免将密钥损坏或密文篡改静默吞成无课状态）
@@ -118,7 +160,7 @@ class StorageService {
   static Future<bool> saveGradesSyncTime([DateTime? time]) async {
     final prefs = await SharedPreferences.getInstance();
     final t = time ?? DateTime.now();
-    return prefs.setString(keyLastGradesSync, t.toIso8601String());
+    return _writeSyncTime(prefs, keyLastGradesSync, t);
   }
 
   /// 获取成绩上次同步时间
@@ -133,7 +175,7 @@ class StorageService {
   static Future<bool> saveExamsSyncTime([DateTime? time]) async {
     final prefs = await SharedPreferences.getInstance();
     final t = time ?? DateTime.now();
-    return prefs.setString(keyLastExamsSync, t.toIso8601String());
+    return _writeSyncTime(prefs, keyLastExamsSync, t);
   }
 
   /// 获取考试日程上次同步时间
@@ -144,15 +186,13 @@ class StorageService {
     return DateTime.tryParse(timeStr);
   }
 
-  /// 清空本地课表缓存
+  /// 仅清空本地课表缓存与课表同步时间，保留成绩和考试模块缓存及其同步时间
   static Future<void> clearCourses() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyCourses);
     await prefs.remove(_keyLastSync);
     await prefs.remove(_keySemesterStartDate);
     await prefs.remove(_keySemesterName);
-    await prefs.remove(keyLastGradesSync);
-    await prefs.remove(keyLastExamsSync);
   }
 
   /// 彻底重置损坏的本地加密数据（销毁主密钥并清除所有业务缓存密文）
