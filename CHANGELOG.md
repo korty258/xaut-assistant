@@ -6,6 +6,23 @@
 
 ## [Unreleased]
 
+## [2.3.7] - 2026-11-13
+
+金花助手 `v2.3.7`（脱敏诊断摘要入口前移优化补丁版）发布！本版本优化了客户端脱敏诊断摘要的触发层级，将原本隐藏在「关于与法律条款」第 4 个标签页（「开源致谢」）最底部的诊断按钮大幅前移，用户现在可直接从主页面右上角「...」菜单一键查看诊断摘要，或在进入「关于与法律条款」时无需切换标签或滚动即可在底部直接操作。
+
+### UX Improvements
+- **一级菜单直达脱敏诊断摘要 (`DiagnosticsDialog`)**：
+  - 将诊断摘要弹窗抽离为共享组件 `DiagnosticsDialog`；
+  - 在课表、成绩、考试三大主页面的右上角「更多操作 (`...`)」菜单中新增「查看诊断摘要」入口，点击即可直接弹出并复制脱敏诊断报告。
+- **关于页底部常驻诊断与反馈入口 (`LegalGateScreen`)**：
+  - 将「查看并复制诊断摘要」与「复制开源仓库 / 问题反馈地址」按钮从「开源致谢」正文底部移至「关于与法律条款」常驻底栏，无需切换 Tab 或长距离滚动即可操作；
+  - 同步更新 `.github/ISSUE_TEMPLATE/bug_report.yml` 缺陷申报指引文案。
+
+### Tests
+- **组件交互测试增强 (`widget_test.dart`)**：
+  - 更新 `LegalGateScreen` 关于页测试，验证不切换「开源致谢」Tab 且不滚动即可在底部直接点击诊断摘要按钮；
+  - 新增 `ScheduleScreen` 右上角更多菜单直接打开诊断摘要弹窗的组件测试，Flutter 全量测试增至 **121 项**。
+
 ## [2.3.6] - 2026-11-13
 
 金花助手 `v2.3.6`（本地存储密码学 AAD 键名强绑定与安全加固正式版）发布！本版本将端侧 AES-256-GCM 密文信封升级至 `ENC:v2:`，把 `SharedPreferences` 存储键名作为 AEAD AAD（Additional Authenticated Data）参与完整性认证，彻底杜绝跨键密文替换风险，同时保持对存量 `ENC:v1:` 密文与旧版明文 JSON 的平滑自动升级兼容。
@@ -489,7 +506,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.6...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.7...HEAD
+[2.3.7]: https://github.com/korty258/xaut-assistant/compare/v2.3.6...v2.3.7
 [2.3.6]: https://github.com/korty258/xaut-assistant/compare/v2.3.5...v2.3.6
 [2.3.5]: https://github.com/korty258/xaut-assistant/compare/v2.3.4...v2.3.5
 [2.3.4]: https://github.com/korty258/xaut-assistant/compare/v2.3.3...v2.3.4

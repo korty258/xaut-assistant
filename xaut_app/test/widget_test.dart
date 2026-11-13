@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/main.dart';
 import 'package:xaut_app/models/course.dart';
+import 'package:xaut_app/providers/schedule_provider.dart';
 import 'package:xaut_app/screens/legal_gate_screen.dart';
-import 'package:xaut_app/widgets/course_detail_dialog.dart';
+import 'package:xaut_app/screens/schedule_screen.dart';
 import 'package:xaut_app/screens/webview_login_screen.dart';
+import 'package:xaut_app/services/app_crypto_service.dart';
+import 'package:xaut_app/widgets/course_detail_dialog.dart';
 
 void main() {
   setUp(() {
@@ -123,23 +127,49 @@ void main() {
     expect(find.text('开源致谢'), findsOneWidget);
     expect(find.text('开源许可库'), findsOneWidget);
 
+    // 诊断与问题反馈按钮在常驻底栏立即可见，无需切换 Tab 或滚动到底部
+    final diagBtn = find.text('查看并复制诊断摘要');
+    expect(diagBtn, findsOneWidget);
+    expect(find.text('复制开源仓库 / 问题反馈地址'), findsOneWidget);
+
+    await tester.tap(diagBtn);
+    await tester.pumpAndSettle();
+    expect(find.text('客户端脱敏诊断摘要'), findsOneWidget);
+    expect(find.text('复制到剪贴板'), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+
     // Tap '开源致谢' tab
     await tester.tap(find.text('开源致谢'));
     await tester.pump();
 
     final indexedStack = tester.widget<IndexedStack>(find.byType(IndexedStack));
     expect(indexedStack.index, equals(3));
-    final diagBtn = find.text('查看并复制诊断摘要');
-    expect(diagBtn, findsOneWidget);
-    expect(find.text('复制开源仓库 / 问题反馈地址'), findsOneWidget);
+    expect(find.text('打开全量开源组件许可证页面 (LicensePage)'), findsOneWidget);
+  });
 
-    // Scroll button into view inside SingleChildScrollView and tap
-    await tester.ensureVisible(diagBtn);
+  testWidgets('ScheduleScreen overflow menu provides direct access to diagnostics dialog', (WidgetTester tester) async {
+    AppCryptoService.allowInMemoryTestKey = true;
+    addTearDown(AppCryptoService.resetForTesting);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => ScheduleProvider(),
+        child: const MaterialApp(home: ScheduleScreen()),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
-    await tester.tap(diagBtn);
+
+    expect(find.text('查看诊断摘要'), findsOneWidget);
+    expect(find.text('关于与法律条款'), findsOneWidget);
+
+    await tester.tap(find.text('查看诊断摘要'));
     await tester.pumpAndSettle();
+
     expect(find.text('客户端脱敏诊断摘要'), findsOneWidget);
-    expect(find.text('复制到剪贴板'), findsOneWidget);
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
   });

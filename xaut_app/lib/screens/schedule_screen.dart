@@ -12,7 +12,7 @@ import '../widgets/schedule/weekday_header.dart';
 import '../widgets/schedule/section_timeline.dart';
 import '../widgets/schedule/schedule_day_column.dart';
 import 'webview_login_screen.dart';
-import 'legal_gate_screen.dart';
+import '../widgets/diagnostics_dialog.dart';
 
 /// 金花课表主页面 (支持多周左右翻页、动态双周/单双周并列分栏展示)
 class ScheduleScreen extends StatefulWidget {
@@ -238,10 +238,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 provider.toggleOnlyCurrentWeek();
               } else if (val == 'clear') {
                 _showClearScheduleDialog(context, provider);
-              } else if (val == 'about_legal') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: false)),
-                );
+              } else {
+                DiagnosticsDialog.handleSupportMenuSelection(context, val);
               }
             },
             itemBuilder: (context) => [
@@ -302,17 +300,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   ],
                 ),
               ),
-              const PopupMenuDivider(),
-              const PopupMenuItem(
-                value: 'about_legal',
-                child: Row(
-                  children: [
-                    Icon(Icons.policy_outlined, size: 18),
-                    SizedBox(width: 8),
-                    Text('关于与法律条款'),
-                  ],
-                ),
-              ),
+              ...DiagnosticsDialog.buildSupportMenuEntries(),
             ],
           ),
           const SizedBox(width: 4),
