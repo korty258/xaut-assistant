@@ -1,0 +1,60 @@
+name: 💡 功能建议与教务适配需求 (Feature Request)
+description: 提出新功能想法、交互优化建议，或反馈新的强智教务页面适配需求
+title: "[Feat]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢为金花助手提出改进建议！在提交前，请了解本项目的几项核心原则：
+        - **纯本地零后端**：所有教务数据仅保存在本地设备加密存储，不搭建任何云端同步/推送服务器。
+        - **合规红线**：遵循西理工教务实际规则（无考场座位号、全年固定作息无冬夏令时、学业成绩不支持 CSV/Excel/JSON 等结构化导出）。
+        - **非官方定位**：本项目为西安理工大学学生开发的非官方纯本地客户端。
+  - type: dropdown
+    id: category
+    attributes:
+      label: 建议类型 (Category)
+      description: 请选择最符合您建议的分类
+      options:
+        - 课表与日程体验
+        - 成绩与 GPA 演算
+        - 考试日程与日历导出 (.ics)
+        - 教务网页同步与页面适配
+        - 安全、隐私与本地备份
+        - 界面交互 / 跨端桌面体验
+        - 其他建议
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 适用平台 (Target Platform)
+      options:
+        - 全平台 (Android & Windows)
+        - 仅 Android
+        - 仅 Windows
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 使用场景与痛点 (Problem / Use Case)
+      description: 请描述您在日常使用中遇到什么不便，或希望解决什么具体问题？
+      placeholder: 例如：目前课表只能展示教务处同步的课程，希望能手动添加考研自习或实验补课日程……
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的实现方式 (Proposed Solution)
+      description: 您希望这个功能如何呈现或操作？如果有交互细节欢迎一并说明。
+      placeholder: 例如：在课表右上角增加“添加自定义日程”，支持填写名称、地点、周次与星期节次……
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 隐私与定位确认
+      options:
+        - label: 我已确认提交内容**未包含**个人学号、密码、Cookie 或真实成绩单截图等隐私信息
+          required: true
