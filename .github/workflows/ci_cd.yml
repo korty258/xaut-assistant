@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Verify Tag Matches pubspec & CHANGELOG
         if: startsWith(github.ref, 'refs/tags/v')
@@ -94,7 +94,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup Java 17
         uses: actions/setup-java@v5
@@ -207,7 +207,7 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -247,7 +247,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Download Android Artifact
         uses: actions/download-artifact@v8
