@@ -6,6 +6,22 @@
 
 ## [Unreleased]
 
+## [2.3.6] - 2026-11-13
+
+金花助手 `v2.3.6`（本地存储密码学 AAD 键名强绑定与安全加固正式版）发布！本版本将端侧 AES-256-GCM 密文信封升级至 `ENC:v2:`，把 `SharedPreferences` 存储键名作为 AEAD AAD（Additional Authenticated Data）参与完整性认证，彻底杜绝跨键密文替换风险，同时保持对存量 `ENC:v1:` 密文与旧版明文 JSON 的平滑自动升级兼容。
+
+### Security
+- **密文信封升级 `ENC:v2:` 与 AAD 键名强绑定 (`AppCryptoService`)**：
+  - `encrypt()` / `decrypt()` 支持可选 `associatedData`（AEAD AAD）参数，密文信封版本号升级为 `ENC:v2:`；
+  - `saveEncryptedString()` / `loadEncryptedString()` 自动将存储键名（`xaut.sp.v2:<key>`）绑定进 AES-256-GCM 认证标签计算，跨键迁移或替换密文时直接触发 AEAD 认证失败并抛出 `CryptoException`；
+  - **向下兼容与自动升级**：保留对历史 `ENC:v1:` 密文（无 AAD）及旧版明文 JSON 的读取兼容，并在读取时自动平滑升级重存为绑定当前键名的 `ENC:v2:` 密文；
+  - **严格拒绝未知密文版本**：遇到未知 `ENC:` 版本前缀（非 `ENC:v1:` / `ENC:v2:`）时显式抛出异常，坚决杜绝降级按明文透出。
+
+### Tests
+- **密码学与兼容性回归测试 (`app_crypto_service_test.dart`)**：
+  - 新增 5 项单元测试，覆盖 AAD 匹配/失配/缺失校验、空明文+AAD 加解密、SharedPreferences 跨键密文替换拦截、`ENC:v1:` 兼容解密与自动升级 `ENC:v2:`，以及未知 `ENC:` 前缀拒绝；
+  - Flutter 单元与组件测试用例总数扩充至 **120 项** 全绿通过。
+
 ## [2.3.5] - 2026-11-12
 
 金花助手 `v2.3.5`（西理工官方学业成绩与 GPA 算法对齐正式版）发布！本版本与西安理工大学教务处官方盖章《学生学业成绩表》进行全真逐项公式对账，彻底解决同门课程正考与补考/重修去重、补考及格官方 0 绩点保持、五级制 90/80/70/60 标准分换算以及官方加权均分分子规则，实现 App 端动态加权平均分、平均 GPA、总学分及课程门数与教务处官方成绩单 100% 精确一致。
@@ -473,7 +489,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.5...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.6...HEAD
+[2.3.6]: https://github.com/korty258/xaut-assistant/compare/v2.3.5...v2.3.6
 [2.3.5]: https://github.com/korty258/xaut-assistant/compare/v2.3.4...v2.3.5
 [2.3.4]: https://github.com/korty258/xaut-assistant/compare/v2.3.3...v2.3.4
 [2.3.3]: https://github.com/korty258/xaut-assistant/compare/v2.3.2...v2.3.3

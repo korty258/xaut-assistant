@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 import 'package:encrypt/encrypt.dart';
 import 'package:flutter/foundation.dart' hide Key;
@@ -27,7 +28,9 @@ class CryptoKeyException extends CryptoException {
 /// 用于对课表、成绩与绩点、考试安排等敏感学业数据执行落盘加密 (Encryption at Rest)。
 /// 采用 AEAD 模式 (AES-256-GCM)，自带 128 位防篡改 Auth Tag 与 96 位独立随机 Nonce。
 class AppCryptoService {
-  static const String envelopePrefix = 'ENC:v1:';
+  static const String envelopePrefixV1 = 'ENC:v1:';
+  static const String envelopePrefix = 'ENC:v2:';
+  static const String _envelopeHeaderPrefix = 'ENC:';
   static const String _storageKeyMaster = 'xaut_app_master_key_v1';
 
   static FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
@@ -157,48 +160,86 @@ class AppCryptoService {
     throw StateError('主密钥格式损坏 (长度非64位Hex，实际长度: ${keyHex.length})，拒绝覆盖');
   }
 
+  static Uint8List? _encodeAad(String? associatedData) {
+    if (associatedData == null || associatedData.isEmpty) {
+      return null;
+    }
+    return Uint8List.fromList(utf8.encode(associatedData));
+  }
+
+  static String _storageAadForKey(String key) => 'xaut.sp.v2:$key';
+
+  static ({IV iv, Encrypted encrypted}) _parseEnvelope(String payload) {
+    final parts = payload.split(':');
+    if (parts.length != 4 || parts[2].isEmpty || parts[3].isEmpty) {
+      throw const FormatException('Invalid encrypted envelope format');
+    }
+    return (
+      iv: IV.fromBase64(parts[2]),
+      encrypted: Encrypted.fromBase64(parts[3]),
+    );
+  }
+
   /// 使用 AES-256-GCM 对明文字符串进行动态加密并输出标准信封格式
-  /// 格式: `ENC:v1:<Nonce_Base64>:<CiphertextWithTag_Base64>`
-  static Future<String> encrypt(String plainText) async {
+  /// 格式: `ENC:v2:<Nonce_Base64>:<CiphertextWithTag_Base64>`
+  /// 可选传入 [associatedData] 作为 AEAD AAD（Additional Authenticated Data）参与完整性认证
+  static Future<String> encrypt(
+    String plainText, {
+    String? associatedData,
+  }) async {
     final key = await getMasterKey();
     final encrypter = Encrypter(AES(key, mode: AESMode.gcm));
     final iv = IV.fromSecureRandom(12); // GCM 标准 96 位 (12 字节) 独立 Nonce
-    final encrypted = encrypter.encrypt(plainText, iv: iv);
+    final encrypted = encrypter.encrypt(
+      plainText,
+      iv: iv,
+      associatedData: _encodeAad(associatedData),
+    );
     return '$envelopePrefix${iv.base64}:${encrypted.base64}';
   }
 
-  /// 对符合 `ENC:v1:<Nonce_Base64>:<CiphertextWithTag_Base64>` 规范的信封密文进行解密与完整性校验
-  /// 若密文遭单比特篡改或 Nonce 损坏，AEAD 认证标签校验直接抛出异常；若输入为旧版未加密明文，直接返回实现透明升级
-  static Future<String> decrypt(String payload) async {
-    if (!payload.startsWith(envelopePrefix)) {
+  /// 对 `ENC:v2:`（含 AAD 校验）与历史 `ENC:v1:`（无 AAD）信封密文进行解密与完整性校验
+  /// 若密文遭单比特篡改、Nonce 损坏或 AAD 不匹配，AEAD 认证标签校验直接抛出异常；
+  /// 若遇到未知 `ENC:` 版本前缀则拒绝降级透出；若输入为旧版未加密明文，直接返回实现透明升级
+  static Future<String> decrypt(
+    String payload, {
+    String? associatedData,
+  }) async {
+    final bool isV2 = payload.startsWith(envelopePrefix);
+    final bool isV1 = !isV2 && payload.startsWith(envelopePrefixV1);
+
+    if (!isV2 && !isV1) {
+      if (payload.startsWith(_envelopeHeaderPrefix)) {
+        throw const FormatException('Unsupported encrypted envelope version');
+      }
       return payload; // 旧版明文兼容模式
     }
 
-    final parts = payload.split(':');
-    if (parts.length != 4) {
-      throw const FormatException('Invalid encrypted envelope format');
-    }
-
-    final iv = IV.fromBase64(parts[2]);
-    final encrypted = Encrypted.fromBase64(parts[3]);
-
+    final parsed = _parseEnvelope(payload);
     final key = await getMasterKey();
     final encrypter = Encrypter(AES(key, mode: AESMode.gcm));
-    return encrypter.decrypt(encrypted, iv: iv);
+    return encrypter.decrypt(
+      parsed.encrypted,
+      iv: parsed.iv,
+      associatedData: isV2 ? _encodeAad(associatedData) : null,
+    );
   }
 
-  /// 封装 SharedPreferences 安全写入加密字符串
+  /// 封装 SharedPreferences 安全写入加密字符串（以键名绑定 AEAD AAD，防止跨键密文替换）
   static Future<bool> saveEncryptedString(
     SharedPreferences prefs,
     String key,
     String plainText,
   ) async {
-    final cipherText = await encrypt(plainText);
+    final cipherText = await encrypt(
+      plainText,
+      associatedData: _storageAadForKey(key),
+    );
     return prefs.setString(key, cipherText);
   }
 
   /// 封装 SharedPreferences 读取解密数据
-  /// 自动检测旧版明文格式，并在读取后后台异步自动将其升级转存为密文
+  /// 自动验证 AAD 键名绑定，并将历史 `ENC:v1:` 密文与旧版明文 JSON 平滑升级转存为 `ENC:v2:`
   static Future<String?> loadEncryptedString(
     SharedPreferences prefs,
     String key,
@@ -206,21 +247,32 @@ class AppCryptoService {
     final stored = prefs.getString(key);
     if (stored == null || stored.isEmpty) return null;
 
-    if (stored.startsWith(envelopePrefix)) {
+    if (stored.startsWith(_envelopeHeaderPrefix)) {
       try {
-        return await decrypt(stored);
+        final plain = await decrypt(
+          stored,
+          associatedData: _storageAadForKey(key),
+        );
+        if (stored.startsWith(envelopePrefixV1)) {
+          try {
+            await saveEncryptedString(prefs, key, plain);
+          } catch (_) {}
+        }
+        return plain;
+      } on CryptoKeyException {
+        rethrow;
       } catch (e) {
         debugPrint('AppCryptoService: Failed to decrypt $key: $e');
         throw CryptoException('本地数据解密失败 ($key): $e');
       }
     }
 
-    // 检测到存量旧版明文 JSON 数据：透明解析并自动异步重写为密文
+    // 检测到存量旧版明文 JSON 数据：透明解析并自动升级重写为 ENC:v2: 密文
     final trimmed = stored.trim();
     if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-      encrypt(stored).then((encrypted) {
-        prefs.setString(key, encrypted);
-      }).catchError((_) {});
+      try {
+        await saveEncryptedString(prefs, key, stored);
+      } catch (_) {}
       return stored;
     }
 

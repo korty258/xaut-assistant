@@ -21,11 +21,12 @@ void main() {
   });
 
   group('AppCryptoService AES-256-GCM Envelope Encryption Tests', () {
-    test('encrypt() returns standard ENC:v1: envelope and obscures plaintext', () async {
+    test('encrypt() returns standard ENC:v2: envelope and obscures plaintext', () async {
       const plain = '高等数学 (线性代数与微积分) - 成绩 98 分';
       final cipher = await AppCryptoService.encrypt(plain);
 
       expect(cipher.startsWith(AppCryptoService.envelopePrefix), isTrue);
+      expect(cipher.startsWith('ENC:v2:'), isTrue);
       expect(cipher.contains('高等数学'), isFalse);
       expect(cipher.contains('98'), isFalse);
 
@@ -102,10 +103,96 @@ void main() {
       // 等待异步加密保存完成
       await Future.delayed(const Duration(milliseconds: 50));
 
-      // 验证底层已被自动升级转存为 ENC:v1: 密文
+      // 验证底层已被自动升级转存为 ENC:v2: 密文
       final upgradedRaw = prefs.getString(testKey);
       expect(upgradedRaw!.startsWith(AppCryptoService.envelopePrefix), isTrue);
       expect(upgradedRaw.contains('马克思主义原理'), isFalse);
+    });
+
+    test('encrypt/decrypt with AAD succeeds on match and fails on mismatch or missing AAD', () async {
+      const plain = '保密课表数据';
+      final cipher = await AppCryptoService.encrypt(plain, associatedData: 'scope:courses');
+
+      expect(
+        await AppCryptoService.decrypt(cipher, associatedData: 'scope:courses'),
+        equals(plain),
+      );
+      await expectLater(
+        AppCryptoService.decrypt(cipher, associatedData: 'scope:grades'),
+        throwsA(anything),
+      );
+      await expectLater(
+        AppCryptoService.decrypt(cipher),
+        throwsA(anything),
+      );
+    });
+
+    test('encrypt/decrypt supports empty plaintext with AAD', () async {
+      final cipher = await AppCryptoService.encrypt('', associatedData: 'empty_aad');
+      expect(cipher.startsWith(AppCryptoService.envelopePrefix), isTrue);
+      expect(
+        await AppCryptoService.decrypt(cipher, associatedData: 'empty_aad'),
+        equals(''),
+      );
+    });
+
+    test('Cross-key ciphertext substitution in SharedPreferences fails AAD check', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await AppCryptoService.saveEncryptedString(prefs, 'xaut_cached_courses', '[{"name":"编译原理"}]');
+
+      final coursesCipher = prefs.getString('xaut_cached_courses')!;
+      // 模拟攻击者或程序缺陷把课程密文原样复制到成绩存储键下
+      await prefs.setString('xaut_cached_grades', coursesCipher);
+
+      await expectLater(
+        AppCryptoService.loadEncryptedString(prefs, 'xaut_cached_grades'),
+        throwsA(isA<CryptoException>()),
+      );
+    });
+
+    test('Legacy ENC:v1: ciphertext decrypts cleanly and auto-upgrades to ENC:v2: with key AAD', () async {
+      final prefs = await SharedPreferences.getInstance();
+      const keyName = 'xaut_cached_exams';
+      const plainJson = '[{"courseName":"数值分析"}]';
+
+      // 使用当前主密钥按旧版 ENC:v1:（无 AAD）格式构造密文
+      final key = await AppCryptoService.getMasterKey();
+      final iv = enc.IV.fromSecureRandom(12);
+      final encryptedV1 = enc.Encrypter(enc.AES(key, mode: enc.AESMode.gcm)).encrypt(plainJson, iv: iv);
+      final v1Envelope = '${AppCryptoService.envelopePrefixV1}${iv.base64}:${encryptedV1.base64}';
+
+      await prefs.setString(keyName, v1Envelope);
+
+      final loaded = await AppCryptoService.loadEncryptedString(prefs, keyName);
+      expect(loaded, equals(plainJson));
+
+      // 验证读取后底层已被自动升级为 ENC:v2:
+      final upgraded = prefs.getString(keyName)!;
+      expect(upgraded.startsWith(AppCryptoService.envelopePrefix), isTrue);
+      expect(upgraded, isNot(equals(v1Envelope)));
+
+      // 验证升级后的密文已强绑定 keyName AAD（跨键拷贝将拒绝解密）
+      await prefs.setString('xaut_cached_grades', upgraded);
+      await expectLater(
+        AppCryptoService.loadEncryptedString(prefs, 'xaut_cached_grades'),
+        throwsA(isA<CryptoException>()),
+      );
+    });
+
+    test('Unknown ENC: version prefix is rejected instead of returned as plaintext', () async {
+      final prefs = await SharedPreferences.getInstance();
+      const unknownPayload = 'ENC:v99:MDEyMzQ1Njc4OTAx:Y2lwaGVydGV4dA==';
+
+      await expectLater(
+        AppCryptoService.decrypt(unknownPayload),
+        throwsA(isA<FormatException>()),
+      );
+
+      await prefs.setString('xaut_cached_courses', unknownPayload);
+      await expectLater(
+        AppCryptoService.loadEncryptedString(prefs, 'xaut_cached_courses'),
+        throwsA(isA<CryptoException>()),
+      );
     });
 
     test('loadEncryptedString() throws CryptoException when envelope decryption fails', () async {
