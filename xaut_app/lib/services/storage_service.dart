@@ -7,7 +7,18 @@ import 'app_crypto_service.dart';
 /// 本地存储写入失败异常（例如底层偏好设置返回 false 或写入被拒绝）
 class StorageWriteException implements Exception {
   final String message;
-  const StorageWriteException(this.message);
+
+  /// 业务主数据是否已成功加密落盘并更新内存展示，仅模块同步时间未能写入
+  final bool dataSaved;
+
+  /// 当 [dataSaved] 为 true 时记录本次待写入的同步时间，供上层单独重试
+  final DateTime? pendingSyncTime;
+
+  const StorageWriteException(
+    this.message, {
+    this.dataSaved = false,
+    this.pendingSyncTime,
+  });
 
   @override
   String toString() => 'StorageWriteException: $message';

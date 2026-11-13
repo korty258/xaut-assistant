@@ -6,6 +6,23 @@
 
 ## [Unreleased]
 
+## [2.3.9-rc2] - 2026-11-13
+
+金花助手 `v2.3.9-rc2`（候选发布版 · 局部同步失败建模、时间戳重试恢复与全量空数据单轮写入去重）！本候选版本响应 `v2.3.9-rc1` 专项审查反馈，进一步消除部分成功状态下的文案歧义与全量空数据分支重复落盘风险。
+
+### Fixed
+- **部分成功状态显式建模与同步时间重试 (`StorageWriteException`、`Providers` & `WebViewSyncCoordinator`)**：
+  - 在 `StorageWriteException` 中新增 `dataSaved` 与 `pendingSyncTime` 字段，严格区分“主数据写盘失败（全保留）”与“主数据已保存并更新界面、仅同步时间写入失败（部分成功）”；
+  - 三端 Provider（`ScheduleProvider`、`GradesProvider`、`ExamsProvider`）新增 `retrySaveSyncTime()` 方法，支持仅补写失败的同步时间戳而无需重新抓取教务；
+  - `WebViewSyncCoordinator` 单模块弹窗与 `syncAll()` 摘要行如实区分局部成功提示文案（不再误称“未覆盖界面展示”或“已保留原数据”），并在界面直接提供「重试写入时间」操作。
+- **消除全量空数据分支重复清空 (`WebViewSyncCoordinator.syncAll`)**：
+  - 将原先全量空数据路径的两轮独立写入合并为单轮逐模块持久化；持久化完成后仅在全部 `empty` 且全无错时弹出简洁空数据对话框，彻底避免部分失败场景下二次清空覆盖首次错误信息。
+
+### Tests
+- **补强局部成功 UI、重试恢复与单轮清空断言 (`storage_lifecycle_smoke_test.dart`)**：
+  - 完善场景 5b 断言：同步时间返回 `false` 时验证新数据与 UI 已刷新、同步时间保留旧值，并验证 `retrySaveSyncTime()` 可恢复更新；
+  - 新增场景 6（单模块同步部分成功弹窗文案精确性与点击「重试写入时间」恢复）与场景 7（全量空数据即使出现局部失败也严格只写盘一轮、不重复清空并支持就地重试）。
+
 ## [2.3.9-rc1] - 2026-11-13
 
 金花助手 `v2.3.9-rc1`（候选发布版 · 本地持久化事务隔离与撤回诚实反馈加固）！本候选版本聚焦底层存储生命周期一致性、权限撤回补偿准确性与跨层集成冒烟覆盖，为后续 `v2.4.0` 新功能演进打牢可靠性基线。
@@ -541,7 +558,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc1...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc2...HEAD
+[2.3.9-rc2]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc1...v2.3.9-rc2
 [2.3.9-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.3.8...v2.3.9-rc1
 [2.3.8]: https://github.com/korty258/xaut-assistant/compare/v2.3.7...v2.3.8
 [2.3.7]: https://github.com/korty258/xaut-assistant/compare/v2.3.6...v2.3.7

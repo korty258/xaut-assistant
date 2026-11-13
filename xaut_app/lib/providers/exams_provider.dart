@@ -135,8 +135,10 @@ class ExamsProvider extends ChangeNotifier {
     _hasDecryptionError = false;
 
     bool timeOk = true;
+    DateTime? attemptedSyncTime;
     if (updateSyncTime) {
       final t = _nowProvider();
+      attemptedSyncTime = t;
       timeOk = await StorageService.saveExamsSyncTime(t);
       if (timeOk) {
         _lastSyncTime = t;
@@ -145,8 +147,23 @@ class ExamsProvider extends ChangeNotifier {
     notifyListeners();
 
     if (!timeOk) {
-      throw const StorageWriteException('考试日程已保存，但考试同步时间写入失败');
+      throw StorageWriteException(
+        '考试日程已保存，但考试同步时间写入失败',
+        dataSaved: true,
+        pendingSyncTime: attemptedSyncTime,
+      );
     }
+  }
+
+  /// 仅重试持久化考试同步时间（用于业务数据已落盘但时间戳写入失败的局部恢复）
+  Future<bool> retrySaveSyncTime([DateTime? time]) async {
+    final syncTime = time ?? _nowProvider();
+    final timeOk = await StorageService.saveExamsSyncTime(syncTime);
+    if (timeOk) {
+      _lastSyncTime = syncTime;
+      notifyListeners();
+    }
+    return timeOk;
   }
 
   Future<void> clearAll() async {

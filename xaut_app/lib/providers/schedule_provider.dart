@@ -527,8 +527,23 @@ class ScheduleProvider extends ChangeNotifier {
     notifyListeners();
 
     if (!timeOk) {
-      throw const StorageWriteException('课表数据已保存，但课表同步时间写入失败');
+      throw StorageWriteException(
+        '课表数据已保存，但课表同步时间写入失败',
+        dataSaved: true,
+        pendingSyncTime: syncTime,
+      );
     }
+  }
+
+  /// 仅重试持久化课表同步时间（用于业务数据已落盘但时间戳写入失败的局部恢复）
+  Future<bool> retrySaveSyncTime([DateTime? time]) async {
+    final syncTime = time ?? _nowProvider();
+    final timeOk = await StorageService.saveCoursesSyncTime(syncTime);
+    if (timeOk) {
+      _lastSyncTime = syncTime;
+      notifyListeners();
+    }
+    return timeOk;
   }
 
   /// 获取指定星期和周次的课程列表
