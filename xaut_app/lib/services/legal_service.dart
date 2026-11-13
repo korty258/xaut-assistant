@@ -12,7 +12,7 @@ import 'app_crypto_service.dart';
 /// 文本内容与 assets/legal/*.md 严格对应。
 class LegalService {
   /// 当前客户端对外统一发布版本号
-  static const String appVersion = 'v2.3.8';
+  static const String appVersion = 'v2.3.9-rc1';
 
   /// 当前合规文本版本。当协议有实质性变更时必须递增此常量，
   /// 系统检测到本地记录与该版本不一致时会自动重新唤起同意页面。
@@ -26,6 +26,27 @@ class LegalService {
 
   @visibleForTesting
   static Future<bool> Function()? debugWindowsWipeAction;
+
+  @visibleForTesting
+  static Future<bool> Function()? debugAndroidWebViewClearAction;
+
+  @visibleForTesting
+  static Future<bool> Function(SharedPreferences prefs)? debugPrefsClearAction;
+
+  @visibleForTesting
+  static Future<bool> Function(
+    SharedPreferences prefs,
+    String key,
+    bool value,
+  )? debugPrefsBoolWriter;
+
+  @visibleForTesting
+  static void resetForTesting() {
+    debugWindowsWipeAction = null;
+    debugAndroidWebViewClearAction = null;
+    debugPrefsClearAction = null;
+    debugPrefsBoolWriter = null;
+  }
 
   /// 注册第三方开源许可证，使 Flutter showLicensePage 能完整展示 Dawn-Course、NJUST-JWC-Enhance 等致谢
   static void registerCustomLicenses() {
@@ -217,39 +238,58 @@ class LegalService {
   /// 同时执行防御性加固：清除内嵌 WebView 登录会话 Cookie，杜绝凭据残留。
   static Future<RevokeCleanupResult> revokeAndClearAll() async {
     final prefs = await SharedPreferences.getInstance();
-    final prefsCleared = await prefs.clear();
+    bool prefsCleared = false;
+    try {
+      prefsCleared = debugPrefsClearAction != null
+          ? await debugPrefsClearAction!(prefs)
+          : await prefs.clear();
+    } catch (_) {
+      prefsCleared = false;
+    }
 
     // 密码学粉碎 (Crypto-Shredding)：销毁主加密密钥，确保残留磁盘密文彻底不可逆失效
     final masterKeyDestroyed = await AppCryptoService.destroyMasterKey();
+    bool masterKeyPendingQueued = false;
     if (!masterKeyDestroyed) {
-      await prefs.setBool(pendingMasterKeyWipeKey, true);
+      try {
+        masterKeyPendingQueued = debugPrefsBoolWriter != null
+            ? await debugPrefsBoolWriter!(prefs, pendingMasterKeyWipeKey, true)
+            : await prefs.setBool(pendingMasterKeyWipeKey, true);
+      } catch (_) {
+        masterKeyPendingQueued = false;
+      }
     }
 
     bool webviewCleaned = true;
     bool windowsDirsCleaned = true;
+    bool windowsPendingQueued = false;
 
     // 纵深防御加固：清除 Android/移动端 WebView 登录会话 Cookie 与 Windows 本地缓存
     try {
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-        // 优先通过 Android 原生 MethodChannel 调用 WebStorage.deleteAllData()、WebViewDatabase 与动态缓存彻底清除
-        try {
-          const platformChannel = MethodChannel('io.github.korty258.jinhua_assistant/platform');
-          await platformChannel.invokeMethod('clearWebViewData');
-          webviewCleaned = true;
-        } catch (e) {
-          debugPrint('Android native clearWebViewData failed or running in test: $e');
-          // 降级兜底：通过 webview_flutter 官方 CookieManager 清除
+        if (debugAndroidWebViewClearAction != null) {
+          webviewCleaned = await debugAndroidWebViewClearAction!();
+        } else {
+          // 优先通过 Android 原生 MethodChannel 调用 WebStorage.deleteAllData()、WebViewDatabase 与动态缓存彻底清除
           try {
-            final cookieManager = WebViewCookieManager();
-            await cookieManager.clearCookies();
+            const platformChannel = MethodChannel('io.github.korty258.jinhua_assistant/platform');
+            await platformChannel.invokeMethod('clearWebViewData');
             webviewCleaned = true;
           } catch (e) {
-            if (e is MissingPluginException || e is AssertionError || e is UnimplementedError) {
-              // 纯单测环境无原生 Android WebView 宿主通道
+            debugPrint('Android native clearWebViewData failed or running in test: $e');
+            // 降级兜底：通过 webview_flutter 官方 CookieManager 清除
+            try {
+              final cookieManager = WebViewCookieManager();
+              await cookieManager.clearCookies();
               webviewCleaned = true;
-            } else {
-              debugPrint('Android clearCookies failed: $e');
-              webviewCleaned = false;
+            } catch (e) {
+              if (e is MissingPluginException || e is AssertionError || e is UnimplementedError) {
+                // 纯单测环境无原生 Android WebView 宿主通道
+                webviewCleaned = true;
+              } else {
+                debugPrint('Android clearCookies failed: $e');
+                webviewCleaned = false;
+              }
             }
           }
         }
@@ -257,7 +297,13 @@ class LegalService {
         windowsDirsCleaned = await _wipeWindowsDirectories();
         webviewCleaned = windowsDirsCleaned;
         if (!windowsDirsCleaned) {
-          await prefs.setBool(pendingWindowsWipeKey, true);
+          try {
+            windowsPendingQueued = debugPrefsBoolWriter != null
+                ? await debugPrefsBoolWriter!(prefs, pendingWindowsWipeKey, true)
+                : await prefs.setBool(pendingWindowsWipeKey, true);
+          } catch (_) {
+            windowsPendingQueued = false;
+          }
         }
       }
     } catch (_) {
@@ -269,15 +315,13 @@ class LegalService {
       }
     }
 
-    final hasPendingColdStartWipe = !masterKeyDestroyed ||
-        (!windowsDirsCleaned && !kIsWeb && defaultTargetPlatform == TargetPlatform.windows);
-
     return RevokeCleanupResult(
       prefsCleared: prefsCleared,
       masterKeyDestroyed: masterKeyDestroyed,
       webviewCleaned: webviewCleaned,
       windowsDirsCleaned: windowsDirsCleaned,
-      hasPendingColdStartWipe: hasPendingColdStartWipe,
+      masterKeyPendingQueued: masterKeyPendingQueued,
+      windowsPendingQueued: windowsPendingQueued,
     );
   }
 }
@@ -288,15 +332,28 @@ class RevokeCleanupResult {
   final bool masterKeyDestroyed;
   final bool webviewCleaned;
   final bool windowsDirsCleaned;
-  final bool hasPendingColdStartWipe;
+  final bool masterKeyPendingQueued;
+  final bool windowsPendingQueued;
 
   const RevokeCleanupResult({
     required this.prefsCleared,
     required this.masterKeyDestroyed,
     required this.webviewCleaned,
     required this.windowsDirsCleaned,
-    required this.hasPendingColdStartWipe,
+    this.masterKeyPendingQueued = false,
+    this.windowsPendingQueued = false,
   });
+
+  /// 是否有项目实际写入了下次冷启动补偿擦除队列
+  bool get hasPendingColdStartWipe =>
+      masterKeyPendingQueued || windowsPendingQueued;
+
+  /// 是否存在未能清理且未写入补偿队列的失败项（需人工处理或重试）
+  bool get hasUnqueuedFailures =>
+      !prefsCleared ||
+      (!masterKeyDestroyed && !masterKeyPendingQueued) ||
+      (!windowsDirsCleaned && !windowsPendingQueued) ||
+      (!webviewCleaned && !windowsPendingQueued);
 
   bool get isFullyCleaned =>
       prefsCleared &&
@@ -304,4 +361,53 @@ class RevokeCleanupResult {
       webviewCleaned &&
       windowsDirsCleaned &&
       !hasPendingColdStartWipe;
+
+  /// 按主密钥、Preferences、WebView、Windows 目录分别返回状态说明
+  List<({String label, String status, bool isFailedUnqueued, bool isQueued})>
+      describeItems({required bool isWindows}) {
+    return [
+      (
+        label: '主加密密钥',
+        status: masterKeyDestroyed
+            ? '已销毁'
+            : (masterKeyPendingQueued
+                ? '已加入待清理队列（下次启动补偿擦除）'
+                : '销毁失败（未加入待清理队列）'),
+        isFailedUnqueued: !masterKeyDestroyed && !masterKeyPendingQueued,
+        isQueued: !masterKeyDestroyed && masterKeyPendingQueued,
+      ),
+      (
+        label: '本地偏好设置 (Preferences)',
+        status: prefsCleared ? '已清空' : '清理失败（未加入待清理队列）',
+        isFailedUnqueued: !prefsCleared,
+        isQueued: false,
+      ),
+      (
+        label: 'WebView 会话与缓存',
+        status: isWindows
+            ? (windowsDirsCleaned
+                ? '已随 Windows 目录清除'
+                : (windowsPendingQueued
+                    ? '已加入待清理队列（随 Windows 目录于下次启动补偿）'
+                    : '清除失败（未加入待清理队列）'))
+            : (webviewCleaned ? '已清除' : '清除失败（未加入待清理队列）'),
+        isFailedUnqueued: isWindows
+            ? (!windowsDirsCleaned && !windowsPendingQueued)
+            : !webviewCleaned,
+        isQueued: isWindows && !windowsDirsCleaned && windowsPendingQueued,
+      ),
+      (
+        label: 'Windows 本地缓存目录',
+        status: isWindows
+            ? (windowsDirsCleaned
+                ? '已清除'
+                : (windowsPendingQueued
+                    ? '已加入待清理队列（下次启动补偿擦除）'
+                    : '清除失败（未加入待清理队列）'))
+            : '不适用当前平台',
+        isFailedUnqueued: isWindows && !windowsDirsCleaned && !windowsPendingQueued,
+        isQueued: isWindows && !windowsDirsCleaned && windowsPendingQueued,
+      ),
+    ];
+  }
 }

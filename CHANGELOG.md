@@ -6,6 +6,25 @@
 
 ## [Unreleased]
 
+## [2.3.9-rc1] - 2026-11-13
+
+金花助手 `v2.3.9-rc1`（候选发布版 · 本地持久化事务隔离与撤回诚实反馈加固）！本候选版本聚焦底层存储生命周期一致性、权限撤回补偿准确性与跨层集成冒烟覆盖，为后续 `v2.4.0` 新功能演进打牢可靠性基线。
+
+### Fixed
+- **单模块清空边界隔离 (`StorageService.clearCourses`)**：
+  - 修复执行「清空课表数据」时连带删除 `keyLastGradesSync` 与 `keyLastExamsSync` 导致成绩/考试同步时间丢失的问题；现在仅清理课表及课表学期上下文，全量清理保持仅在 `resetCorruptedData()` 与 `revokeAndClearAll()` 中触发。
+- **撤回清理结果与冷启动补偿提示严格对齐 (`LegalService` & `LegalGateScreen`)**：
+  - 在 `RevokeCleanupResult` 中按主密钥、Preferences、WebView 与 Windows 目录拆分反馈真实状态，并准确记录 `masterKeyPendingQueued` 与 `windowsPendingQueued`；
+  - 仅对真正写入冷启动补偿队列的项目承诺“下次启动自动补偿擦除”；对 Android WebView 清理失败、`prefs.clear()` 失败或补偿标记写盘失败等未入队项，弹窗按项如实披露结果并提供「重试清理」与系统手动清理指引。
+- **三端 Provider 持久化原子边界 (`ScheduleProvider`、`GradesProvider`、`ExamsProvider` & `WebViewSyncCoordinator`)**：
+  - 统一升级为“先加密写入磁盘并校验返回值 `== true`（以及同步时间写入成功），再原子提交内存状态与刷新 `notifyListeners()`”；
+  - 磁盘返回 `false` 或安全存储抛出异常时完整保留原内存数据、原筛选条件与原同步时间并向上抛出 `StorageWriteException` / 底层异常，在 `WebViewSyncCoordinator` 中按模块隔离捕获并向用户如实反馈。
+
+### Tests
+- **补齐 P1 关键跨层集成冒烟测试 (`storage_lifecycle_smoke_test.dart` & 回归用例)**：
+  - 新增并覆盖 5 项全链路生命周期冒烟测试：旧版明文与 `ENC:v1:` 升级至 `ENC:v2:` 后模拟重启恢复、安全存储故障保留旧数据、UI 清空课表后重启不影响成绩/考试同步时间、撤回失败诚实弹窗/补偿队列一致性，以及写入返回 `false` 或部分写入失败时不同步更新界面与同步时间；
+  - 补充 `legal_service_test.dart` 对 Android WebView 失败与 `prefs.clear() == false` 边界的断言，并修正 `diagnostics_service_test.dart` 单模块清空期望。
+
 ## [2.3.8] - 2026-11-13
 
 金花助手 `v2.3.8`（脱敏诊断弹窗结构化 UI 重构补丁版）发布！本版本彻底改善客户端内查看诊断摘要的阅读体验，将原先弹窗内直接展示的原始 Markdown 源码重构为分段式 Material 3 原生结构化卡片与状态徽章，同时在「复制到剪贴板」时继续保留完整脱敏 Markdown 报告以便一键粘贴提交 GitHub Issue。
@@ -522,7 +541,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.8...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc1...HEAD
+[2.3.9-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.3.8...v2.3.9-rc1
 [2.3.8]: https://github.com/korty258/xaut-assistant/compare/v2.3.7...v2.3.8
 [2.3.7]: https://github.com/korty258/xaut-assistant/compare/v2.3.6...v2.3.7
 [2.3.6]: https://github.com/korty258/xaut-assistant/compare/v2.3.5...v2.3.6

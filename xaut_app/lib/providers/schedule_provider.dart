@@ -507,14 +507,28 @@ class ScheduleProvider extends ChangeNotifier {
     await setOnlyCurrentWeek(!_onlyCurrentWeek);
   }
 
-  /// 导入并覆盖当前课表
+  /// 导入并覆盖当前课表（先校验加密写入结果，再提交内存状态与同步时间）
   Future<void> updateCourses(List<Course> newCourses) async {
-    _courses = _deduplicateCourses(newCourses);
+    final deduped = _deduplicateCourses(newCourses);
+    final ok = await StorageService.saveCourses(deduped, updateSyncTime: false);
+    if (!ok) {
+      throw const StorageWriteException('课表数据写入本地存储失败，已保留原数据');
+    }
+
+    _courses = deduped;
     _hasDecryptionError = false;
     _recalculateMaxWeeks(_currentWeek);
-    _lastSyncTime = _nowProvider();
+
+    final syncTime = _nowProvider();
+    final timeOk = await StorageService.saveCoursesSyncTime(syncTime);
+    if (timeOk) {
+      _lastSyncTime = syncTime;
+    }
     notifyListeners();
-    await StorageService.saveCourses(_courses);
+
+    if (!timeOk) {
+      throw const StorageWriteException('课表数据已保存，但课表同步时间写入失败');
+    }
   }
 
   /// 获取指定星期和周次的课程列表

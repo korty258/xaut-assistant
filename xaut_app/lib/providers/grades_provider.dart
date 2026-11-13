@@ -10,6 +10,8 @@ class GradesProvider extends ChangeNotifier {
   static const String _keyGrades = 'xaut_cached_grades';
   static const String _legacyKeySummary = 'xaut_cached_grade_summary';
 
+  final DateTime Function() _nowProvider;
+
   List<GradeItem> _grades = [];
   String _selectedSemester = '全部';
   bool _isLoading = true;
@@ -46,7 +48,8 @@ class GradesProvider extends ChangeNotifier {
     return calculateSummary(_grades);
   }
 
-  GradesProvider() {
+  GradesProvider({DateTime Function()? nowProvider})
+      : _nowProvider = nowProvider ?? DateTime.now {
     _init();
   }
 
@@ -84,25 +87,37 @@ class GradesProvider extends ChangeNotifier {
     List<GradeItem> grades, {
     bool updateSyncTime = true,
   }) async {
-    _grades = grades;
+    final candidateGrades = List<GradeItem>.from(grades);
+    final prefs = await SharedPreferences.getInstance();
+    final ok = await AppCryptoService.saveEncryptedString(
+      prefs,
+      _keyGrades,
+      jsonEncode(candidateGrades.map((g) => g.toJson()).toList()),
+    );
+    if (!ok) {
+      throw const StorageWriteException('成绩数据写入本地存储失败，已保留原数据');
+    }
+
+    _grades = candidateGrades;
     _hasDecryptionError = false;
     // 若当前选中的学期在新数据中已不存在，自动回退至「全部」
     if (_selectedSemester != '全部' && !availableSemesters.contains(_selectedSemester)) {
       _selectedSemester = '全部';
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final ok = await AppCryptoService.saveEncryptedString(
-      prefs,
-      _keyGrades,
-      jsonEncode(_grades.map((g) => g.toJson()).toList()),
-    );
-    if (ok && updateSyncTime) {
-      final now = DateTime.now();
-      await StorageService.saveGradesSyncTime(now);
-      _lastSyncTime = now;
+    bool timeOk = true;
+    if (updateSyncTime) {
+      final now = _nowProvider();
+      timeOk = await StorageService.saveGradesSyncTime(now);
+      if (timeOk) {
+        _lastSyncTime = now;
+      }
     }
     notifyListeners();
+
+    if (!timeOk) {
+      throw const StorageWriteException('成绩数据已保存，但成绩同步时间写入失败');
+    }
   }
 
   /// 精确统计总学分、加权平均分与平均绩点（同时兼容百分制、五级制「优/良/中/及格」与二级制「合格/通过」）
