@@ -9,6 +9,8 @@ import 'package:xaut_app/screens/legal_gate_screen.dart';
 import 'package:xaut_app/screens/schedule_screen.dart';
 import 'package:xaut_app/screens/webview_login_screen.dart';
 import 'package:xaut_app/services/app_crypto_service.dart';
+import 'package:xaut_app/services/diagnostics_service.dart';
+import 'package:xaut_app/services/parser_service.dart';
 import 'package:xaut_app/widgets/course_detail_dialog.dart';
 
 void main() {
@@ -135,6 +137,10 @@ void main() {
     await tester.tap(diagBtn);
     await tester.pumpAndSettle();
     expect(find.text('客户端脱敏诊断摘要'), findsOneWidget);
+    expect(find.text('运行环境'), findsOneWidget);
+    expect(find.text('模块本地同步时间'), findsOneWidget);
+    expect(find.text('最近一次教务同步遥测'), findsOneWidget);
+    expect(find.textContaining('### 金花助手'), findsNothing);
     expect(find.text('复制到剪贴板'), findsOneWidget);
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
@@ -150,7 +156,19 @@ void main() {
 
   testWidgets('ScheduleScreen overflow menu provides direct access to diagnostics dialog', (WidgetTester tester) async {
     AppCryptoService.allowInMemoryTestKey = true;
-    addTearDown(AppCryptoService.resetForTesting);
+    addTearDown(() {
+      AppCryptoService.resetForTesting();
+      DiagnosticsService.resetForTesting();
+    });
+
+    DiagnosticsService.recordSyncEvent(
+      triggerMode: 'full_sync',
+      durationMs: 1280,
+      coursesStatus: SyncModuleStatus.ok,
+      gradesStatus: SyncModuleStatus.error,
+      examsStatus: SyncModuleStatus.empty,
+      gradesError: const FormatException('unexpected table markup'),
+    );
 
     await tester.pumpWidget(
       ChangeNotifierProvider(
@@ -170,6 +188,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('客户端脱敏诊断摘要'), findsOneWidget);
+    expect(find.text('正常 (ok)'), findsOneWidget);
+    expect(find.text('异常 (error)'), findsOneWidget);
+    expect(find.text('无数据 (empty)'), findsOneWidget);
+    expect(find.textContaining('FormatException'), findsOneWidget);
+    expect(find.textContaining('### 金花助手'), findsNothing);
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
   });
