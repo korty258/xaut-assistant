@@ -28,7 +28,8 @@ void main() {
       expect(cipher.startsWith(AppCryptoService.envelopePrefix), isTrue);
       expect(cipher.startsWith('ENC:v2:'), isTrue);
       expect(cipher.contains('高等数学'), isFalse);
-      expect(cipher.contains('98'), isFalse);
+      expect(cipher.contains('线性代数'), isFalse);
+      expect(cipher.contains('成绩 98 分'), isFalse);
 
       final decrypted = await AppCryptoService.decrypt(cipher);
       expect(decrypted, equals(plain));

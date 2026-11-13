@@ -5,8 +5,31 @@ import '../../providers/grades_provider.dart';
 import '../../providers/exams_provider.dart';
 import '../../services/diagnostics_service.dart';
 import '../../services/parser_service.dart';
+import '../../services/storage_service.dart';
 import 'webview_constants.dart';
 import 'webview_platform_adapter.dart';
+
+class _PersistOutcome {
+  final String? errorCategory;
+  final bool dataSavedOnly;
+  final DateTime? pendingSyncTime;
+
+  const _PersistOutcome.success()
+      : errorCategory = null,
+        dataSavedOnly = false,
+        pendingSyncTime = null;
+
+  const _PersistOutcome.partialSyncTime({
+    required String this.errorCategory,
+    this.pendingSyncTime,
+  }) : dataSavedOnly = true;
+
+  const _PersistOutcome.failed(String this.errorCategory)
+      : dataSavedOnly = false,
+        pendingSyncTime = null;
+
+  bool get isOk => errorCategory == null;
+}
 
 /// 负责调度强智教务系统跨模块同步业务流与结果弹窗
 class WebViewSyncCoordinator {
@@ -45,27 +68,97 @@ class WebViewSyncCoordinator {
     _lastSyncAttemptTime = null;
   }
 
-  Future<String?> _persistSafely(Future<void> Function() action) async {
+  Future<_PersistOutcome> _persistSafely(Future<void> Function() action) async {
     try {
       await action();
-      return null;
+      return const _PersistOutcome.success();
+    } on StorageWriteException catch (e) {
+      final category = DiagnosticsService.sanitizeErrorCategory(e);
+      if (e.dataSaved) {
+        return _PersistOutcome.partialSyncTime(
+          errorCategory: category,
+          pendingSyncTime: e.pendingSyncTime,
+        );
+      }
+      return _PersistOutcome.failed(category);
     } catch (e) {
-      return DiagnosticsService.sanitizeErrorCategory(e);
+      return _PersistOutcome.failed(
+        DiagnosticsService.sanitizeErrorCategory(e),
+      );
     }
   }
 
   void _showPersistErrorDialog(
     BuildContext context,
     String moduleTitle,
-    String errorCategory,
-  ) {
+    _PersistOutcome outcome, {
+    Future<bool> Function()? onRetrySyncTime,
+  }) {
+    if (outcome.dataSavedOnly) {
+      bool isRetrying = false;
+      String? retryStatus;
+      showDialog(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            icon: const Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.orange,
+              size: 36,
+            ),
+            title: Text('$moduleTitle已保存，但同步时间未更新'),
+            content: Text(
+              '已成功抓取并加密保存新的$moduleTitle，界面展示已更新为最新数据；'
+              '但写入“最近同步时间”时发生异常（${outcome.errorCategory}），同步时间仍保留上次记录。\n\n'
+              '您无需重新抓取教务，可直接重试保存同步时间。'
+              '${retryStatus != null ? "\n\n$retryStatus" : ""}',
+            ),
+            actions: [
+              TextButton(
+                onPressed: isRetrying ? null : () => Navigator.of(ctx).pop(),
+                child: const Text('稍后处理'),
+              ),
+              if (onRetrySyncTime != null)
+                FilledButton(
+                  onPressed: isRetrying
+                      ? null
+                      : () async {
+                          setDialogState(() {
+                            isRetrying = true;
+                            retryStatus = null;
+                          });
+                          final ok = await onRetrySyncTime();
+                          if (!ctx.mounted) return;
+                          if (ok) {
+                            Navigator.of(ctx).pop();
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('$moduleTitle同步时间已更新')),
+                              );
+                            }
+                          } else {
+                            setDialogState(() {
+                              isRetrying = false;
+                              retryStatus = '同步时间写入仍然失败，请稍后重试。';
+                            });
+                          }
+                        },
+                  child: Text(isRetrying ? '正在重试...' : '重试写入时间'),
+                ),
+            ],
+          ),
+        ),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         icon: const Icon(Icons.error_outline_rounded, color: Colors.red, size: 36),
         title: Text('$moduleTitle本地保存失败'),
         content: Text(
-          '已成功抓取教务数据，但在加密写入本地存储时发生异常（$errorCategory）。\n\n'
+          '已成功抓取教务数据，但在加密写入本地存储时发生异常（${outcome.errorCategory}）。\n\n'
           '为保障数据安全，本次未覆盖界面展示，已保留您原有的本地数据与同步时间。请重启应用或检查设备存储权限后重试。',
         ),
         actions: [
@@ -76,6 +169,34 @@ class WebViewSyncCoordinator {
         ],
       ),
     );
+  }
+
+  String _formatModulePersistDetail({
+    required _PersistOutcome outcome,
+    required SyncModuleStatus status,
+    required String okSummary,
+    required String emptySummary,
+    required String retainLabel,
+    required String notLoggedInDetail,
+    required String errorDetail,
+  }) {
+    if (!outcome.isOk) {
+      if (outcome.dataSavedOnly) {
+        final base = status.isOk ? okSummary : emptySummary;
+        return '$base，但同步时间写入失败 (${outcome.errorCategory})（已保留原同步时间）';
+      }
+      return '本地加密保存失败 (${outcome.errorCategory})（已保留原$retainLabel与同步时间）';
+    }
+    switch (status) {
+      case SyncModuleStatus.ok:
+        return okSummary;
+      case SyncModuleStatus.empty:
+        return emptySummary;
+      case SyncModuleStatus.notLoggedIn:
+        return notLoggedInDetail;
+      case SyncModuleStatus.error:
+        return errorDetail;
+    }
   }
 
   void _setSyncingState(bool syncing, String? message) {
@@ -349,211 +470,236 @@ class WebViewSyncCoordinator {
       }
       final bool rejectedByUser = calibRes.rejectedByUser;
 
-      // 全部空数据判定（仅当用户未拒绝跨学期基准更新时才一并清空三模块）
-      if (!rejectedByUser &&
-          result.statusCourses.isEmpty &&
-          result.statusGrades.isEmpty &&
-          result.statusExams.isEmpty) {
-        final cErr = await _persistSafely(() => scheduleProvider.updateCourses(const []));
-        final gErr = await _persistSafely(() => gradesProvider.updateGrades(const []));
-        final eErr = await _persistSafely(() => examsProvider.updateExams(const []));
-        if (_isDisposed || !context.mounted) return;
-
-        if (cErr == null && gErr == null && eErr == null) {
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              icon: const Icon(Icons.info_outline_rounded,
-                  color: Colors.blue, size: 36),
-              title: const Text('暂无已发布的教务数据'),
-              content: const Text(
-                '已成功连接强智教务系统，但当前学期暂未查询到课表、成绩或考试数据（本地旧列表已同步清空）。',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('我知道了'),
-                ),
-              ],
-            ),
-          );
-          return;
-        }
-        // 若部分模块本地保存失败，继续走下方逐模块详细摘要弹窗以如实展示
-      }
-
-      // 1. 课表：仅当用户未拒绝更新基准时，才写入新课表或空课表
-      String? coursesPersistError;
+      // 1. 课表：仅当用户未拒绝更新基准时，才写入新课表或空课表（单轮执行，避免全量空数据分支重复清空）
+      var coursesOutcome = const _PersistOutcome.success();
       if (!rejectedByUser) {
         if (result.statusCourses.isOk) {
-          coursesPersistError =
+          coursesOutcome =
               await _persistSafely(() => scheduleProvider.updateCourses(result.courses));
         } else if (result.statusCourses.isEmpty) {
-          coursesPersistError =
+          coursesOutcome =
               await _persistSafely(() => scheduleProvider.updateCourses(const []));
         }
       }
       // notLoggedIn 或 error 严格保留原有课表缓存
 
       // 2. 成绩
-      String? gradesPersistError;
+      var gradesOutcome = const _PersistOutcome.success();
       if (result.statusGrades.isOk) {
-        gradesPersistError =
+        gradesOutcome =
             await _persistSafely(() => gradesProvider.updateGrades(result.grades));
       } else if (result.statusGrades.isEmpty) {
-        gradesPersistError =
+        gradesOutcome =
             await _persistSafely(() => gradesProvider.updateGrades(const []));
       }
       // notLoggedIn 或 error 严格保留原有成绩缓存
 
       // 3. 考试
-      String? examsPersistError;
+      var examsOutcome = const _PersistOutcome.success();
       if (result.statusExams.isOk) {
-        examsPersistError =
+        examsOutcome =
             await _persistSafely(() => examsProvider.updateExams(result.exams));
       } else if (result.statusExams.isEmpty) {
-        examsPersistError =
+        examsOutcome =
             await _persistSafely(() => examsProvider.updateExams(const []));
       }
       // notLoggedIn 或 error 严格保留原有考试缓存
 
       if (_isDisposed || !context.mounted) return;
 
-      final String coursesDetail;
-      if (rejectedByUser) {
-        coursesDetail = '已按您的选择保留原课表与原学期基准';
-      } else if (coursesPersistError != null) {
-        coursesDetail = '本地加密保存失败 ($coursesPersistError)（已保留原课表与同步时间）';
-      } else {
-        switch (result.statusCourses) {
-          case SyncModuleStatus.ok:
-            coursesDetail = '成功导入 ${result.courses.length} 门课程';
-            break;
-          case SyncModuleStatus.empty:
-            coursesDetail = '当前学期暂无课表数据（已清空旧缓存）';
-            break;
-          case SyncModuleStatus.notLoggedIn:
-            coursesDetail = '未登录统一认证（已保留本地历史缓存）';
-            break;
-          case SyncModuleStatus.error:
-            coursesDetail =
-                '课表解析失败${result.errorCourses != null ? " (${result.errorCourses})" : " (页面可能已改版)"}（已保留本地历史缓存）';
-            break;
-        }
+      // 全部空数据且三模块均完全写入成功时，展示简洁空数据弹窗
+      if (!rejectedByUser &&
+          result.statusCourses.isEmpty &&
+          result.statusGrades.isEmpty &&
+          result.statusExams.isEmpty &&
+          coursesOutcome.isOk &&
+          gradesOutcome.isOk &&
+          examsOutcome.isOk) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.info_outline_rounded,
+                color: Colors.blue, size: 36),
+            title: const Text('暂无已发布的教务数据'),
+            content: const Text(
+              '已成功连接强智教务系统，但当前学期暂未查询到课表、成绩或考试数据（本地旧列表已同步清空）。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('我知道了'),
+              ),
+            ],
+          ),
+        );
+        return;
       }
 
       final String weekDetail = rejectedByUser
           ? '已保持原学期基准不变'
           : (calibRes.detailMessage ?? '未识别到顶栏周次，可在课表页手动校准开学日');
 
-      final String gradesDetail;
-      if (gradesPersistError != null) {
-        gradesDetail = '本地加密保存失败 ($gradesPersistError)（已保留原成绩与同步时间）';
-      } else {
-        switch (result.statusGrades) {
-          case SyncModuleStatus.ok:
-            gradesDetail =
-                '成功导入 ${result.grades.length} 门成绩 (GPA: ${gradesProvider.overallSummary?.averageGpa ?? "-"})';
-            break;
-          case SyncModuleStatus.empty:
-            gradesDetail = '当前学期暂无成绩发布（已清空旧缓存）';
-            break;
-          case SyncModuleStatus.notLoggedIn:
-            gradesDetail = '未登录统一认证（已保留本地历史缓存）';
-            break;
-          case SyncModuleStatus.error:
-            gradesDetail =
-                '成绩解析失败${result.errorGrades != null ? " (${result.errorGrades})" : " (页面可能已改版)"}（已保留本地历史缓存）';
-            break;
-        }
-      }
-
-      final String examsDetail;
-      if (examsPersistError != null) {
-        examsDetail = '本地加密保存失败 ($examsPersistError)（已保留原考试与同步时间）';
-      } else {
-        switch (result.statusExams) {
-          case SyncModuleStatus.ok:
-            examsDetail = '成功导入 ${result.exams.length} 门考试安排';
-            break;
-          case SyncModuleStatus.empty:
-            examsDetail = '当前学期暂无考试安排（已清空旧缓存）';
-            break;
-          case SyncModuleStatus.notLoggedIn:
-            examsDetail = '未登录统一认证（已保留本地历史缓存）';
-            break;
-          case SyncModuleStatus.error:
-            examsDetail =
-                '考试解析失败${result.errorExams != null ? " (${result.errorExams})" : " (页面可能已改版)"}（已保留本地历史缓存）';
-            break;
-        }
-      }
+      bool isRetryingSyncTimes = false;
+      String? syncTimeRetryNote;
 
       showDialog(
         context: context,
-        builder: (ctx) => AlertDialog(
-          icon: Icon(
-            (coursesPersistError == null &&
-                    gradesPersistError == null &&
-                    examsPersistError == null)
-                ? Icons.cloud_done_rounded
-                : Icons.warning_amber_rounded,
-            color: (coursesPersistError == null &&
-                    gradesPersistError == null &&
-                    examsPersistError == null)
-                ? Colors.green
-                : Colors.orange,
-            size: 36,
-          ),
-          title: const Text('全量教务同步完成'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSyncResultRow(
-                context: ctx,
-                icon: Icons.calendar_month,
-                title: '课表数据',
-                detail: coursesDetail,
-                isSuccess: !rejectedByUser &&
-                    coursesPersistError == null &&
-                    result.statusCourses.isOk,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final String coursesDetail = rejectedByUser
+                ? '已按您的选择保留原课表与原学期基准'
+                : _formatModulePersistDetail(
+                    outcome: coursesOutcome,
+                    status: result.statusCourses,
+                    okSummary: '成功导入 ${result.courses.length} 门课程',
+                    emptySummary: '当前学期暂无课表数据（已清空旧缓存）',
+                    retainLabel: '课表',
+                    notLoggedInDetail: '未登录统一认证（已保留本地历史缓存）',
+                    errorDetail:
+                        '课表解析失败${result.errorCourses != null ? " (${result.errorCourses})" : " (页面可能已改版)"}（已保留本地历史缓存）',
+                  );
+            final String gradesDetail = _formatModulePersistDetail(
+              outcome: gradesOutcome,
+              status: result.statusGrades,
+              okSummary:
+                  '成功导入 ${result.grades.length} 门成绩 (GPA: ${gradesProvider.overallSummary?.averageGpa ?? "-"})',
+              emptySummary: '当前学期暂无成绩发布（已清空旧缓存）',
+              retainLabel: '成绩',
+              notLoggedInDetail: '未登录统一认证（已保留本地历史缓存）',
+              errorDetail:
+                  '成绩解析失败${result.errorGrades != null ? " (${result.errorGrades})" : " (页面可能已改版)"}（已保留本地历史缓存）',
+            );
+            final String examsDetail = _formatModulePersistDetail(
+              outcome: examsOutcome,
+              status: result.statusExams,
+              okSummary: '成功导入 ${result.exams.length} 门考试安排',
+              emptySummary: '当前学期暂无考试安排（已清空旧缓存）',
+              retainLabel: '考试',
+              notLoggedInDetail: '未登录统一认证（已保留本地历史缓存）',
+              errorDetail:
+                  '考试解析失败${result.errorExams != null ? " (${result.errorExams})" : " (页面可能已改版)"}（已保留本地历史缓存）',
+            );
+
+            final bool allPersistOk =
+                coursesOutcome.isOk && gradesOutcome.isOk && examsOutcome.isOk;
+            final bool hasRetryableSyncTime = coursesOutcome.dataSavedOnly ||
+                gradesOutcome.dataSavedOnly ||
+                examsOutcome.dataSavedOnly;
+
+            return AlertDialog(
+              icon: Icon(
+                allPersistOk
+                    ? Icons.cloud_done_rounded
+                    : Icons.warning_amber_rounded,
+                color: allPersistOk ? Colors.green : Colors.orange,
+                size: 36,
               ),
-              const SizedBox(height: 10),
-              _buildSyncResultRow(
-                context: ctx,
-                icon: Icons.today_rounded,
-                title: '教学周校准',
-                detail: weekDetail,
-                isSuccess: calibRes.isSuccess,
+              title: const Text('全量教务同步完成'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSyncResultRow(
+                    context: ctx,
+                    icon: Icons.calendar_month,
+                    title: '课表数据',
+                    detail: coursesDetail,
+                    isSuccess: !rejectedByUser &&
+                        coursesOutcome.isOk &&
+                        result.statusCourses.isOk,
+                  ),
+                  const SizedBox(height: 10),
+                  _buildSyncResultRow(
+                    context: ctx,
+                    icon: Icons.today_rounded,
+                    title: '教学周校准',
+                    detail: weekDetail,
+                    isSuccess: calibRes.isSuccess,
+                  ),
+                  const SizedBox(height: 10),
+                  _buildSyncResultRow(
+                    context: ctx,
+                    icon: Icons.grade,
+                    title: '学业成绩',
+                    detail: gradesDetail,
+                    isSuccess: gradesOutcome.isOk && result.statusGrades.isOk,
+                  ),
+                  const SizedBox(height: 10),
+                  _buildSyncResultRow(
+                    context: ctx,
+                    icon: Icons.assignment,
+                    title: '考试日程',
+                    detail: examsDetail,
+                    isSuccess: examsOutcome.isOk && result.statusExams.isOk,
+                  ),
+                  if (syncTimeRetryNote != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      syncTimeRetryNote!,
+                      style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                            color: hasRetryableSyncTime ? Colors.orange : Colors.green,
+                          ),
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(height: 10),
-              _buildSyncResultRow(
-                context: ctx,
-                icon: Icons.grade,
-                title: '学业成绩',
-                detail: gradesDetail,
-                isSuccess: gradesPersistError == null && result.statusGrades.isOk,
-              ),
-              const SizedBox(height: 10),
-              _buildSyncResultRow(
-                context: ctx,
-                icon: Icons.assignment,
-                title: '考试日程',
-                detail: examsDetail,
-                isSuccess: examsPersistError == null && result.statusExams.isOk,
-              ),
-            ],
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                Navigator.of(context).pop();
-              },
-              child: const Text('返回主页查看'),
-            ),
-          ],
+              actions: [
+                if (hasRetryableSyncTime)
+                  TextButton(
+                    onPressed: isRetryingSyncTimes
+                        ? null
+                        : () async {
+                            setDialogState(() {
+                              isRetryingSyncTimes = true;
+                              syncTimeRetryNote = null;
+                            });
+                            if (coursesOutcome.dataSavedOnly) {
+                              final ok = await scheduleProvider.retrySaveSyncTime(
+                                coursesOutcome.pendingSyncTime,
+                              );
+                              if (ok) {
+                                coursesOutcome = const _PersistOutcome.success();
+                              }
+                            }
+                            if (gradesOutcome.dataSavedOnly) {
+                              final ok = await gradesProvider.retrySaveSyncTime(
+                                gradesOutcome.pendingSyncTime,
+                              );
+                              if (ok) {
+                                gradesOutcome = const _PersistOutcome.success();
+                              }
+                            }
+                            if (examsOutcome.dataSavedOnly) {
+                              final ok = await examsProvider.retrySaveSyncTime(
+                                examsOutcome.pendingSyncTime,
+                              );
+                              if (ok) {
+                                examsOutcome = const _PersistOutcome.success();
+                              }
+                            }
+                            if (!ctx.mounted) return;
+                            final stillPending = coursesOutcome.dataSavedOnly ||
+                                gradesOutcome.dataSavedOnly ||
+                                examsOutcome.dataSavedOnly;
+                            setDialogState(() {
+                              isRetryingSyncTimes = false;
+                              syncTimeRetryNote = stillPending
+                                  ? '部分同步时间重试仍未成功，已更新成功项的时间记录。'
+                                  : '同步时间已全部补充更新。';
+                            });
+                          },
+                    child: Text(isRetryingSyncTimes ? '正在重试...' : '重试写入时间'),
+                  ),
+                FilledButton(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('返回主页查看'),
+                ),
+              ],
+            );
+          },
         ),
       );
     } catch (e) {
@@ -719,11 +865,17 @@ class WebViewSyncCoordinator {
           return;
         }
 
-        final persistErr =
+        final persistOutcome =
             await _persistSafely(() => scheduleProvider.updateCourses(syncRes.courses));
         if (_isDisposed || !context.mounted) return;
-        if (persistErr != null) {
-          _showPersistErrorDialog(context, '课表', persistErr);
+        if (!persistOutcome.isOk) {
+          _showPersistErrorDialog(
+            context,
+            '课表',
+            persistOutcome,
+            onRetrySyncTime: () =>
+                scheduleProvider.retrySaveSyncTime(persistOutcome.pendingSyncTime),
+          );
           return;
         }
         showDialog(
@@ -776,11 +928,17 @@ class WebViewSyncCoordinator {
           );
           return;
         }
-        final persistErr =
+        final persistOutcome =
             await _persistSafely(() => scheduleProvider.updateCourses(const []));
         if (_isDisposed || !context.mounted) return;
-        if (persistErr != null) {
-          _showPersistErrorDialog(context, '课表', persistErr);
+        if (!persistOutcome.isOk) {
+          _showPersistErrorDialog(
+            context,
+            '课表',
+            persistOutcome,
+            onRetrySyncTime: () =>
+                scheduleProvider.retrySaveSyncTime(persistOutcome.pendingSyncTime),
+          );
           return;
         }
         showDialog(
@@ -923,11 +1081,17 @@ class WebViewSyncCoordinator {
       if (_isDisposed || !context.mounted) return;
 
       if (result.status == SyncModuleStatus.ok || result.grades.isNotEmpty) {
-        final persistErr =
+        final persistOutcome =
             await _persistSafely(() => gradesProvider.updateGrades(result.grades));
         if (_isDisposed || !context.mounted) return;
-        if (persistErr != null) {
-          _showPersistErrorDialog(context, '学业成绩', persistErr);
+        if (!persistOutcome.isOk) {
+          _showPersistErrorDialog(
+            context,
+            '学业成绩',
+            persistOutcome,
+            onRetrySyncTime: () =>
+                gradesProvider.retrySaveSyncTime(persistOutcome.pendingSyncTime),
+          );
           return;
         }
         final summary = gradesProvider.overallSummary;
@@ -1096,11 +1260,17 @@ class WebViewSyncCoordinator {
       if (_isDisposed || !context.mounted) return;
 
       if (result.status == SyncModuleStatus.ok || result.exams.isNotEmpty) {
-        final persistErr =
+        final persistOutcome =
             await _persistSafely(() => examsProvider.updateExams(result.exams));
         if (_isDisposed || !context.mounted) return;
-        if (persistErr != null) {
-          _showPersistErrorDialog(context, '考试日程', persistErr);
+        if (!persistOutcome.isOk) {
+          _showPersistErrorDialog(
+            context,
+            '考试日程',
+            persistOutcome,
+            onRetrySyncTime: () =>
+                examsProvider.retrySaveSyncTime(persistOutcome.pendingSyncTime),
+          );
           return;
         }
         showDialog(
@@ -1127,11 +1297,17 @@ class WebViewSyncCoordinator {
           ),
         );
       } else if (result.status == SyncModuleStatus.empty) {
-        final persistErr =
+        final persistOutcome =
             await _persistSafely(() => examsProvider.updateExams(const []));
         if (_isDisposed || !context.mounted) return;
-        if (persistErr != null) {
-          _showPersistErrorDialog(context, '考试日程', persistErr);
+        if (!persistOutcome.isOk) {
+          _showPersistErrorDialog(
+            context,
+            '考试日程',
+            persistOutcome,
+            onRetrySyncTime: () =>
+                examsProvider.retrySaveSyncTime(persistOutcome.pendingSyncTime),
+          );
           return;
         }
         showDialog(

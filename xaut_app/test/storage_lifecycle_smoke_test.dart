@@ -13,8 +13,11 @@ import 'package:xaut_app/providers/grades_provider.dart';
 import 'package:xaut_app/providers/schedule_provider.dart';
 import 'package:xaut_app/screens/legal_gate_screen.dart';
 import 'package:xaut_app/screens/schedule_screen.dart';
+import 'package:xaut_app/screens/webview/webview_platform_adapter.dart';
+import 'package:xaut_app/screens/webview/webview_sync_coordinator.dart';
 import 'package:xaut_app/services/app_crypto_service.dart';
 import 'package:xaut_app/services/legal_service.dart';
+import 'package:xaut_app/services/parser_service.dart';
 import 'package:xaut_app/services/storage_service.dart';
 
 Future<void> _pumpLegalGateLoaded(WidgetTester tester, {required bool isGate}) async {
@@ -129,6 +132,7 @@ void main() {
     AppCryptoService.resetForTesting();
     StorageService.resetForTesting();
     LegalService.resetForTesting();
+    ParserService.setMockJsCode(null);
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -136,6 +140,7 @@ void main() {
     AppCryptoService.resetForTesting();
     StorageService.resetForTesting();
     LegalService.resetForTesting();
+    ParserService.setMockJsCode(null);
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -455,15 +460,15 @@ void main() {
 
       await expectLater(
         () => scheduleProvider.updateCourses([sampleCourseB]),
-        throwsA(isA<StorageWriteException>()),
+        throwsA(isA<StorageWriteException>().having((e) => e.dataSaved, 'dataSaved', isFalse)),
       );
       await expectLater(
         () => gradesProvider.updateGrades([sampleGradeB]),
-        throwsA(isA<StorageWriteException>()),
+        throwsA(isA<StorageWriteException>().having((e) => e.dataSaved, 'dataSaved', isFalse)),
       );
       await expectLater(
         () => examsProvider.updateExams([sampleExamB]),
-        throwsA(isA<StorageWriteException>()),
+        throwsA(isA<StorageWriteException>().having((e) => e.dataSaved, 'dataSaved', isFalse)),
       );
       await tester.pumpAndSettle();
 
@@ -480,30 +485,259 @@ void main() {
       expect(await StorageService.loadGradesSyncTime(), equals(t0));
       expect(await StorageService.loadExamsSyncTime(), equals(t0));
 
-      // 场景 5b：部分写入（数据成功，但同步时间 setString 返回 false）时，同步时间严禁刷新
+      // 场景 5b：部分成功（主数据写入与界面更新已生效，但同步时间 setString 返回 false）
       AppCryptoService.debugPrefsStringWriter = null;
       StorageService.debugSyncTimeWriter = (_, _, _) async => false;
 
       await expectLater(
         () => scheduleProvider.updateCourses([sampleCourseB]),
-        throwsA(isA<StorageWriteException>()),
+        throwsA(
+          isA<StorageWriteException>()
+              .having((e) => e.dataSaved, 'dataSaved', isTrue)
+              .having((e) => e.pendingSyncTime, 'pendingSyncTime', equals(t1)),
+        ),
       );
       await expectLater(
         () => gradesProvider.updateGrades([sampleGradeB]),
-        throwsA(isA<StorageWriteException>()),
+        throwsA(
+          isA<StorageWriteException>()
+              .having((e) => e.dataSaved, 'dataSaved', isTrue)
+              .having((e) => e.pendingSyncTime, 'pendingSyncTime', equals(t1)),
+        ),
       );
       await expectLater(
         () => examsProvider.updateExams([sampleExamB]),
-        throwsA(isA<StorageWriteException>()),
+        throwsA(
+          isA<StorageWriteException>()
+              .having((e) => e.dataSaved, 'dataSaved', isTrue)
+              .having((e) => e.pendingSyncTime, 'pendingSyncTime', equals(t1)),
+        ),
       );
       await tester.pumpAndSettle();
 
+      // 断言：新数据与界面展示均已生效，同时旧同步时间保持 t0 不误刷
+      expect(find.textContaining('计算机网络'), findsOneWidget);
+      expect(find.textContaining('编译原理'), findsNothing);
+      expect(scheduleProvider.courses.map((c) => c.name), equals(['计算机网络']));
+      expect(gradesProvider.grades.map((g) => g.courseName), equals(['操作系统']));
+      expect(gradesProvider.selectedSemester, equals('全部'));
+      expect(examsProvider.exams.map((e) => e.courseName), equals(['操作系统']));
+      expect((await StorageService.loadCourses()).map((c) => c.name), equals(['计算机网络']));
       expect(scheduleProvider.lastSyncTime, equals(t0));
       expect(gradesProvider.lastSyncTime, equals(t0));
       expect(examsProvider.lastSyncTime, equals(t0));
       expect(await StorageService.loadLastSyncTime(), equals(t0));
       expect(await StorageService.loadGradesSyncTime(), equals(t0));
       expect(await StorageService.loadExamsSyncTime(), equals(t0));
+
+      // 解除同步时间写盘故障后，支持单独重试写入同步时间
+      StorageService.debugSyncTimeWriter = null;
+      expect(await scheduleProvider.retrySaveSyncTime(t1), isTrue);
+      expect(await gradesProvider.retrySaveSyncTime(t1), isTrue);
+      expect(await examsProvider.retrySaveSyncTime(t1), isTrue);
+      expect(scheduleProvider.lastSyncTime, equals(t1));
+      expect(gradesProvider.lastSyncTime, equals(t1));
+      expect(examsProvider.lastSyncTime, equals(t1));
+      expect(await StorageService.loadLastSyncTime(), equals(t1));
+      expect(await StorageService.loadGradesSyncTime(), equals(t1));
+      expect(await StorageService.loadExamsSyncTime(), equals(t1));
+    });
+
+    testWidgets('6. WebViewSyncCoordinator distinguishes partial sync-time failure from full rollback and supports retry', (tester) async {
+      AppCryptoService.setMockMasterKey(enc.Key.fromBase64(fixedKeyBase64));
+      ParserService.setMockJsCode('var mockJs = true;');
+      final t0 = DateTime(2026, 11, 13, 8, 0);
+      final t1 = DateTime(2026, 11, 13, 13, 30);
+      var now = t0;
+
+      final scheduleProvider = ScheduleProvider();
+      final gradesProvider = GradesProvider(nowProvider: () => now);
+      final examsProvider = ExamsProvider();
+      await tester.runAsync(() async {
+        await gradesProvider.updateGrades([sampleGradeA]);
+      });
+
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (script) async {};
+
+      late WebViewSyncCoordinator coordinator;
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: scheduleProvider),
+            ChangeNotifierProvider.value(value: gradesProvider),
+            ChangeNotifierProvider.value(value: examsProvider),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) {
+                  coordinator = WebViewSyncCoordinator(
+                    getContext: () => context,
+                    adapter: adapter,
+                    onStateChanged: (_, _) {},
+                  );
+                  return const Text('CoordinatorHost');
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      now = t1;
+      StorageService.debugSyncTimeWriter = (_, _, _) async => false;
+
+      final syncFuture = coordinator.syncGrades();
+      await tester.pump();
+      final reqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': reqId,
+        'type': 'sync_grades_result',
+        'status': 'ok',
+        'grades': [
+          {
+            'semester': sampleGradeB.semester,
+            'courseCode': sampleGradeB.courseCode,
+            'courseName': sampleGradeB.courseName,
+            'score': sampleGradeB.score,
+            'credit': sampleGradeB.credit,
+            'gpa': sampleGradeB.gpa,
+            'category': sampleGradeB.category,
+            'examType': sampleGradeB.examType,
+          }
+        ],
+      }));
+      await syncFuture;
+      await tester.pumpAndSettle();
+
+      // 断言：新成绩已写入并生效，同步时间保留 t0；弹窗明确告知“已保存，但同步时间未更新”，绝不误报未覆盖界面
+      expect(gradesProvider.grades.map((g) => g.courseName), equals(['操作系统']));
+      expect(gradesProvider.lastSyncTime, equals(t0));
+      expect(find.text('学业成绩已保存，但同步时间未更新'), findsOneWidget);
+      expect(find.textContaining('界面展示已更新为最新数据'), findsOneWidget);
+      expect(find.textContaining('未覆盖界面展示'), findsNothing);
+      expect(find.text('重试写入时间'), findsOneWidget);
+
+      // 恢复写入后直接点击弹窗中的“重试写入时间”
+      StorageService.debugSyncTimeWriter = null;
+      await tester.tap(find.text('重试写入时间'));
+      await tester.pumpAndSettle();
+
+      expect(gradesProvider.lastSyncTime, equals(t1));
+      expect(await StorageService.loadGradesSyncTime(), equals(t1));
+      expect(find.text('学业成绩同步时间已更新'), findsOneWidget);
+
+      coordinator.dispose();
+      adapter.dispose();
+    });
+
+    testWidgets('7. syncAll empty-all path writes each module at most once even when a module partially fails', (tester) async {
+      AppCryptoService.setMockMasterKey(enc.Key.fromBase64(fixedKeyBase64));
+      ParserService.setMockJsCode('var mockJs = true;');
+      final t0 = DateTime(2026, 11, 13, 8, 0);
+      final t1 = DateTime(2026, 11, 13, 13, 45);
+      var now = t0;
+
+      final scheduleProvider = ScheduleProvider(nowProvider: () => now);
+      final gradesProvider = GradesProvider(nowProvider: () => now);
+      final examsProvider = ExamsProvider(nowProvider: () => now);
+      await tester.runAsync(() async {
+        await scheduleProvider.updateCourses([sampleCourseA]);
+        await gradesProvider.updateGrades([sampleGradeA]);
+        await examsProvider.updateExams([sampleExamA]);
+      });
+
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (script) async {};
+
+      late WebViewSyncCoordinator coordinator;
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: scheduleProvider),
+            ChangeNotifierProvider.value(value: gradesProvider),
+            ChangeNotifierProvider.value(value: examsProvider),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) {
+                  coordinator = WebViewSyncCoordinator(
+                    getContext: () => context,
+                    adapter: adapter,
+                    onStateChanged: (_, _) {},
+                  );
+                  return const Text('SyncAllHost');
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 统计每个主数据 key 的落盘写入次数，并模拟仅成绩同步时间写盘失败
+      final writeCounts = <String, int>{};
+      AppCryptoService.debugPrefsStringWriter = (prefs, key, value) async {
+        writeCounts[key] = (writeCounts[key] ?? 0) + 1;
+        return prefs.setString(key, value);
+      };
+      StorageService.debugSyncTimeWriter = (prefs, key, value) async {
+        if (key == StorageService.keyLastGradesSync) return false;
+        return prefs.setString(key, value);
+      };
+
+      now = t1;
+      final syncFuture = coordinator.syncAll();
+      await tester.pump();
+      final reqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': reqId,
+        'type': 'sync_all_result',
+        'success': true,
+        'status': {
+          'courses': 'empty',
+          'grades': 'empty',
+          'exams': 'empty',
+        },
+        'courses': [],
+        'gradesData': {'grades': []},
+        'exams': [],
+      }));
+      await syncFuture;
+      await tester.pumpAndSettle();
+
+      // 断言：绝不因为成绩部分失败而对三个模块发起第二轮清空写入
+      expect(writeCounts['xaut_cached_courses'], equals(1));
+      expect(writeCounts['xaut_cached_grades'], equals(1));
+      expect(writeCounts['xaut_cached_exams'], equals(1));
+
+      expect(scheduleProvider.courses, isEmpty);
+      expect(gradesProvider.grades, isEmpty);
+      expect(examsProvider.exams, isEmpty);
+      expect(scheduleProvider.lastSyncTime, equals(t1));
+      expect(gradesProvider.lastSyncTime, equals(t0));
+      expect(examsProvider.lastSyncTime, equals(t1));
+
+      expect(find.text('全量教务同步完成'), findsOneWidget);
+      expect(find.textContaining('当前学期暂无成绩发布（已清空旧缓存），但同步时间写入失败'), findsOneWidget);
+      expect(find.text('重试写入时间'), findsOneWidget);
+
+      // 恢复写入后，直接在全量摘要弹窗中单独重试成绩同步时间
+      StorageService.debugSyncTimeWriter = null;
+      await tester.tap(find.text('重试写入时间'));
+      await tester.pumpAndSettle();
+
+      expect(gradesProvider.lastSyncTime, equals(t1));
+      expect(await StorageService.loadGradesSyncTime(), equals(t1));
+      expect(find.text('同步时间已全部补充更新。'), findsOneWidget);
+
+      coordinator.dispose();
+      adapter.dispose();
     });
   });
 }

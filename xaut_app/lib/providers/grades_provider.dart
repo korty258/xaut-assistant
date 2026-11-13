@@ -106,8 +106,10 @@ class GradesProvider extends ChangeNotifier {
     }
 
     bool timeOk = true;
+    DateTime? attemptedSyncTime;
     if (updateSyncTime) {
       final now = _nowProvider();
+      attemptedSyncTime = now;
       timeOk = await StorageService.saveGradesSyncTime(now);
       if (timeOk) {
         _lastSyncTime = now;
@@ -116,8 +118,23 @@ class GradesProvider extends ChangeNotifier {
     notifyListeners();
 
     if (!timeOk) {
-      throw const StorageWriteException('成绩数据已保存，但成绩同步时间写入失败');
+      throw StorageWriteException(
+        '成绩数据已保存，但成绩同步时间写入失败',
+        dataSaved: true,
+        pendingSyncTime: attemptedSyncTime,
+      );
     }
+  }
+
+  /// 仅重试持久化成绩同步时间（用于业务数据已落盘但时间戳写入失败的局部恢复）
+  Future<bool> retrySaveSyncTime([DateTime? time]) async {
+    final syncTime = time ?? _nowProvider();
+    final timeOk = await StorageService.saveGradesSyncTime(syncTime);
+    if (timeOk) {
+      _lastSyncTime = syncTime;
+      notifyListeners();
+    }
+    return timeOk;
   }
 
   /// 精确统计总学分、加权平均分与平均绩点（同时兼容百分制、五级制「优/良/中/及格」与二级制「合格/通过」）
