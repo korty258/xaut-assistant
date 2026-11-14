@@ -136,9 +136,9 @@ class WebViewPlatformAdapter {
     _winUrlSub = winController.url.listen((url) {
       if (!isAllowedUrl(url)) {
         cancelActiveBridgeTasks('检测到非校内链接，已取消正在进行的同步任务');
-        winController.stop();
+        unawaited(winController.stop());
         onBlockedUrl?.call(url);
-        winController.loadUrl(WebViewConstants.defaultUrl);
+        unawaited(winController.loadUrl(WebViewConstants.defaultUrl));
         return;
       }
       final prevUrl = currentUrlNotifier.value;
@@ -164,15 +164,18 @@ class WebViewPlatformAdapter {
   }
 
   void _initMobile() {
-    mobileController = af.WebViewController()
-      ..setJavaScriptMode(af.JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel(
+    final ctrl = af.WebViewController();
+    unawaited(ctrl.setJavaScriptMode(af.JavaScriptMode.unrestricted));
+    unawaited(
+      ctrl.addJavaScriptChannel(
         'JinhuaBridge',
         onMessageReceived: (af.JavaScriptMessage msg) {
           _handleIncomingBridgeMessage(msg.message);
         },
-      )
-      ..setNavigationDelegate(
+      ),
+    );
+    unawaited(
+      ctrl.setNavigationDelegate(
         af.NavigationDelegate(
           onNavigationRequest: (request) {
             if (isAllowedUrl(request.url)) {
@@ -196,8 +199,10 @@ class WebViewPlatformAdapter {
             isLoadingNotifier.value = false;
           },
         ),
-      )
-      ..loadRequest(Uri.parse(WebViewConstants.defaultUrl));
+      ),
+    );
+    unawaited(ctrl.loadRequest(Uri.parse(WebViewConstants.defaultUrl)));
+    mobileController = ctrl;
 
     isInitializedNotifier.value = true;
   }
@@ -210,7 +215,7 @@ class WebViewPlatformAdapter {
     if (parsed is String) {
       try {
         parsed = jsonDecode(parsed);
-      } catch (_) {
+      } on Object catch (_) {
         return;
       }
     }
@@ -300,8 +305,8 @@ class WebViewPlatformAdapter {
     try {
       final escapedId = jsonEncode(requestId);
       final abortScript = '(function(){ try { if (window.__jinhuaAbortTask) window.__jinhuaAbortTask($escapedId); } catch(e){} })();';
-      _evaluateRawJs(abortScript).catchError((_) {});
-    } catch (_) {}
+      unawaited(_evaluateRawJs(abortScript).catchError((_) {}));
+    } on Object catch (_) {}
   }
 
   /// 取消当前所有正在等待的 Bridge 异步任务（页面跳转、刷新、拦截或 dispose 时触发）
@@ -316,8 +321,8 @@ class WebViewPlatformAdapter {
     }
     try {
       const abortAllScript = '(function(){ try { if (window.__jinhuaAbortAllTasks) window.__jinhuaAbortAllTasks(); } catch(e){} })();';
-      _evaluateRawJs(abortAllScript).catchError((_) {});
-    } catch (_) {}
+      unawaited(_evaluateRawJs(abortAllScript).catchError((_) {}));
+    } on Object catch (_) {}
   }
 
   /// 导航至指定 URL（内置安全拦截与同步任务取消）
@@ -422,13 +427,13 @@ class WebViewPlatformAdapter {
 
   void dispose() {
     cancelActiveBridgeTasks('WebView 已关闭');
-    _winUrlSub?.cancel();
-    _winLoadingSub?.cancel();
-    _winMessageSub?.cancel();
+    unawaited(_winUrlSub?.cancel());
+    unawaited(_winLoadingSub?.cancel());
+    unawaited(_winMessageSub?.cancel());
     if (isWindows && winController.value.isInitialized) {
       try {
-        winController.dispose().catchError((_) {});
-      } catch (_) {}
+        unawaited(winController.dispose().catchError((_) {}));
+      } on Object catch (_) {}
     }
     isInitializedNotifier.dispose();
     isLoadingNotifier.dispose();

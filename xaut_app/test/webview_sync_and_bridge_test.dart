@@ -142,7 +142,7 @@ void main() {
       }));
 
       bool completed = false;
-      futureA.then((_) => completed = true);
+      unawaited(futureA.then((_) => completed = true));
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(completed, isFalse, reason: 'Pending request must not resolve with mismatched requestId');
 

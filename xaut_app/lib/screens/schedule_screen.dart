@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -51,15 +52,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
         _isProgrammaticAnimating = true;
         if ((currentPage - targetPage).abs() == 1) {
-          ctrl
-              .animateToPage(
-                targetPage,
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutCubic,
-              )
-              .whenComplete(() {
-            _isProgrammaticAnimating = false;
-          });
+          unawaited(
+            ctrl
+                .animateToPage(
+                  targetPage,
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                )
+                .whenComplete(() {
+              _isProgrammaticAnimating = false;
+            }),
+          );
         } else {
           ctrl.jumpToPage(targetPage);
           _isProgrammaticAnimating = false;
@@ -77,29 +80,30 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
 
     final theme = Theme.of(context);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        icon: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error, size: 36),
-        title: const Text('确认清空课表数据？'),
-        content: const Text('此操作将清空本地已保存的全部课程表。清空后可随时点击同步按钮重新登录强智教务一键导入。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              try {
-                await provider.clearAll();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已清空本地课表数据')),
-                  );
-                }
-              } catch (e) {
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          icon: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error, size: 36),
+          title: const Text('确认清空课表数据？'),
+          content: const Text('此操作将清空本地已保存的全部课程表。清空后可随时点击同步按钮重新登录强智教务一键导入。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                try {
+                  await provider.clearAll();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('已清空本地课表数据')),
+                    );
+                  }
+                } on Object catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -113,6 +117,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             child: Text('确认清空', style: TextStyle(color: theme.colorScheme.onError)),
           ),
         ],
+      ),
       ),
     );
   }
@@ -240,13 +245,13 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             tooltip: '更多操作',
             onSelected: (val) {
               if (val == 'calibrate') {
-                SemesterCalibrateDialog.show(context, provider);
+                unawaited(SemesterCalibrateDialog.show(context, provider));
               } else if (val == 'export_calendar') {
-                CalendarExportDialog.show(context);
+                unawaited(CalendarExportDialog.show(context));
               } else if (val == 'back_to_current') {
-                provider.resetToActualCurrentWeek();
+                unawaited(provider.resetToActualCurrentWeek());
               } else if (val == 'toggle_mode') {
-                provider.toggleOnlyCurrentWeek();
+                unawaited(provider.toggleOnlyCurrentWeek());
               } else if (val == 'clear') {
                 _showClearScheduleDialog(context, provider);
               } else {
@@ -317,9 +322,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           const SizedBox(width: 4),
         ],
       ),
-      body: provider.hasDecryptionError
+      body: provider.hasStorageError
           ? DecryptionErrorView(
               moduleName: '课表',
+              isFormatError: provider.hasDataFormatError,
               onReset: () => provider.clearAll(),
             )
           : provider.courses.isEmpty
@@ -345,7 +351,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                             if (_isProgrammaticAnimating) return;
                             final newWeek = index + 1;
                             _lastSyncedWeek = newWeek;
-                            provider.setCurrentWeek(newWeek);
+                            unawaited(provider.setCurrentWeek(newWeek));
                           },
                           itemBuilder: (context, pageIndex) {
                             final pageWeek = pageIndex + 1;

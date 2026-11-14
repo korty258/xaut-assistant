@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,6 +17,7 @@ class GradesProvider extends ChangeNotifier {
   String _selectedSemester = '全部';
   bool _isLoading = true;
   bool _hasDecryptionError = false;
+  bool _hasDataFormatError = false;
   bool _hasMigrationFailure = false;
   DateTime? _lastSyncTime;
 
@@ -23,6 +25,8 @@ class GradesProvider extends ChangeNotifier {
   String get selectedSemester => _selectedSemester;
   bool get isLoading => _isLoading;
   bool get hasDecryptionError => _hasDecryptionError;
+  bool get hasDataFormatError => _hasDataFormatError;
+  bool get hasStorageError => _hasDecryptionError || _hasDataFormatError;
   bool get hasMigrationFailure =>
       _hasMigrationFailure &&
       AppCryptoService.pendingMigrationKeys.contains(_keyGrades);
@@ -54,7 +58,7 @@ class GradesProvider extends ChangeNotifier {
 
   GradesProvider({DateTime Function()? nowProvider})
       : _nowProvider = nowProvider ?? DateTime.now {
-    _init();
+    unawaited(_init());
   }
 
   Future<void> _init() async {
@@ -70,15 +74,23 @@ class GradesProvider extends ChangeNotifier {
       _hasMigrationFailure = res.migrationFailed;
       final gradesStr = res.value;
       if (gradesStr != null && gradesStr.isNotEmpty) {
-        final List<dynamic> list = jsonDecode(gradesStr);
-        _grades = list.map((e) => GradeItem.fromJson(e as Map<String, dynamic>)).toList();
+        final items = StorageService.decodeJsonList('成绩', gradesStr);
+        try {
+          _grades = items.map(GradeItem.fromJson).toList();
+        } on Object catch (e) {
+          throw StorageFormatException('成绩', e);
+        }
       }
       _hasDecryptionError = false;
+      _hasDataFormatError = false;
     } on CryptoException {
       _hasDecryptionError = true;
+      _hasDataFormatError = false;
       _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
       _grades = [];
-    } catch (_) {
+    } on Object catch (_) {
+      _hasDecryptionError = false;
+      _hasDataFormatError = true;
       _grades = [];
     }
 
@@ -108,6 +120,7 @@ class GradesProvider extends ChangeNotifier {
 
     _grades = candidateGrades;
     _hasDecryptionError = false;
+    _hasDataFormatError = false;
     _hasMigrationFailure = false;
     if (AppCryptoService.hasPendingMigrationFailure) {
       await StorageService.retryPendingCryptoMigrations();
@@ -157,6 +170,7 @@ class GradesProvider extends ChangeNotifier {
   void resetInMemoryAfterCorruptReset() {
     _grades = [];
     _hasDecryptionError = false;
+    _hasDataFormatError = false;
     _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
     _selectedSemester = '全部';
     _lastSyncTime = null;

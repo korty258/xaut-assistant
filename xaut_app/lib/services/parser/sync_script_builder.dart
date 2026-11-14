@@ -341,7 +341,6 @@ class SyncScriptBuilder {
       async function fetchExamScheduleAsync(fallbackSemester, gradesList, currentUrl) {
         var hadTransportError = false;
         var confirmedEmptyExamList = false;
-        var isNotLoggedIn = false;
 
         function isAuthoritativeExamListDoc(doc) {
           if (!doc) return false;
@@ -494,9 +493,6 @@ class SyncScriptBuilder {
           }
         }
 
-        if (isNotLoggedIn) {
-          return { exams: [], status: 'not_logged_in', error: null };
-        }
         if (!hadTransportError && confirmedEmptyExamList) {
           return { exams: [], status: 'empty', error: null };
         }

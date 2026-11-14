@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -69,7 +70,7 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
       if (mounted) {
         navigator.pop();
       }
-    } catch (e) {
+    } on Object catch (e) {
       if (mounted) {
         messenger.showSnackBar(
           SnackBar(content: Text('调用系统分享失败: $e')),
@@ -101,13 +102,13 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
             action: SnackBarAction(
               label: '复制路径',
               onPressed: () {
-                Clipboard.setData(ClipboardData(text: savedPath));
+                unawaited(Clipboard.setData(ClipboardData(text: savedPath)));
               },
             ),
           ),
         );
       }
-    } catch (e) {
+    } on Object catch (e) {
       if (mounted) {
         messenger.showSnackBar(
           SnackBar(content: Text('保存文件失败: $e')),
@@ -237,7 +238,9 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
                               ),
                               TextButton(
                                 onPressed: () {
-                                  SemesterCalibrateDialog.show(context, schedule);
+                                  unawaited(
+                                    SemesterCalibrateDialog.show(context, schedule),
+                                  );
                                 },
                                 style: TextButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

@@ -801,4 +801,71 @@ void main() {
       StorageService.resetForTesting();
     });
   });
+
+  group('P0-1 & P1-3 Master Key CryptoKeyException & Instance Isolation', () {
+    test('Isolated AppCryptoService throws CryptoKeyException on read failure, bad length, and bad hex', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('legacy_plain_key', '[{"name":"编译原理"}]');
+
+      // 1) 安全存储读取失败时，加密/解密/迁移均抛出 CryptoKeyException（非 StateError）
+      final failReadCrypto = AppCryptoService(
+        storageReader: (_) async => throw MissingPluginException('No secure storage'),
+      );
+      await expectLater(
+        () => failReadCrypto.encryptInstance('hello'),
+        throwsA(isA<CryptoKeyException>()),
+      );
+      await expectLater(
+        () => failReadCrypto.loadEncryptedStringWithStatusInstance(prefs, 'legacy_plain_key'),
+        throwsA(isA<CryptoKeyException>()),
+      );
+      await expectLater(
+        () => failReadCrypto.saveEncryptedStringInstance(prefs, 'new_key', 'secret'),
+        throwsA(isA<CryptoKeyException>()),
+      );
+      expect(prefs.getString('new_key'), isNull);
+
+      // 2) 安全存储主密钥长度异常（非 64 位 Hex）抛出 CryptoKeyException
+      final badLenCrypto = AppCryptoService(
+        storageReader: (_) async => 'abcd',
+      );
+      await expectLater(
+        () => badLenCrypto.encryptInstance('hello'),
+        throwsA(isA<CryptoKeyException>()),
+      );
+
+      // 3) 64 位但含非法十六进制字符抛出 CryptoKeyException，而非 FormatException
+      final badHexCrypto = AppCryptoService(
+        storageReader: (_) async => 'z' * 64,
+      );
+      final validEnvelope = await AppCryptoService.encrypt('sensitive');
+      await expectLater(
+        () => badHexCrypto.decryptInstance(validEnvelope),
+        throwsA(isA<CryptoKeyException>()),
+      );
+      await expectLater(
+        () => badHexCrypto.loadEncryptedStringWithStatusInstance(prefs, 'legacy_plain_key'),
+        throwsA(isA<CryptoKeyException>()),
+      );
+    });
+
+    test('AppCryptoService instances isolate master keys from global singleton', () async {
+      final keyA = AppCryptoService(
+        storageReader: (_) async => List.filled(32, '41').join(),
+      );
+      final keyB = AppCryptoService(
+        storageReader: (_) async => List.filled(32, '42').join(),
+      );
+
+      final cipherA = await keyA.encryptInstance('isolated_payload');
+      expect(await keyA.decryptInstance(cipherA), equals('isolated_payload'));
+      await expectLater(
+        () => keyB.decryptInstance(cipherA),
+        throwsA(anything),
+      );
+      // 全局单例 setUp 密钥仍应正常加密解密自身密文，不受隔离实例影响
+      final globalCipher = await AppCryptoService.encrypt('global_payload');
+      expect(await AppCryptoService.decrypt(globalCipher), equals('global_payload'));
+    });
+  });
 }

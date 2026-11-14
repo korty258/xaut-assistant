@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xaut_app/models/course.dart';
+import 'package:xaut_app/utils/course_schedule_parser.dart';
+import 'package:xaut_app/utils/date_time_utils.dart';
 import 'package:xaut_app/widgets/schedule/schedule_types.dart';
 import 'package:xaut_app/screens/webview/webview_constants.dart';
 
@@ -140,6 +142,48 @@ void main() {
       final itemsWeek10 = computeCourseLayout([c1, c2], 10);
       expect(itemsWeek10.length, equals(1));
       expect(itemsWeek10.first.course.name, equals('大学物理'));
+    });
+  });
+
+  group('P1-2 CourseScheduleParser & DateTimeUtils Tests', () {
+    test('CourseScheduleParser parses mixed ranges with odd/even weeks accurately', () {
+      expect(
+        CourseScheduleParser.parseWeeks('1-3(周),5-7(单周),8-12(双周),15(周)'),
+        equals([1, 2, 3, 5, 7, 8, 10, 12, 15]),
+      );
+      expect(
+        CourseScheduleParser.parseWeeks('1-3,5-7(单周)'),
+        equals([1, 3, 5, 7]),
+      );
+      expect(
+        CourseScheduleParser.parseWeeks('07-08(周)[01-02节]'),
+        equals([7, 8]),
+      );
+    });
+
+    test('CourseScheduleParser.parseBracketSections extracts valid ranges and falls back when absent', () {
+      expect(
+        CourseScheduleParser.parseBracketSections(
+          '[07-08-09-10节]',
+          fallbackStartSection: 1,
+          fallbackStepCount: 2,
+        ),
+        equals((startSection: 7, stepCount: 4)),
+      );
+      expect(
+        CourseScheduleParser.parseBracketSections(
+          '1-16周',
+          fallbackStartSection: 3,
+          fallbackStepCount: 2,
+        ),
+        equals((startSection: 3, stepCount: 2)),
+      );
+    });
+
+    test('DateTimeUtils formats sync time and full timestamp cleanly', () {
+      final dt = DateTime(2026, 3, 5, 9, 4, 2);
+      expect(DateTimeUtils.formatShortSyncTime(dt), equals('03-05 09:04'));
+      expect(DateTimeUtils.formatFullDateTime(dt), equals('2026-03-05 09:04:02'));
     });
   });
 }

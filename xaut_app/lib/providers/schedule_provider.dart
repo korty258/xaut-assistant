@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/course.dart';
 import '../services/app_crypto_service.dart';
 import '../services/storage_service.dart';
+import '../utils/course_schedule_parser.dart';
 
 class ScheduleProvider extends ChangeNotifier {
   final DateTime Function() _nowProvider;
@@ -12,6 +14,7 @@ class ScheduleProvider extends ChangeNotifier {
   bool _onlyCurrentWeek = true; // 默认仅展示本周课程，避免重叠
   bool _isLoading = true;
   bool _hasDecryptionError = false;
+  bool _hasDataFormatError = false;
   bool _hasMigrationFailure = false;
   DateTime? _lastSyncTime;
   DateTime? _semesterStartDate; // 本学期第 1 周周一基准日期 (本地零点)
@@ -25,6 +28,8 @@ class ScheduleProvider extends ChangeNotifier {
   bool get onlyCurrentWeek => _onlyCurrentWeek;
   bool get isLoading => _isLoading;
   bool get hasDecryptionError => _hasDecryptionError;
+  bool get hasDataFormatError => _hasDataFormatError;
+  bool get hasStorageError => _hasDecryptionError || _hasDataFormatError;
   bool get hasMigrationFailure =>
       _hasMigrationFailure &&
       AppCryptoService.pendingMigrationKeys.contains('xaut_cached_courses');
@@ -57,7 +62,7 @@ class ScheduleProvider extends ChangeNotifier {
 
   ScheduleProvider({DateTime Function()? nowProvider})
       : _nowProvider = nowProvider ?? DateTime.now {
-    _init();
+    unawaited(_init());
   }
 
   /// 获取任意日期所在自然周的周一（零点）
@@ -134,6 +139,7 @@ class ScheduleProvider extends ChangeNotifier {
       _hasMigrationFailure = loadedRes.migrationFailed;
       _courses = _deduplicateCourses(loaded);
       _hasDecryptionError = false;
+      _hasDataFormatError = false;
       // 仅当正常加载去重后数量/内容有变动时，静默回写存储自愈（不改写上次同步时间）
       if (_courses.isNotEmpty && !_isSameCourseList(loaded, _courses)) {
         final upgradedOk = await StorageService.saveCourses(_courses, updateSyncTime: false);
@@ -143,9 +149,12 @@ class ScheduleProvider extends ChangeNotifier {
       }
     } on CryptoException {
       _hasDecryptionError = true;
+      _hasDataFormatError = false;
       _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
       _courses = [];
-    } catch (_) {
+    } on Object catch (_) {
+      _hasDecryptionError = false;
+      _hasDataFormatError = true;
       _courses = [];
     }
 
@@ -164,143 +173,9 @@ class ScheduleProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 根据 rawWeekStr 修复周次与节次（防范历史版本中将节次编号如 [07-08-09-10节] 误识别为上课周次）
-  static Course _normalizeCourse(Course c) {
-    if (c.rawWeekStr.isEmpty) return c;
-
-    final raw = c.rawWeekStr;
-    // 关键：剔除中括号 [xx-xx节] 后的周次文本
-    final cleanWeekPart = raw.replaceAll(RegExp(r'\[.*?\]'), '');
-
-    // 支持单/双周混合格式（如 "1-4单周,5-8周"、"1-3,5-7单周"、"1-8单周,9-16双周"）
-    final segments = cleanWeekPart
-        .split(RegExp(r'[,，;；\s]+'))
-        .where((s) => s.trim().isNotEmpty)
-        .toList();
-
-    final List<int> correctedWeeks = [];
-    for (int i = 0; i < segments.length; i++) {
-      final seg = segments[i];
-      String mode = 'all'; // 'all', 'odd', 'even'
-
-      if (seg.contains('单')) {
-        mode = 'odd';
-      } else if (seg.contains('双')) {
-        mode = 'even';
-      } else if (seg.contains('周')) {
-        mode = 'all';
-      } else {
-        // 当前段无明确修饰符，向后寻找最近的分段标记
-        for (int j = i + 1; j < segments.length; j++) {
-          if (segments[j].contains('单')) {
-            mode = 'odd';
-            break;
-          } else if (segments[j].contains('双')) {
-            mode = 'even';
-            break;
-          } else if (segments[j].contains('周')) {
-            mode = 'all';
-            break;
-          }
-        }
-      }
-
-      final weekMatches = RegExp(r'(\d+)(?:-(\d+))?').allMatches(seg);
-      for (final m in weekMatches) {
-        final start = int.parse(m.group(1)!);
-        final end = m.group(2) != null ? int.parse(m.group(2)!) : start;
-        for (int w = start; w <= end; w++) {
-          if (mode == 'odd' && w % 2 == 0) continue;
-          if (mode == 'even' && w % 2 != 0) continue;
-          if (!correctedWeeks.contains(w)) {
-            correctedWeeks.add(w);
-          }
-        }
-      }
-    }
-    correctedWeeks.sort();
-
-    // 节次解析（兼容多节连排 [07-08-09-10节]）
-    int startSection = c.startSection;
-    int stepCount = c.stepCount;
-    final bracketMatch = RegExp(r'\[(.*?)节?\]').firstMatch(raw);
-    if (bracketMatch != null) {
-      final nums = RegExp(r'\d+')
-          .allMatches(bracketMatch.group(1)!)
-          .map((m) => int.parse(m.group(0)!))
-          .toList();
-      if (nums.isNotEmpty) {
-        final minSec = nums.reduce((a, b) => a < b ? a : b);
-        final maxSec = nums.reduce((a, b) => a > b ? a : b);
-        startSection = minSec;
-        stepCount = maxSec - minSec + 1;
-      }
-    }
-
-    return Course(
-      name: c.name,
-      teacher: c.teacher,
-      room: c.room,
-      day: c.day,
-      startSection: startSection,
-      stepCount: stepCount,
-      weeks: correctedWeeks.isNotEmpty ? correctedWeeks : c.weeks,
-      rawWeekStr: c.rawWeekStr,
-    );
-  }
-
-  /// 智能去重：同一天、同节次、同周次的相同课程，合并并保留最全信息（如教室、教师），过滤无效占位符
-  static List<Course> _deduplicateCourses(List<Course> list) {
-    final Map<String, Course> map = {};
-
-    for (final rawCourse in list) {
-      final c = _normalizeCourse(rawCourse);
-      final name = c.name.trim();
-      // 过滤空名或纯横杠占位符
-      if (name.isEmpty || RegExp(r'^[-—_~.\s]+$').hasMatch(name)) {
-        continue;
-      }
-
-      // 关键自愈清洗：过滤强智教务底部备注/实践教学环节误解析的伪课程（如分号拼接多门课程）
-      if (name.contains(';') && (name.contains('周') || name.contains('实验') || name.contains('训练'))) {
-        continue;
-      }
-      if (RegExp(r'^(备注|实践教学|实践环节|未排时间)').hasMatch(name)) {
-        continue;
-      }
-
-      // 过滤超出官方 13 节次范围、星期越界或无周次的异常杂质数据
-      if (c.startSection > Course.totalSections || c.day < 1 || c.day > 7) {
-        continue;
-      }
-      if (c.weeks.isEmpty && c.rawWeekStr.isEmpty) {
-        continue;
-      }
-
-      final sortedWeeks = List<int>.from(c.weeks)..sort();
-      final key = '${c.day}_${c.startSection}_${c.stepCount}_${name}_${sortedWeeks.join(',')}';
-
-      if (!map.containsKey(key)) {
-        map[key] = c;
-      } else {
-        final existing = map[key]!;
-        final room = existing.room.trim().isNotEmpty ? existing.room : c.room;
-        final teacher = existing.teacher.trim().isNotEmpty ? existing.teacher : c.teacher;
-        map[key] = Course(
-          name: existing.name,
-          teacher: teacher,
-          room: room,
-          day: existing.day,
-          startSection: existing.startSection,
-          stepCount: existing.stepCount,
-          weeks: existing.weeks,
-          rawWeekStr: existing.rawWeekStr.isNotEmpty ? existing.rawWeekStr : c.rawWeekStr,
-        );
-      }
-    }
-
-    return map.values.toList();
-  }
+  /// 智能去重（委托至共享规则引擎）
+  static List<Course> _deduplicateCourses(List<Course> list) =>
+      CourseScheduleParser.deduplicateCourses(list);
 
   static bool _isSameCourseList(List<Course> a, List<Course> b) {
     if (identical(a, b)) return true;
@@ -370,7 +245,7 @@ class ScheduleProvider extends ChangeNotifier {
               ? await StorageService.saveSemesterStartDate(prevStart)
               : await StorageService.removeSemesterStartDate();
           if (!ok) rollbackOk = false;
-        } catch (_) {
+        } on Object catch (_) {
           rollbackOk = false;
         }
       }
@@ -380,7 +255,7 @@ class ScheduleProvider extends ChangeNotifier {
               ? await StorageService.saveSemesterName(prevSemester)
               : await StorageService.removeSemesterName();
           if (!ok) rollbackOk = false;
-        } catch (_) {
+        } on Object catch (_) {
           rollbackOk = false;
         }
       }
@@ -388,7 +263,7 @@ class ScheduleProvider extends ChangeNotifier {
         try {
           final ok = await StorageService.saveCurrentWeek(prevCurrentWeek);
           if (!ok) rollbackOk = false;
-        } catch (_) {
+        } on Object catch (_) {
           rollbackOk = false;
         }
       }
@@ -607,7 +482,7 @@ class ScheduleProvider extends ChangeNotifier {
       _lastEvaluatedDay = nowDay;
       if (_currentWeek == prevActual) {
         _currentWeek = actualCurrentWeek;
-        StorageService.saveCurrentWeek(_currentWeek);
+        unawaited(StorageService.saveCurrentWeek(_currentWeek));
       }
     } else {
       _lastEvaluatedDay = nowDay;
@@ -637,6 +512,7 @@ class ScheduleProvider extends ChangeNotifier {
 
     _courses = deduped;
     _hasDecryptionError = false;
+    _hasDataFormatError = false;
     _hasMigrationFailure = false;
     _recalculateMaxWeeks(_currentWeek);
 
@@ -701,10 +577,11 @@ class ScheduleProvider extends ChangeNotifier {
       _courses = restored;
       _lastSyncTime = prevSyncTime;
       _hasDecryptionError = false;
+      _hasDataFormatError = false;
       _recalculateMaxWeeks(_currentWeek);
       notifyListeners();
       return true;
-    } catch (_) {
+    } on Object catch (_) {
       return false;
     }
   }
@@ -713,6 +590,7 @@ class ScheduleProvider extends ChangeNotifier {
   void resetInMemoryAfterCorruptReset() {
     _courses = [];
     _hasDecryptionError = false;
+    _hasDataFormatError = false;
     _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
     _lastSyncTime = null;
     _semesterStartDate = null;

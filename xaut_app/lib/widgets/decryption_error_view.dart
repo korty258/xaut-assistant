@@ -8,17 +8,25 @@ import '../services/storage_service.dart';
 
 class DecryptionErrorView extends StatelessWidget {
   final String moduleName;
+  final bool isFormatError;
   final VoidCallback onReset;
 
   const DecryptionErrorView({
     super.key,
     required this.moduleName,
+    this.isFormatError = false,
     required this.onReset,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final title = isFormatError ? '本地$moduleName数据格式损坏' : '本地$moduleName解密失败';
+    final description = isFormatError
+        ? '本地缓存的$moduleName数据 JSON 结构异常或版本不兼容，已阻止按空数据静默展示。\n'
+            '您的教务隐私数据不会被上传泄露。可通过重新同步教务恢复，或重置损坏的本地缓存。'
+        : '由于主安全密钥变更或本地缓存数据损坏，无法解密既有$moduleName数据。\n'
+            '您的教务隐私数据不会被上传泄露。可通过重新同步教务恢复，或重置损坏的本地密文。';
 
     return Center(
       child: SingleChildScrollView(
@@ -33,14 +41,16 @@ class DecryptionErrorView extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                Icons.lock_reset_rounded,
+                isFormatError
+                    ? Icons.broken_image_outlined
+                    : Icons.lock_reset_rounded,
                 size: 72,
                 color: theme.colorScheme.error,
               ),
             ),
             const SizedBox(height: 24),
             Text(
-              '本地$moduleName解密失败',
+              title,
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: theme.colorScheme.error,
@@ -48,8 +58,7 @@ class DecryptionErrorView extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '由于主安全密钥变更或本地缓存数据损坏，无法解密既有$moduleName数据。\n'
-              '您的教务隐私数据不会被上传泄露。可通过重新同步教务恢复，或重置损坏的本地密文。',
+              description,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
@@ -98,9 +107,9 @@ class DecryptionErrorView extends StatelessWidget {
                   GradesProvider? gp;
                   ExamsProvider? ep;
                   if (context.mounted) {
-                    try { sp = context.read<ScheduleProvider>(); } catch (_) {}
-                    try { gp = context.read<GradesProvider>(); } catch (_) {}
-                    try { ep = context.read<ExamsProvider>(); } catch (_) {}
+                    try { sp = context.read<ScheduleProvider>(); } on Object catch (_) {}
+                    try { gp = context.read<GradesProvider>(); } on Object catch (_) {}
+                    try { ep = context.read<ExamsProvider>(); } on Object catch (_) {}
                   }
                   final resetReport =
                       await StorageService.resetCorruptedDataWithReport();

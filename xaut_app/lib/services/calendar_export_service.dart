@@ -229,7 +229,7 @@ class CalendarExportService {
       } else {
         targetDir = await getApplicationDocumentsDirectory();
       }
-    } catch (_) {
+    } on Object catch (_) {
       targetDir = await getTemporaryDirectory();
     }
 
