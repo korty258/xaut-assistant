@@ -6,6 +6,20 @@
 
 ## [Unreleased]
 
+## [2.4.0-rc1] - 2026-11-14
+
+金花助手 `v2.4.0-rc1`（候选发布版 · 诊断弹窗报错遥测行手机端自适应换行、次级弹窗与页头窄屏/大字号防溢出收口、WebView 清理 Cookie 异步退页状态守卫）！
+
+### Fixed
+- **BUG-1 诊断弹窗模块遥测行报错标签窄屏防溢出 (`DiagnosticsDialog`)**：
+  - 将 `DiagnosticsDialog._buildModuleTelemetryRow()` 右侧错误类别标签与状态徽章收口为右对齐 `Wrap` 容器，并为长错误类别文本与卡片标题补充 `TextOverflow.ellipsis` / `Expanded` 约束，确保在 320–360dp 手机屏幕与放大字号下出现 `MissingPluginException` / `StorageFormatException` / `CryptoKeyException` 时完整展示且无 `RenderFlex` 溢出。
+- **BUG-2 次级弹窗与页头窄屏/系统大字号防溢出收口 (`CourseDetailDialog`、`WeekSelectorSheet`、`CalendarExportDialog`、`ExamsScreen` & `GradesScreen`)**：
+  - 为 `CourseDetailDialog` 顶部状态标签及多课程重叠提示行、`CalendarExportDialog` 标题行、`ExamsScreen` 顶栏标题与 `GradesScreen` 学期学业表现卡片头部行分别补充 `Expanded` / `Flexible` 与 `TextOverflow.ellipsis` 约束；
+  - 为 `WeekSelectorSheet` 头部增加 `LayoutBuilder` 与 `Wrap` 按钮布局，在窄屏或较大系统字号缩放（`> 1.15x`）时自动将「回到本周 / 校准开学日」按钮切换至标题下方折行排布，防止标题文案被过度挤压。
+- **BUG-3 WebView 清理 Cookie 异步返回后已销毁状态读取防护 (`WebViewPlatformAdapter` & `WebViewLoginScreen`)**：
+  - 将 `WebViewPlatformAdapter.isInitialized` 与 `isLoading` 改为校验 `!_isDisposed`，并在 `clearCookiesAndCache()` 异步步骤之间补齐 `_isDisposed` 早退检查；
+  - 为 `WebViewLoginScreen._handleClearCookies()` 在 `await _adapter.clearCookiesAndCache()` 返回后补充 `if (!mounted || _adapter.isDisposed) return;` 守卫，消除异步清理期间关闭页面引发的已销毁状态访问风险。
+
 ## [2.4.0-pre3] - 2026-11-14
 
 金花助手 `v2.4.0-pre3`（开发预览版 · WebView 未就绪/销毁竞态全链路防护、成绩别名回退与模型反序列化 `TypeError` 隔离、合规页脚与课表顶栏窄屏溢出修复）！
@@ -718,7 +732,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre3...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-rc1...HEAD
+[2.4.0-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre3...v2.4.0-rc1
 [2.4.0-pre3]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre2...v2.4.0-pre3
 [2.4.0-pre2]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre1...v2.4.0-pre2
 [2.4.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc5...v2.4.0-pre1

@@ -77,7 +77,14 @@ class ExamsScreen extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('考试安排与考场', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const Flexible(
+                  child: Text(
+                    '考试安排与考场',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
                 if (exams.isNotEmpty && provider.upcomingCount > 0) ...[
                   const SizedBox(width: 8),
                   Container(
