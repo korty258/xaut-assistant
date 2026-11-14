@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/services/app_crypto_service.dart';
@@ -292,6 +293,59 @@ void main() {
       expect(res.masterKeyPendingQueued, isFalse);
       expect(res.hasPendingColdStartWipe, isFalse);
       expect(res.hasUnqueuedFailures, isTrue);
+    });
+
+    test('revokeAndClearAll() checks boolean return from Android clearWebViewData channel and marks unqueued failure when native returns false', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      AppCryptoService.debugStorageDeleter = (key) async {};
+      SharedPreferences.setMockInitialValues({'foo': 'bar'});
+
+      // 场景 A：原生返回 false（例如目录 deleteRecursively 返回 false），且兜底 Cookie 也失败
+      LegalService.debugAndroidNativeWebViewClearBoolAction = () async => false;
+      LegalService.debugAndroidCookieClearAction = () async => false;
+
+      final resFail = await LegalService.revokeAndClearAll();
+      expect(resFail.webviewCleaned, isFalse);
+      expect(resFail.webviewCookiesClearedOnly, isFalse);
+      expect(resFail.hasUnqueuedFailures, isTrue);
+      expect(resFail.isFullyCleaned, isFalse);
+
+      // 场景 B：原生返回 false（目录删不净），但 Cookie 兜底成功 -> 只能诚实标记 webviewCookiesClearedOnly
+      LegalService.debugAndroidCookieClearAction = () async => true;
+      final resCookiesOnly = await LegalService.revokeAndClearAll();
+      expect(resCookiesOnly.webviewCleaned, isFalse);
+      expect(resCookiesOnly.webviewCookiesClearedOnly, isTrue);
+      expect(resCookiesOnly.hasUnqueuedFailures, isTrue);
+
+      // 场景 C：验证真实 MethodChannel 分支也会校验 invokeMethod<bool> 返回值
+      LegalService.debugAndroidNativeWebViewClearBoolAction = null;
+      LegalService.debugAndroidNativeWebViewClearAction = null;
+      const channel = MethodChannel('io.github.korty258.jinhua_assistant/platform');
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'clearWebViewData') return false;
+        return null;
+      });
+      final resChannelFalse = await LegalService.revokeAndClearAll();
+      expect(resChannelFalse.webviewCleaned, isFalse);
+      expect(resChannelFalse.webviewCookiesClearedOnly, isTrue);
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'clearWebViewData') return true;
+        return null;
+      });
+      final resChannelTrue = await LegalService.revokeAndClearAll();
+      expect(resChannelTrue.webviewCleaned, isTrue);
+      expect(resChannelTrue.webviewCookiesClearedOnly, isFalse);
+      expect(resChannelTrue.isFullyCleaned, isTrue);
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
     });
   });
 }

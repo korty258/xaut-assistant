@@ -53,10 +53,18 @@ class StorageService {
   )? debugPrefsStringWriter;
 
   @visibleForTesting
+  static Future<bool> Function(
+    SharedPreferences prefs,
+    String key,
+    int value,
+  )? debugPrefsIntWriter;
+
+  @visibleForTesting
   static void resetForTesting() {
     debugSyncTimeWriter = null;
     debugPrefsRemover = null;
     debugPrefsStringWriter = null;
+    debugPrefsIntWriter = null;
   }
 
   /// 统一执行 SharedPreferences 键删除，支持测试故障注入与返回值校验
@@ -214,7 +222,9 @@ class StorageService {
   /// 保存当前周
   static Future<bool> saveCurrentWeek(int week) async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.setInt(_keyCurrentWeek, week);
+    return debugPrefsIntWriter != null
+        ? debugPrefsIntWriter!(prefs, _keyCurrentWeek, week)
+        : prefs.setInt(_keyCurrentWeek, week);
   }
 
   /// 加载当前周
@@ -349,30 +359,51 @@ class StorageService {
     return res.allCleared;
   }
 
-  /// 重置损坏的本地加密数据（先逐一清空业务缓存密文与同步时间，全部成功后再销毁主密钥）
-  /// 返回分阶段结构化结果，避免业务键删除失败时提前销毁主密钥导致原本完好的其他模块永久不可解密
-  static Future<({bool prefsCleared, bool keyDestroyed, bool success})>
-      resetCorruptedDataWithReport() async {
+  /// 重置损坏的本地加密数据（按模块逐一采用事务辅助器清空：先删附属键、失败立即回滚并中止后续模块，全部成功后再销毁主密钥）
+  /// 返回逐模块与分阶段结构化结果，彻底防止单项失败扩大误伤其他健康模块或提前销毁主密钥
+  static Future<({
+    bool prefsCleared,
+    bool keyDestroyed,
+    bool success,
+    List<String> clearedModules,
+    String? failedModule,
+  })> resetCorruptedDataWithReport() async {
     final prefs = await SharedPreferences.getInstance();
-    const keysToDelete = [
-      _keyCourses,
-      _keyLastSync,
-      _keySemesterStartDate,
-      _keySemesterName,
-      'xaut_cached_grades',
-      'xaut_cached_grade_summary',
-      'xaut_cached_exams',
-      keyLastGradesSync,
-      keyLastExamsSync,
+    const modules = [
+      (
+        label: '课表',
+        meta: [_keyLastSync, _keySemesterStartDate, _keySemesterName],
+        primary: _keyCourses,
+      ),
+      (
+        label: '成绩',
+        meta: ['xaut_cached_grade_summary', keyLastGradesSync],
+        primary: 'xaut_cached_grades',
+      ),
+      (
+        label: '考试',
+        meta: [keyLastExamsSync],
+        primary: 'xaut_cached_exams',
+      ),
     ];
-    bool prefsCleared = true;
-    for (final k in keysToDelete) {
-      if (!await removeKeySafely(prefs, k)) {
-        prefsCleared = false;
+
+    final clearedModules = <String>[];
+    for (final m in modules) {
+      final res = await deleteKeysSafely(
+        prefs,
+        metadataKeys: m.meta,
+        primaryKey: m.primary,
+      );
+      if (!res.allCleared) {
+        return (
+          prefsCleared: false,
+          keyDestroyed: false,
+          success: false,
+          clearedModules: List<String>.unmodifiable(clearedModules),
+          failedModule: m.label,
+        );
       }
-    }
-    if (!prefsCleared) {
-      return (prefsCleared: false, keyDestroyed: false, success: false);
+      clearedModules.add(m.label);
     }
 
     final keyDestroyed = await AppCryptoService.destroyMasterKey();
@@ -380,6 +411,8 @@ class StorageService {
       prefsCleared: true,
       keyDestroyed: keyDestroyed,
       success: keyDestroyed,
+      clearedModules: List<String>.unmodifiable(clearedModules),
+      failedModule: null,
     );
   }
 

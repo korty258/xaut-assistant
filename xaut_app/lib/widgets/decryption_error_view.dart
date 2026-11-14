@@ -104,22 +104,31 @@ class DecryptionErrorView extends StatelessWidget {
                   }
                   final resetReport =
                       await StorageService.resetCorruptedDataWithReport();
+                  if (resetReport.clearedModules.contains('课表')) {
+                    sp?.resetInMemoryAfterCorruptReset();
+                  }
+                  if (resetReport.clearedModules.contains('成绩')) {
+                    gp?.resetInMemoryAfterCorruptReset();
+                  }
+                  if (resetReport.clearedModules.contains('考试')) {
+                    ep?.resetInMemoryAfterCorruptReset();
+                  }
                   if (!resetReport.success) {
                     if (context.mounted) {
+                      final detail = resetReport.failedModule != null
+                          ? '清空“${resetReport.failedModule}”损坏缓存失败，已中止后续清理并保留未受损数据，请重试'
+                          : '销毁损坏密钥失败，请重试或检查安全存储状态';
                       ScaffoldMessenger.of(context)
                         ..hideCurrentSnackBar()
                         ..showSnackBar(
-                          const SnackBar(
-                            content: Text('清空本地损坏缓存失败，请重试或检查存储状态'),
+                          SnackBar(
+                            content: Text(detail),
                             backgroundColor: Colors.redAccent,
                           ),
                         );
                     }
                     return;
                   }
-                  sp?.resetInMemoryAfterCorruptReset();
-                  gp?.resetInMemoryAfterCorruptReset();
-                  ep?.resetInMemoryAfterCorruptReset();
                   onReset();
                 }
               },

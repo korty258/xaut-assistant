@@ -462,11 +462,17 @@ class _SemesterCalibrateDialogState extends State<SemesterCalibrateDialog> {
             }
             if (!context.mounted) return;
             if (!ok) {
+              final incomplete = widget.provider.lastCalibrationRollbackFailed;
               messenger.hideCurrentSnackBar();
               messenger.showSnackBar(
-                const SnackBar(
-                  content: Text('开学基准日保存失败，已保留原设置'),
-                  backgroundColor: Colors.redAccent,
+                SnackBar(
+                  content: Text(
+                    incomplete
+                        ? '开学基准日保存失败，且原基准磁盘回滚未完成，请手动重新校准'
+                        : '开学基准日保存失败，已保留原设置',
+                  ),
+                  backgroundColor:
+                      incomplete ? Colors.deepOrange : Colors.redAccent,
                 ),
               );
               return;

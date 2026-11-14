@@ -1350,7 +1350,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 14a. 删除考试键失败时：不得销毁主密钥、不得清空内存态、不得触发 onReset()
+      // 14a. 删除考试键失败时：不得销毁主密钥、保留考试内存与磁盘、不得触发 onReset()
       StorageService.debugPrefsRemover = (p, key) async {
         if (key == 'xaut_cached_exams') return false;
         return p.remove(key);
@@ -1363,10 +1363,10 @@ void main() {
 
       expect(resetCallbackInvoked, isFalse);
       expect(masterKeyDeleted, isFalse);
-      expect(sp.courses.map((c) => c.name), equals(['编译原理']));
-      expect(find.text('清空本地损坏缓存失败，请重试或检查存储状态'), findsOneWidget);
+      expect(ep.exams.map((e) => e.courseName), equals(['微积分']));
+      expect(find.textContaining('清空“考试”损坏缓存失败'), findsOneWidget);
 
-      // 14b. 恢复删除能力后重试确认：磁盘 9 键 + 主密钥销毁 + 三端内存清零 + onReset 回调全部执行
+      // 14b. 恢复删除能力后重试确认：磁盘与三端内存清零 + 主密钥销毁 + onReset 回调全部执行
       StorageService.debugPrefsRemover = null;
       await tester.tap(find.text('重置并清空损坏数据'));
       await tester.pumpAndSettle();
@@ -1378,6 +1378,116 @@ void main() {
       expect(sp.courses, isEmpty);
       expect(gp.grades, isEmpty);
       expect(ep.exams, isEmpty);
+    });
+
+    testWidgets('15. Calibration rollback failure is NOT reported as complete rollback in syncSchedule or SemesterCalibrateDialog', (WidgetTester tester) async {
+      final now = DateTime(2026, 11, 14, 11, 30);
+      AppCryptoService.setMockMasterKey(enc.Key.fromBase64(fixedKeyBase64));
+      ParserService.setMockJsCode('/* mock parser */');
+
+      final sp = ScheduleProvider(nowProvider: () => now);
+      final gp = GradesProvider(nowProvider: () => now);
+      final ep = ExamsProvider(nowProvider: () => now);
+      final oldMonday = DateTime(2026, 9, 7);
+      await tester.runAsync(() async {
+        await _waitForProviders(schedule: sp, grades: gp, exams: ep);
+        await sp.updateCourses([sampleCourseA]);
+        await sp.setSemesterStartDate(oldMonday, semester: '2026-2027-1');
+      });
+
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (_) async {};
+      late WebViewSyncCoordinator coordinator;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<ScheduleProvider>.value(value: sp),
+            ChangeNotifierProvider<GradesProvider>.value(value: gp),
+            ChangeNotifierProvider<ExamsProvider>.value(value: ep),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                coordinator = WebViewSyncCoordinator(
+                  getContext: () => context,
+                  adapter: adapter,
+                  onStateChanged: (_, _) {},
+                  confirmSemesterCalibrationOverride: (_) async => true,
+                );
+                return Scaffold(
+                  body: TextButton(
+                    onPressed: () => showDialog<void>(
+                      context: context,
+                      builder: (_) => SemesterCalibrateDialog(provider: sp),
+                    ),
+                    child: const Text('OpenCalibrateIncomplete'),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      // 15a. 新 startDate 写入成功、semesterName 写入失败，且随后的 startDate 磁盘回滚也失败
+      int startWriteCalls = 0;
+      StorageService.debugPrefsStringWriter = (p, key, value) async {
+        if (key == 'xaut_semester_start_date') {
+          startWriteCalls++;
+          if (startWriteCalls == 1) return p.setString(key, value); // 新值落盘
+          return false; // 回滚旧值失败
+        }
+        if (key == 'xaut_semester_name') return false;
+        return p.setString(key, value);
+      };
+
+      final syncFuture = coordinator.syncSchedule();
+      await tester.pump();
+      final reqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': reqId,
+        'type': 'sync_course_result',
+        'success': true,
+        'data': {
+          'courses': [sampleCourseB.toJson()],
+          'weekInfo': {
+            'currentWeek': 1,
+            'semester': '2026-2027-2',
+          },
+          'status': 'ok',
+        },
+      }));
+      await syncFuture;
+      await tester.pumpAndSettle();
+
+      // 原课表快照回滚成功，但基准磁盘未完整回滚：绝不可显示“已回滚保留原课表与原学期基准”
+      expect(find.text('课表与基准未完全一致'), findsOneWidget);
+      expect(find.textContaining('原课表已回滚保留，但原学期名称/开学日磁盘回滚未完成'), findsOneWidget);
+      expect(find.textContaining('已回滚保留原课表与原学期基准'), findsNothing);
+      expect(sp.lastCalibrationRollbackFailed, isTrue);
+      expect(sp.courses.map((c) => c.name), equals(['编译原理']));
+
+      Navigator.of(tester.element(find.text('课表与基准未完全一致'))).pop();
+      await tester.pumpAndSettle();
+
+      // 15b. 手动校准弹窗遇到同样回滚未完成场景，也必须明确提醒用户手动重新校准
+      startWriteCalls = 0;
+      StorageService.debugPrefsIntWriter = (p, key, value) async {
+        if (key == 'xaut_current_week') return false;
+        return p.setInt(key, value);
+      };
+      await tester.tap(find.text('OpenCalibrateIncomplete'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('保存并对齐'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('开学基准日保存失败，且原基准磁盘回滚未完成，请手动重新校准'), findsOneWidget);
+      expect(find.text('开学基准日保存失败，已保留原设置'), findsNothing);
+
+      coordinator.dispose();
+      adapter.dispose();
     });
   });
 }

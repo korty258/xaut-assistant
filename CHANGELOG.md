@@ -6,6 +6,32 @@
 
 ## [Unreleased]
 
+## [2.3.9-rc5] - 2026-11-14
+
+金花助手 `v2.3.9-rc5`（候选发布版 · Android 原生清理回调与目录结果校验、学期基准回滚状态精确透传、损坏重置按模块事务隔离与早停保护、`.ics` 课程与考试 UID 碰撞消除）！本候选版本全面修补 `v2.3.9-rc4` 静态审查确认的 4 项问题并完善全路径异常注入与唯一性回归测试。
+
+### Fixed
+- **Android 撤回清理异步等待与底层返回值核验 (`MainActivity.kt` & `LegalService`)**：
+  - `MainActivity.kt` 改用 `cookieManager.removeAllCookies { _ -> ... }` 回调等待 Cookie 异步清除并 `flush()` 完成后再清理目录，严格检查 `cacheDir`、`codeCacheDir` 与 `app_webview` 每一次 `deleteRecursively()` 的布尔结果并向上返回真实清理状态（遵循 Android SDK 契约，不把“无旧 Cookie 时回调返回 `false`”误判为失败）；
+  - `LegalService.revokeAndClearAll()` 严格校验原生 `invokeMethod<bool>('clearWebViewData') == true`，原生返回 `false` 时自动执行 Cookie 兜底并诚实保留 `webviewCleaned = false`。
+- **学期基准回滚状态精确感知与防误报 (`ScheduleProvider`、`WebViewSyncCoordinator` & `WeekSelectorSheet`)**：
+  - `ScheduleProvider._persistCalibrationState()` 消除重复二次回滚调用，新增只读状态 `lastCalibrationRollbackFailed` 明确标示基准磁盘回滚是否真正完成；
+  - `WebViewSyncCoordinator` 分别校验 `coursesRestored` 与 `calibrationRollbackFailed`，仅当课表快照与学期基准磁盘均确认回滚成功时才提示“已回滚保留原课表与原学期基准”；若原课表已恢复但基准磁盘回滚未完成，明确展示部分不一致警示；
+  - `SemesterCalibrateDialog` 同步区分普通保存失败与基准磁盘回滚未完成提示。
+- **损坏缓存重置按模块事务保护与首个失败早停 (`StorageService` & `DecryptionErrorView`)**：
+  - `StorageService.resetCorruptedDataWithReport()` 改为按课表 / 成绩 / 考试三模块顺序依次调用 `deleteKeysSafely()`：先删模块附属键，失败立即回滚并**中止后续模块删除**（绝不波及后续健康模块），返回 `clearedModules` 与 `failedModule`；仅全部模块均成功后再销毁主密钥；
+  - `DecryptionErrorView` 按实际 `clearedModules` 重置内存并准确提示首个失败模块名。
+- **`.ics` 课程与考试事件 UID 唯一性与零碰撞加固 (`CalendarExportService`)**：
+  - 课程 UID 纳入 `endSection`（跨度 `stepCount`）、`room`、`teacher` 确定性摘要；考试 UID 纳入 `courseCode`、`examTime`、`campus`、`room`、`batch` 确定性摘要（严格不含座位号）；
+  - 单次导出内引入 `seenUids` 确定性去重，保证同一逻辑事件跨次导出恒定、同一 `.ics` 文件内 100% 唯一。
+
+### Tests
+- **补齐 `v2.3.9-rc5` 4 项修复回归测试**：
+  - `legal_service_test.dart`：Android 原生通道返回 `false` 时校验不误报 `webviewCleaned = true` 并走兜底；原生通道成功等待回调后才返回清理完成；
+  - `app_crypto_service_test.dart`：损坏重置中间模块附属键/主键失败时，验证**不继续删除后续模块**、回滚当模块已删附属键、保留主密钥并准确报告 `clearedModules` / `failedModule`；
+  - `storage_lifecycle_smoke_test.dart`：`syncSchedule`（与 `SemesterCalibrateDialog`）遇到“新课表回滚成功但旧学期基准磁盘回滚失败”场景时，明确告警基准回滚未完成而非误报完整恢复；
+  - `calendar_export_service_test.dart`：新增同名同起点不同节次跨度/不同教室课程、`exam` 同名同时间不同校区/考场/批次，以及整文件展开 UID 100% 唯一性与稳定性断言。
+
 ## [2.3.9-rc4] - 2026-11-14
 
 金花助手 `v2.3.9-rc4`（候选发布版 · 多键清空原子反转保护、学期校准与课表提交全链路回滚、`WeekSelectorSheet` 保存结果诚实校验、`AppCryptoService` 迁移补偿闭环、损坏数据安全销毁序反转与强智解析短行越界防护）！本候选版本全面修复 `v2.3.9-rc3` 静态与运行时交叉评审发现的 6 项问题并补齐回归测试。

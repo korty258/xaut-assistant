@@ -12,7 +12,7 @@ import 'app_crypto_service.dart';
 /// 文本内容与 assets/legal/*.md 严格对应。
 class LegalService {
   /// 当前客户端对外统一发布版本号
-  static const String appVersion = 'v2.3.9-rc4';
+  static const String appVersion = 'v2.3.9-rc5';
 
   /// 当前合规文本版本。当协议有实质性变更时必须递增此常量，
   /// 系统检测到本地记录与该版本不一致时会自动重新唤起同意页面。
@@ -34,6 +34,9 @@ class LegalService {
   static Future<void> Function()? debugAndroidNativeWebViewClearAction;
 
   @visibleForTesting
+  static Future<bool> Function()? debugAndroidNativeWebViewClearBoolAction;
+
+  @visibleForTesting
   static Future<bool> Function()? debugAndroidCookieClearAction;
 
   @visibleForTesting
@@ -51,6 +54,7 @@ class LegalService {
     debugWindowsWipeAction = null;
     debugAndroidWebViewClearAction = null;
     debugAndroidNativeWebViewClearAction = null;
+    debugAndroidNativeWebViewClearBoolAction = null;
     debugAndroidCookieClearAction = null;
     debugPrefsClearAction = null;
     debugPrefsBoolWriter = null;
@@ -285,18 +289,25 @@ class LegalService {
       } else {
         // 优先通过 Android 原生 MethodChannel 调用 WebStorage.deleteAllData()、WebViewDatabase 与动态缓存彻底清除
         try {
-          if (debugAndroidNativeWebViewClearAction != null) {
+          if (debugAndroidNativeWebViewClearBoolAction != null) {
+            webviewCleaned = await debugAndroidNativeWebViewClearBoolAction!();
+          } else if (debugAndroidNativeWebViewClearAction != null) {
             await debugAndroidNativeWebViewClearAction!();
+            webviewCleaned = true;
           } else {
             const platformChannel =
                 MethodChannel('io.github.korty258.jinhua_assistant/platform');
-            await platformChannel.invokeMethod('clearWebViewData');
+            final nativeResult =
+                await platformChannel.invokeMethod<bool>('clearWebViewData');
+            webviewCleaned = nativeResult == true;
           }
-          webviewCleaned = true;
         } catch (e) {
           debugPrint('Android native clearWebViewData failed: $e');
           webviewCleaned = false;
+        }
+        if (!webviewCleaned) {
           // 降级兜底：尝试清除 Cookie，但严禁将仅清 Cookie 误报为彻底清除全部 WebView 数据
+          // 注：WebViewCookieManager.clearCookies() 返回 false 仅代表“清理前本无 Cookie”，真正失败会抛出异常
           try {
             if (debugAndroidCookieClearAction != null) {
               webviewCookiesClearedOnly = await debugAndroidCookieClearAction!();

@@ -157,20 +157,21 @@ class WebViewSyncCoordinator {
       return;
     }
 
+    final bool hasMismatchWarning =
+        outcome.errorCategory == 'calibration_rollback_failed' ||
+        outcome.errorCategory == 'calibration_rollback_incomplete';
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         icon: Icon(
-          outcome.errorCategory == 'calibration_rollback_failed'
+          hasMismatchWarning
               ? Icons.warning_amber_rounded
               : Icons.error_outline_rounded,
-          color: outcome.errorCategory == 'calibration_rollback_failed'
-              ? Colors.orange
-              : Colors.red,
+          color: hasMismatchWarning ? Colors.orange : Colors.red,
           size: 36,
         ),
         title: Text(
-          outcome.errorCategory == 'calibration_rollback_failed'
+          hasMismatchWarning
               ? '$moduleTitle与基准未完全一致'
               : (outcome.overrideMessage != null
                   ? '$moduleTitle同步已回滚'
@@ -378,8 +379,12 @@ class WebViewSyncCoordinator {
   }
 
   /// 阶段 2：仅在课表持久化成功后再提交学期与周次基准更新，保证两者原子一致
-  Future<({String? detailMessage, bool isSuccess, bool saveFailed})>
-      _commitPendingWeekCalibration(
+  Future<({
+    String? detailMessage,
+    bool isSuccess,
+    bool saveFailed,
+    bool calibrationRollbackFailed,
+  })> _commitPendingWeekCalibration(
     ScheduleProvider scheduleProvider, {
     required SemesterCalibrationDecision? pendingDecision,
     required String? preparedDetail,
@@ -392,6 +397,7 @@ class WebViewSyncCoordinator {
         detailMessage: '已保持原学期基准不变',
         isSuccess: false,
         saveFailed: false,
+        calibrationRollbackFailed: false,
       );
     }
     if (pendingDecision == null) {
@@ -399,6 +405,7 @@ class WebViewSyncCoordinator {
         detailMessage: preparedDetail,
         isSuccess: preparedSuccess,
         saveFailed: false,
+        calibrationRollbackFailed: false,
       );
     }
     if (!coursesPersisted) {
@@ -406,6 +413,7 @@ class WebViewSyncCoordinator {
         detailMessage: '由于课表保存失败，已保持原学期基准不变',
         isSuccess: false,
         saveFailed: false,
+        calibrationRollbackFailed: false,
       );
     }
 
@@ -418,10 +426,14 @@ class WebViewSyncCoordinator {
               : null,
         );
         if (!ok) {
+          final incomplete = scheduleProvider.lastCalibrationRollbackFailed;
           return (
-            detailMessage: '教学周基准保存失败，已保持原学期基准不变',
+            detailMessage: incomplete
+                ? '教学周基准保存失败，且原学期基准磁盘回滚未完成，请手动重新校准'
+                : '教学周基准保存失败，已保持原学期基准不变',
             isSuccess: false,
             saveFailed: true,
+            calibrationRollbackFailed: incomplete,
           );
         }
         if (pendingDecision.requiresConfirmation) {
@@ -429,6 +441,7 @@ class WebViewSyncCoordinator {
             detailMessage: '已按确认更新学期基准',
             isSuccess: true,
             saveFailed: false,
+            calibrationRollbackFailed: false,
           );
         }
         final week = scheduleProvider.actualCurrentWeek;
@@ -440,6 +453,7 @@ class WebViewSyncCoordinator {
           detailMessage: '已自动对齐第 $week 周${monStr.isNotEmpty ? " (第1周周一: $monStr)" : ""}',
           isSuccess: true,
           saveFailed: false,
+          calibrationRollbackFailed: false,
         );
       } else {
         // 关键修复：无基准日期（未识别到周次或开学日，仅识别到学期名称）
@@ -451,6 +465,7 @@ class WebViewSyncCoordinator {
               detailMessage: '学期名称保存失败，已保持原学期基准不变',
               isSuccess: false,
               saveFailed: true,
+              calibrationRollbackFailed: false,
             );
           }
         }
@@ -458,21 +473,31 @@ class WebViewSyncCoordinator {
           detailMessage: '已识别学期 ${pendingDecision.candidateSemester}，未检测到周次，请手动校准开学日',
           isSuccess: false,
           saveFailed: false,
+          calibrationRollbackFailed: false,
         );
       }
     } catch (_) {
+      final incomplete = scheduleProvider.lastCalibrationRollbackFailed;
       return (
-        detailMessage: '教学周基准保存失败，已保持原学期基准不变',
+        detailMessage: incomplete
+            ? '教学周基准保存失败，且原学期基准磁盘回滚未完成，请手动重新校准'
+            : '教学周基准保存失败，已保持原学期基准不变',
         isSuccess: false,
         saveFailed: true,
+        calibrationRollbackFailed: incomplete,
       );
     }
   }
 
-  /// 原子协调写入课表与教学周基准：当基准保存失败时主动回滚已写入的新课表及同步时间快照
+  /// 原子协调写入课表与教学周基准：分别校验课表快照回滚结果与学期基准磁盘回滚结果，绝不在回滚不完整时宣称完整恢复
   Future<({
     _PersistOutcome coursesOutcome,
-    ({String? detailMessage, bool isSuccess, bool saveFailed}) calibRes,
+    ({
+      String? detailMessage,
+      bool isSuccess,
+      bool saveFailed,
+      bool calibrationRollbackFailed,
+    }) calibRes,
   })> _persistCoursesAndCalibrationAtomic(
     ScheduleProvider scheduleProvider, {
     required Future<void> Function() writeCourses,
@@ -487,7 +512,12 @@ class WebViewSyncCoordinator {
     if (_isDisposed) {
       return (
         coursesOutcome: coursesOutcome,
-        calibRes: (detailMessage: null, isSuccess: false, saveFailed: false),
+        calibRes: (
+          detailMessage: null,
+          isSuccess: false,
+          saveFailed: false,
+          calibrationRollbackFailed: false,
+        ),
       );
     }
 
@@ -503,21 +533,35 @@ class WebViewSyncCoordinator {
     if (pendingDecision != null &&
         calibRes.saveFailed &&
         (coursesOutcome.isOk || coursesOutcome.dataSavedOnly)) {
-      final restored = await scheduleProvider.restoreCoursesSnapshot(
+      final coursesRestored = await scheduleProvider.restoreCoursesSnapshot(
         prevCourses,
         prevSyncTime: prevSyncTime,
       );
-      final msg = restored
-          ? '教学周基准保存失败，已回滚保留原课表与原学期基准'
-          : '新课表已写入，但教学周基准保存失败且课表回滚未完成，请手动校准或重新同步';
+      final calibIncomplete = calibRes.calibrationRollbackFailed;
+      final String msg;
+      final String errCat;
+      if (coursesRestored && !calibIncomplete) {
+        msg = '教学周基准保存失败，已回滚保留原课表与原学期基准';
+        errCat = 'calibration_rollback';
+      } else if (coursesRestored && calibIncomplete) {
+        msg = '教学周基准保存失败：原课表已回滚保留，但原学期名称/开学日磁盘回滚未完成，请手动重新校准';
+        errCat = 'calibration_rollback_incomplete';
+      } else if (!coursesRestored && calibIncomplete) {
+        msg = '新课表已写入，且教学周基准保存及课表、基准磁盘回滚均未完成，请手动校准并重新同步';
+        errCat = 'calibration_rollback_failed';
+      } else {
+        msg = '新课表已写入，但教学周基准保存失败且课表回滚未完成，请手动校准或重新同步';
+        errCat = 'calibration_rollback_failed';
+      }
       coursesOutcome = _PersistOutcome.failed(
-        restored ? 'calibration_rollback' : 'calibration_rollback_failed',
+        errCat,
         overrideMessage: msg,
       );
       calibRes = (
         detailMessage: msg,
         isSuccess: false,
         saveFailed: true,
+        calibrationRollbackFailed: calibIncomplete,
       );
     }
 
@@ -629,12 +673,18 @@ class WebViewSyncCoordinator {
       }
       final bool rejectedByUser = prepCalib.rejectedByUser;
 
-      // 1. 课表与教学周基准原子提交：若基准保存失败，主动回滚已写入的新课表与同步时间快照
+      // 1. 课表与教学周基准原子提交：若基准保存失败，主动回滚已写入的新课表与同步时间快照并区分基准自身是否完整回滚
       var coursesOutcome = const _PersistOutcome.success();
-      ({String? detailMessage, bool isSuccess, bool saveFailed}) calibRes = (
+      ({
+        String? detailMessage,
+        bool isSuccess,
+        bool saveFailed,
+        bool calibrationRollbackFailed,
+      }) calibRes = (
         detailMessage: rejectedByUser ? '已保持原学期基准不变' : prepCalib.detailMessage,
         isSuccess: !rejectedByUser && prepCalib.isSuccess,
         saveFailed: false,
+        calibrationRollbackFailed: false,
       );
       if (!rejectedByUser &&
           (result.statusCourses.isOk || result.statusCourses.isEmpty)) {

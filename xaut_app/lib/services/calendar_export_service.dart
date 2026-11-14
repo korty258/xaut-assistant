@@ -38,6 +38,7 @@ class CalendarExportService {
   }) {
     final buffer = StringBuffer();
     final dtStamp = _formatUtcDateTime(now ?? DateTime.now());
+    final seenUids = <String>{};
 
     // 1. 日历头部与时区定义 (标准中国时区 Asia/Shanghai UTC+8)
     _emit(buffer, 'BEGIN:VCALENDAR');
@@ -90,8 +91,13 @@ class CalendarExportService {
           final startDt = DateTime(courseDate.year, courseDate.month, courseDate.day, sHour, sMinute);
           final endDt = DateTime(courseDate.year, courseDate.month, courseDate.day, eHour, eMinute);
 
-          // 稳定确定性 UID (消除数组索引依赖与进程哈希不稳定性，保证多次导出同一课程 UID 恒定)
-          final uid = 'course_${_stableKey(course.name)}_d${course.day}_s${course.startSection}_w$week@xaut.assistant';
+          // 稳定确定性 UID（涵盖课程名、星期、起止节次/跨度、教室、教师与周次，消除同槽不同跨度或不同教室课程碰撞）
+          final courseDetailDigest = _stableDigest(
+            '${course.stepCount}\u0000${course.room.trim()}\u0000${course.teacher.trim()}',
+          );
+          final baseUid =
+              'course_${_stableKey(course.name)}_d${course.day}_s${course.startSection}_e${course.endSection}_w${week}_$courseDetailDigest@xaut.assistant';
+          final uid = _dedupUid(baseUid, seenUids);
 
           _emit(buffer, 'BEGIN:VEVENT');
           _emit(buffer, 'UID:$uid');
@@ -132,8 +138,13 @@ class CalendarExportService {
       final parsed = exam.parseTimeRange();
       if (parsed.dateOnly == null) continue;
 
-      // 稳定确定性 UID (消除数组索引依赖，多次导出同一门考试保持 UID 恒定)
-      final uid = 'exam_${_stableKey(exam.courseName)}_${_stableKey(exam.examTime)}@xaut.assistant';
+      // 稳定确定性 UID（涵盖课程名、课程代码、时间、校区、考场与批次，严禁包含座位号；同文件内再用 seenUids 兜底去重）
+      final examDetailDigest = _stableDigest(
+        '${exam.courseCode.trim()}\u0000${exam.examTime.trim()}\u0000${exam.campus.trim()}\u0000${exam.room.trim()}\u0000${exam.batch.trim()}',
+      );
+      final baseUid =
+          'exam_${_stableKey(exam.courseName)}_$examDetailDigest@xaut.assistant';
+      final uid = _dedupUid(baseUid, seenUids);
 
       _emit(buffer, 'BEGIN:VEVENT');
       _emit(buffer, 'UID:$uid');
@@ -230,6 +241,29 @@ class CalendarExportService {
   /// 生成稳定确定性的业务键 (URL-Safe Base64, 去除尾部填充)，替代不可跨进程保序的 hashCode
   static String _stableKey(String text) =>
       base64Url.encode(utf8.encode(text)).replaceAll('=', '');
+
+  /// 生成跨平台/跨进程恒定的 64 位（16 Hex）纯 Dart 摘要，用于在不明显拉长 UID 的前提下区分辅助字段
+  static String _stableDigest(String text) {
+    final bytes = utf8.encode(text);
+    int h1 = 0x811c9dc5;
+    int h2 = 0x9e3779b1;
+    for (final b in bytes) {
+      h1 ^= b;
+      h1 = (h1 * 0x01000193) & 0xffffffff;
+      h2 = ((h2 * 131) + b + 1) & 0xffffffff;
+    }
+    return '${h1.toRadixString(16).padLeft(8, '0')}${h2.toRadixString(16).padLeft(8, '0')}';
+  }
+
+  /// 同一次导出文件内的 UID 唯一性兜底去重
+  static String _dedupUid(String baseUid, Set<String> seenUids) {
+    if (seenUids.add(baseUid)) return baseUid;
+    int suffix = 2;
+    while (!seenUids.add('${baseUid}_$suffix')) {
+      suffix++;
+    }
+    return '${baseUid}_$suffix';
+  }
 
   /// RFC 5545 §3.1: 属性内容行最大不超过 75 字节 (octets)，
   /// 超出部分在 UTF-8 字符边界折行，续行以单个空格开头
