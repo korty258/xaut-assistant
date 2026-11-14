@@ -106,7 +106,9 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     if (confirm == true) {
       try {
         await _adapter.clearCookiesAndCache();
-        await _adapter.navigateTo(WebViewConstants.defaultUrl);
+        if (_adapter.isInitialized) {
+          await _adapter.navigateTo(WebViewConstants.defaultUrl);
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('已清除浏览器登录会话 Cookie，已重置至统一认证页面')),
@@ -118,6 +120,32 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
             SnackBar(content: Text('清理 Cookie 失败: $e')),
           );
         }
+      }
+    }
+  }
+
+  Future<void> _handleReload() async {
+    if (!_adapter.isInitialized) return;
+    try {
+      await _adapter.reload();
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('刷新页面失败: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleNavigate(String url) async {
+    if (!_adapter.isInitialized) return;
+    try {
+      await _adapter.navigateTo(url);
+    } on Object catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('页面跳转失败: $e')),
+        );
       }
     }
   }
@@ -286,7 +314,9 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                   IconButton(
                     icon: const Icon(Icons.refresh),
                     tooltip: '刷新页面',
-                    onPressed: () => _adapter.reload(),
+                    onPressed: _adapter.isInitialized
+                        ? () => unawaited(_handleReload())
+                        : null,
                   ),
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.more_vert),
@@ -321,7 +351,8 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                   // 1. 顶部快捷跳转与地址栏
                   WebViewNavBar(
                     currentUrl: currentUrl,
-                    onNavigate: (url) => _adapter.navigateTo(url),
+                    isInitialized: _adapter.isInitialized,
+                    onNavigate: (url) => unawaited(_handleNavigate(url)),
                   ),
 
                   // 2. 双端 WebView 渲染容器

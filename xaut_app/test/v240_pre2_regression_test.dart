@@ -305,6 +305,7 @@ void main() {
 
       expect(res.courses.map((c) => c.name), equals(['编译原理']));
       expect(res.grades.map((g) => g.courseName), equals(['线性代数']));
+      expect(res.grades.first.score, equals('91'));
       expect(res.exams.map((e) => e.courseName), equals(['计算机网络']));
       expect(res.statusCourses, SyncModuleStatus.ok);
       expect(res.statusGrades, SyncModuleStatus.ok);

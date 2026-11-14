@@ -28,6 +28,9 @@ class WebViewPlatformAdapter {
   final ValueNotifier<String> currentUrlNotifier = ValueNotifier<String>(WebViewConstants.defaultUrl);
   final ValueNotifier<String?> initErrorNotifier = ValueNotifier<String?>(null);
   bool isWebView2Missing = false;
+  bool _isDisposed = false;
+
+  bool get isDisposed => _isDisposed;
 
   final void Function(String blockedUrl)? onBlockedUrl;
   final void Function()? onPageLoadFinished;
@@ -84,6 +87,7 @@ class WebViewPlatformAdapter {
   /// 处理 Windows WebView 加载状态变更：同地址刷新开始新一轮文档加载时主动取消旧 Bridge 任务
   @visibleForTesting
   void handleWindowsLoadingStateChange(bool nowLoading) {
+    if (_isDisposed) return;
     final wasLoading = isLoadingNotifier.value;
     isLoadingNotifier.value = nowLoading;
     if (!wasLoading && nowLoading && isInitializedNotifier.value) {
@@ -94,8 +98,16 @@ class WebViewPlatformAdapter {
     }
   }
 
+  void _disposeWinControllerBestEffort() {
+    if (!isWindows || !winController.value.isInitialized) return;
+    try {
+      unawaited(winController.dispose().catchError((_) {}));
+    } on Object catch (_) {}
+  }
+
   /// 初始化双端控制器
   Future<void> initialize() async {
+    if (_isDisposed) return;
     initErrorNotifier.value = null;
     isWebView2Missing = false;
     isLoadingNotifier.value = true;
@@ -107,8 +119,10 @@ class WebViewPlatformAdapter {
   }
 
   Future<void> _initWindows() async {
+    if (_isDisposed) return;
     try {
       final webViewVersion = await win.WebviewController.getWebViewVersion();
+      if (_isDisposed) return;
       if (webViewVersion == null || webViewVersion.trim().isEmpty) {
         isWebView2Missing = true;
         isLoadingNotifier.value = false;
@@ -121,7 +135,15 @@ class WebViewPlatformAdapter {
       if (!winController.value.isInitialized) {
         await winController.initialize();
       }
-    } catch (e) {
+      if (_isDisposed) {
+        _disposeWinControllerBestEffort();
+        return;
+      }
+    } on Object catch (e) {
+      if (_isDisposed) {
+        _disposeWinControllerBestEffort();
+        return;
+      }
       isLoadingNotifier.value = false;
       final errText = e.toString();
       if (errText.contains('environment_creation_failed') ||
@@ -133,7 +155,12 @@ class WebViewPlatformAdapter {
     }
 
     await _winUrlSub?.cancel();
+    if (_isDisposed) {
+      _disposeWinControllerBestEffort();
+      return;
+    }
     _winUrlSub = winController.url.listen((url) {
+      if (_isDisposed) return;
       if (!isAllowedUrl(url)) {
         cancelActiveBridgeTasks('检测到非校内链接，已取消正在进行的同步任务');
         unawaited(winController.stop());
@@ -149,27 +176,47 @@ class WebViewPlatformAdapter {
     });
 
     await _winLoadingSub?.cancel();
+    if (_isDisposed) {
+      await _winUrlSub?.cancel();
+      _disposeWinControllerBestEffort();
+      return;
+    }
     _winLoadingSub = winController.loadingState.listen((state) {
       handleWindowsLoadingStateChange(state == win.LoadingState.loading);
     });
 
     // Windows WebView2 原生消息监听
     await _winMessageSub?.cancel();
+    if (_isDisposed) {
+      await _winUrlSub?.cancel();
+      await _winLoadingSub?.cancel();
+      _disposeWinControllerBestEffort();
+      return;
+    }
     _winMessageSub = winController.webMessage.listen((dynamic rawMsg) {
       _handleIncomingBridgeMessage(rawMsg);
     });
 
     await winController.loadUrl(WebViewConstants.defaultUrl);
+    if (_isDisposed) {
+      await _winUrlSub?.cancel();
+      await _winLoadingSub?.cancel();
+      await _winMessageSub?.cancel();
+      _disposeWinControllerBestEffort();
+      return;
+    }
     isInitializedNotifier.value = true;
   }
 
   void _initMobile() {
+    if (_isDisposed) return;
     final ctrl = af.WebViewController();
     unawaited(ctrl.setJavaScriptMode(af.JavaScriptMode.unrestricted));
     unawaited(
       ctrl.addJavaScriptChannel(
         'JinhuaBridge',
         onMessageReceived: (af.JavaScriptMessage msg) {
+          if (_isDisposed) return;
           _handleIncomingBridgeMessage(msg.message);
         },
       ),
@@ -178,6 +225,7 @@ class WebViewPlatformAdapter {
       ctrl.setNavigationDelegate(
         af.NavigationDelegate(
           onNavigationRequest: (request) {
+            if (_isDisposed) return af.NavigationDecision.prevent;
             if (isAllowedUrl(request.url)) {
               return af.NavigationDecision.navigate;
             }
@@ -186,16 +234,19 @@ class WebViewPlatformAdapter {
             return af.NavigationDecision.prevent;
           },
           onPageStarted: (url) {
+            if (_isDisposed) return;
             cancelActiveBridgeTasks('页面开始加载新地址，已取消正在进行的同步任务');
             isLoadingNotifier.value = true;
             currentUrlNotifier.value = url;
           },
           onPageFinished: (url) {
+            if (_isDisposed) return;
             isLoadingNotifier.value = false;
             currentUrlNotifier.value = url;
             onPageLoadFinished?.call();
           },
           onWebResourceError: (err) {
+            if (_isDisposed) return;
             isLoadingNotifier.value = false;
           },
         ),
@@ -327,6 +378,7 @@ class WebViewPlatformAdapter {
 
   /// 导航至指定 URL（内置安全拦截与同步任务取消）
   Future<void> navigateTo(String url) async {
+    if (_isDisposed || !isInitialized) return;
     cancelActiveBridgeTasks('页面正在跳转至新地址，已取消正在进行的同步任务');
     if (!isAllowedUrl(url)) {
       onBlockedUrl?.call(url);
@@ -341,6 +393,7 @@ class WebViewPlatformAdapter {
 
   /// 重新加载当前页面（内置同步任务取消）
   Future<void> reload() async {
+    if (_isDisposed || !isInitialized) return;
     cancelActiveBridgeTasks('页面正在重新加载，已取消正在进行的同步任务');
     if (isWindows) {
       await winController.reload();
@@ -426,15 +479,13 @@ class WebViewPlatformAdapter {
   }
 
   void dispose() {
+    if (_isDisposed) return;
+    _isDisposed = true;
     cancelActiveBridgeTasks('WebView 已关闭');
     unawaited(_winUrlSub?.cancel());
     unawaited(_winLoadingSub?.cancel());
     unawaited(_winMessageSub?.cancel());
-    if (isWindows && winController.value.isInitialized) {
-      try {
-        unawaited(winController.dispose().catchError((_) {}));
-      } on Object catch (_) {}
-    }
+    _disposeWinControllerBestEffort();
     isInitializedNotifier.dispose();
     isLoadingNotifier.dispose();
     currentUrlNotifier.dispose();

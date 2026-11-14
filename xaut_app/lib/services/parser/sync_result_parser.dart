@@ -189,7 +189,7 @@ class SyncResultParser {
         detectedWeek: weekInfo.currentWeek,
         detectedSemester: weekInfo.semester,
         detectedSemesterStart: weekInfo.semesterStartDate,
-        error: data['error'] as String?,
+        error: data['error']?.toString(),
       );
     }
 
@@ -367,10 +367,16 @@ class SyncResultParser {
       }
 
       if (data['summary'] is Map) {
-        final sumMap = data['summary'];
-        summary = GradeSummary.fromJson(
-          sumMap is Map<String, dynamic> ? sumMap : Map<String, dynamic>.from(sumMap),
-        );
+        try {
+          final sumMap = data['summary'];
+          summary = GradeSummary.fromJson(
+            sumMap is Map<String, dynamic>
+                ? sumMap
+                : Map<String, dynamic>.from(sumMap),
+          );
+        } on Object catch (_) {
+          summary = null;
+        }
       }
 
       final statusStr = data['status']?.toString();
@@ -503,6 +509,8 @@ class SyncResultParser {
         }
       } on FormatException {
         // 忽略单条字段缺失/畸形的 DOM 行，防止污染或拖垮同批次其他有效数据
+      } on TypeError {
+        // 兜底隔离外源或自定义反序列化回调中的字段类型错位异常
       }
     }
     return result;

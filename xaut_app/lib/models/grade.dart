@@ -31,15 +31,25 @@ class GradeItem {
       throw const FormatException('GradeItem JSON 缺少成绩或学分核心字段');
     }
 
+    final rawScore = json['score'] is String
+        ? json['score'] as String
+        : (json['grade'] is String ? json['grade'] as String : '');
+    final rawSemester = json['semester'];
+    final rawCourseCode = json['courseCode'];
+    final rawCredit = json['credit'];
+    final rawGpa = json['gpa'];
+    final rawCategory = json['category'];
+    final rawExamType = json['examType'];
+
     return GradeItem(
-      semester: json['semester'] as String? ?? '',
-      courseCode: json['courseCode'] as String? ?? '',
+      semester: rawSemester is String ? rawSemester : '',
+      courseCode: rawCourseCode is String ? rawCourseCode : '',
       courseName: rawCourseName,
-      score: json['score'] as String? ?? '',
-      credit: (json['credit'] as num?)?.toDouble() ?? 0.0,
-      gpa: (json['gpa'] as num?)?.toDouble() ?? -1.0,
-      category: json['category'] as String? ?? '',
-      examType: json['examType'] as String? ?? '',
+      score: rawScore,
+      credit: rawCredit is num ? rawCredit.toDouble() : 0.0,
+      gpa: rawGpa is num ? rawGpa.toDouble() : -1.0,
+      category: rawCategory is String ? rawCategory : '',
+      examType: rawExamType is String ? rawExamType : '',
     );
   }
 
@@ -71,11 +81,15 @@ class GradeSummary {
   });
 
   factory GradeSummary.fromJson(Map<String, dynamic> json) {
+    final rawTotalCourses = json['totalCourses'];
+    final rawTotalCredits = json['totalCredits'];
+    final rawAverageScore = json['averageScore'];
+    final rawAverageGpa = json['averageGpa'];
     return GradeSummary(
-      totalCourses: (json['totalCourses'] as num?)?.toInt() ?? 0,
-      totalCredits: (json['totalCredits'] as num?)?.toDouble() ?? 0.0,
-      averageScore: (json['averageScore'] as num?)?.toDouble() ?? 0.0,
-      averageGpa: (json['averageGpa'] as num?)?.toDouble() ?? 0.0,
+      totalCourses: rawTotalCourses is num ? rawTotalCourses.toInt() : 0,
+      totalCredits: rawTotalCredits is num ? rawTotalCredits.toDouble() : 0.0,
+      averageScore: rawAverageScore is num ? rawAverageScore.toDouble() : 0.0,
+      averageGpa: rawAverageGpa is num ? rawAverageGpa.toDouble() : 0.0,
     );
   }
 

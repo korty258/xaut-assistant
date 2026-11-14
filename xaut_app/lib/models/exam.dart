@@ -189,14 +189,21 @@ class ExamItem {
       throw const FormatException('ExamItem JSON 缺少考试时间或地点核心字段');
     }
 
+    final rawCampus = json['campus'];
+    final rawBatch = json['batch'];
+    final rawCourseCode = json['courseCode'];
+    final rawTeacher = json['teacher'];
+    final rawExamTime = json['examTime'];
+    final rawRoom = json['room'];
+
     return ExamItem(
-      campus: json['campus'] as String? ?? '',
-      batch: json['batch'] as String? ?? '',
-      courseCode: json['courseCode'] as String? ?? '',
+      campus: rawCampus is String ? rawCampus : '',
+      batch: rawBatch is String ? rawBatch : '',
+      courseCode: rawCourseCode is String ? rawCourseCode : '',
       courseName: rawCourseName,
-      teacher: json['teacher'] as String? ?? '',
-      examTime: json['examTime'] as String? ?? '',
-      room: json['room'] as String? ?? '',
+      teacher: rawTeacher is String ? rawTeacher : '',
+      examTime: rawExamTime is String ? rawExamTime : '',
+      room: rawRoom is String ? rawRoom : '',
     );
   }
 
