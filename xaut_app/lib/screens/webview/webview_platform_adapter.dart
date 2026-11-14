@@ -54,8 +54,8 @@ class WebViewPlatformAdapter {
     this.onPageLoadFinished,
   }) : isWindows = !kIsWeb && Platform.isWindows;
 
-  bool get isInitialized => isInitializedNotifier.value;
-  bool get isLoading => isLoadingNotifier.value;
+  bool get isInitialized => !_isDisposed && isInitializedNotifier.value;
+  bool get isLoading => !_isDisposed && isLoadingNotifier.value;
   String get currentUrl => currentUrlNotifier.value;
 
   /// 生成全局递增唯一的同步请求 ID
@@ -404,10 +404,12 @@ class WebViewPlatformAdapter {
 
   /// 清除浏览器会话 Cookie 与本地缓存
   Future<void> clearCookiesAndCache() async {
+    if (_isDisposed) return;
     cancelActiveBridgeTasks('正在清除登录会话，已取消正在进行的同步任务');
     if (isWindows) {
       if (winController.value.isInitialized) {
         await winController.clearCookies();
+        if (_isDisposed) return;
         await winController.clearCache();
       }
     } else {

@@ -76,60 +76,88 @@ class WeekSelectorSheet extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Column(
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+                  final useStackedHeader =
+                      constraints.maxWidth < (showBackToCurrent ? 380 : 280) ||
+                          textScale > 1.15;
+
+                  final titleBlock = Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '切换教学周次',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        hasSemesterStart && semesterStartDate != null
+                            ? '${semesterName.isNotEmpty ? "$semesterName · " : ""}第1周周一: ${_fmtYmd(semesterStartDate!)}'
+                            : '尚未校准开学日期，建议同步或手动校准',
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  );
+
+                  final actionButtons = Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (showBackToCurrent)
+                        FilledButton.tonalIcon(
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            onResetToActualWeek();
+                          },
+                          icon: const Icon(Icons.today_rounded, size: 15),
+                          label: const Text('回到本周', style: TextStyle(fontSize: 12)),
+                          style: FilledButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          ),
+                        ),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          onCalibratePressed();
+                        },
+                        icon: const Icon(Icons.edit_calendar_rounded, size: 15),
+                        label: const Text('校准开学日', style: TextStyle(fontSize: 12)),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        ),
+                      ),
+                    ],
+                  );
+
+                  if (useStackedHeader) {
+                    return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '切换教学周次',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          hasSemesterStart && semesterStartDate != null
-                              ? '${semesterName.isNotEmpty ? "$semesterName · " : ""}第1周周一: ${_fmtYmd(semesterStartDate!)}'
-                              : '尚未校准开学日期，建议同步或手动校准',
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontSize: 12,
-                          ),
-                        ),
+                        titleBlock,
+                        const SizedBox(height: 10),
+                        actionButtons,
                       ],
-                    ),
-                  ),
-                  if (showBackToCurrent) ...[
-                    FilledButton.tonalIcon(
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                        onResetToActualWeek();
-                      },
-                      icon: const Icon(Icons.today_rounded, size: 15),
-                      label: const Text('回到本周', style: TextStyle(fontSize: 12)),
-                      style: FilledButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                  ],
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      onCalibratePressed();
-                    },
-                    icon: const Icon(Icons.edit_calendar_rounded, size: 15),
-                    label: const Text('校准开学日', style: TextStyle(fontSize: 12)),
-                    style: OutlinedButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    ),
-                  ),
-                ],
+                    );
+                  }
+
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(child: titleBlock),
+                      const SizedBox(width: 8),
+                      actionButtons,
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 14),
               Flexible(

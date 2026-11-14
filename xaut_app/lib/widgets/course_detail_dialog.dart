@@ -73,24 +73,28 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: isCurrent
-                          ? color.withValues(alpha: 0.15)
-                          : theme.colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      isCurrent ? '本周有课' : '本周无课 (第${widget.currentWeek}周)',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: isCurrent ? color : theme.colorScheme.onSurfaceVariant,
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isCurrent
+                            ? color.withValues(alpha: 0.15)
+                            : theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        isCurrent ? '本周有课' : '本周无课 (第${widget.currentWeek}周)',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: isCurrent ? color : theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.close, size: 20),
                     onPressed: () => Navigator.of(context).pop(),
@@ -116,12 +120,14 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
                         children: [
                           Icon(Icons.layers_rounded, size: 15, color: theme.colorScheme.primary),
                           const SizedBox(width: 5),
-                          Text(
-                            '该时段共排布 ${widget.allCourses.length} 门课程 (点击切换查看):',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.bold,
-                              color: theme.colorScheme.primary,
+                          Expanded(
+                            child: Text(
+                              '该时段共排布 ${widget.allCourses.length} 门课程 (点击切换查看):',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.bold,
+                                color: theme.colorScheme.primary,
+                              ),
                             ),
                           ),
                         ],

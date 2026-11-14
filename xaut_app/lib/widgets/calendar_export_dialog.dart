@@ -161,7 +161,14 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
             ),
           ),
           const SizedBox(width: 10),
-          const Text('导出至系统日历', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Expanded(
+            child: Text(
+              '导出至系统日历',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
         ],
       ),
       content: SingleChildScrollView(

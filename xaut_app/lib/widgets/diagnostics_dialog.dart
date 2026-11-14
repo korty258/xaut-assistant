@@ -331,12 +331,16 @@ class DiagnosticsDialog {
             children: [
               Icon(icon, size: 16, color: theme.colorScheme.primary),
               const SizedBox(width: 6),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: theme.colorScheme.onSurface,
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.onSurface,
+                  ),
                 ),
               ),
             ],
@@ -399,42 +403,56 @@ class DiagnosticsDialog {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(
             moduleName,
             style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
           ),
-          const Spacer(),
-          if (hasError) ...[
-            Container(
-              margin: const EdgeInsets.only(right: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.errorContainer.withValues(alpha: 0.55),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                errorCategory,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontFamily: 'monospace',
-                  color: theme.colorScheme.onErrorContainer,
-                ),
-              ),
-            ),
-          ],
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: badge.bg,
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              badge.label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: badge.fg,
+          const SizedBox(width: 8),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (hasError)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.errorContainer.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        errorCategory,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          color: theme.colorScheme.onErrorContainer,
+                        ),
+                      ),
+                    ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: badge.bg,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      badge.label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: badge.fg,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

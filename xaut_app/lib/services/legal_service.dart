@@ -14,7 +14,7 @@ import 'app_crypto_service.dart';
 /// 同时支持实例注入（[LegalService.new]）与默认单例静态门面，兼顾业务调用与单测隔离。
 class LegalService {
   /// 当前客户端对外统一发布版本号
-  static const String appVersion = 'v2.4.0-pre3';
+  static const String appVersion = 'v2.4.0-rc1';
 
   /// 当前合规文本版本。当协议有实质性变更时必须递增此常量，
   /// 系统检测到本地记录与该版本不一致时会自动重新唤起同意页面。

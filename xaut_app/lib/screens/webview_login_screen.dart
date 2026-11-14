@@ -104,8 +104,10 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     );
 
     if (confirm == true) {
+      if (!mounted || _adapter.isDisposed) return;
       try {
         await _adapter.clearCookiesAndCache();
+        if (!mounted || _adapter.isDisposed) return;
         if (_adapter.isInitialized) {
           await _adapter.navigateTo(WebViewConstants.defaultUrl);
         }

@@ -200,29 +200,36 @@ class GradesScreen extends StatelessWidget {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        provider.isAllSemesters
-                                            ? Icons.workspace_premium_rounded
-                                            : Icons.filter_alt_rounded,
-                                        size: 15,
-                                        color: Colors.white70,
-                                      ),
-                                      const SizedBox(width: 5),
-                                      Text(
-                                        provider.isAllSemesters
-                                            ? '累计学业表现'
-                                            : '${provider.selectedSemester} 学期表现',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
+                                  Expanded(
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          provider.isAllSemesters
+                                              ? Icons.workspace_premium_rounded
+                                              : Icons.filter_alt_rounded,
+                                          size: 15,
+                                          color: Colors.white70,
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(width: 5),
+                                        Flexible(
+                                          child: Text(
+                                            provider.isAllSemesters
+                                                ? '累计学业表现'
+                                                : '${provider.selectedSemester} 学期表现',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
+                                  const SizedBox(width: 8),
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                     decoration: BoxDecoration(
@@ -238,13 +245,25 @@ class GradesScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 16),
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceAround,
                                 children: [
-                                  _buildStatItem('平均绩点 (GPA)', '${summary.averageGpa}', isLarge: true),
+                                  Expanded(
+                                    child: _buildStatItem(
+                                      '平均绩点 (GPA)',
+                                      '${summary.averageGpa}',
+                                      isLarge: true,
+                                    ),
+                                  ),
                                   Container(width: 1, height: 40, color: Colors.white24),
-                                  _buildStatItem('平均加权成绩', '${summary.averageScore}分'),
+                                  Expanded(
+                                    child: _buildStatItem(
+                                      '平均加权成绩',
+                                      '${summary.averageScore}分',
+                                    ),
+                                  ),
                                   Container(width: 1, height: 40, color: Colors.white24),
-                                  _buildStatItem('总修学分', '${summary.totalCredits}'),
+                                  Expanded(
+                                    child: _buildStatItem('总修学分', '${summary.totalCredits}'),
+                                  ),
                                 ],
                               ),
                             ],
@@ -396,25 +415,32 @@ class GradesScreen extends StatelessWidget {
   }
 
   Widget _buildStatItem(String label, String value, {bool isLarge = false}) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: isLarge ? 24 : 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: isLarge ? 24 : 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 11,
-            color: Colors.white70,
+          const SizedBox(height: 4),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 11,
+              color: Colors.white70,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
