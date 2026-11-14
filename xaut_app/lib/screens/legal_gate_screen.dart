@@ -246,10 +246,19 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
       appBar: widget.isGate
           ? null
           : AppBar(
-              title: const Text('法律条款与合规声明'),
+              titleSpacing: 12,
+              title: const Text(
+                '法律条款与合规声明',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               centerTitle: false,
               actions: [
                 TextButton.icon(
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    visualDensity: VisualDensity.compact,
+                  ),
                   onPressed: () => showJinhuaLicensePage(context),
                   icon: const Icon(Icons.policy_outlined, size: 18),
                   label: const Text(
@@ -258,6 +267,10 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                   ),
                 ),
                 TextButton.icon(
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    visualDensity: VisualDensity.compact,
+                  ),
                   onPressed: _onRevokeConsent,
                   icon: Icon(
                     Icons.delete_outline,
@@ -272,41 +285,71 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 4),
               ],
             ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: isWide ? 840 : double.infinity),
-            child: Column(
-              children: [
-                _buildHeader(theme),
-                LegalDocSelector(
-                  docs: _docs,
-                  docsRead: _docsRead,
-                  selectedDoc: _selectedDoc,
-                  isGate: widget.isGate,
-                  onSelect: _switchDoc,
-                ),
-                Expanded(
-                  child: _isLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      : LegalMarkdownReader(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+                final bool useCompactScrollableLayout =
+                    constraints.maxHeight < 520 ||
+                    (constraints.maxWidth < 380 && textScale > 1.1) ||
+                    textScale > 1.3;
+
+                final readerWidget = _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : LegalMarkdownReader(
+                        docs: _docs,
+                        docsRead: _docsRead,
+                        scrollControllers: _scrollControllers,
+                        docTexts: _docTexts,
+                        selectedDoc: _selectedDoc,
+                        isGate: widget.isGate,
+                        onSwitchDoc: _switchDoc,
+                      );
+                final bottomBar = widget.isGate
+                    ? _buildGateConsentBar(theme)
+                    : _buildReaderFooter(theme);
+
+                if (useCompactScrollableLayout) {
+                  return SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildHeader(theme),
+                        LegalDocSelector(
                           docs: _docs,
                           docsRead: _docsRead,
-                          scrollControllers: _scrollControllers,
-                          docTexts: _docTexts,
                           selectedDoc: _selectedDoc,
                           isGate: widget.isGate,
-                          onSwitchDoc: _switchDoc,
+                          onSelect: _switchDoc,
                         ),
-                ),
-                if (widget.isGate)
-                  _buildGateConsentBar(theme)
-                else
-                  _buildReaderFooter(theme),
-              ],
+                        SizedBox(height: 300, child: readerWidget),
+                        bottomBar,
+                      ],
+                    ),
+                  );
+                }
+
+                return Column(
+                  children: [
+                    _buildHeader(theme),
+                    LegalDocSelector(
+                      docs: _docs,
+                      docsRead: _docsRead,
+                      selectedDoc: _selectedDoc,
+                      isGate: widget.isGate,
+                      onSelect: _switchDoc,
+                    ),
+                    Expanded(child: readerWidget),
+                    bottomBar,
+                  ],
+                );
+              },
             ),
           ),
         ),
@@ -336,7 +379,10 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(
                           '金花助手',
@@ -344,7 +390,6 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 6,
@@ -398,11 +443,13 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                       color: theme.colorScheme.primary,
                     ),
                     const SizedBox(width: 6),
-                    Text(
-                      '使用前重要须知（请特别关注免责条款）',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
+                    Expanded(
+                      child: Text(
+                        '使用前重要须知（请特别关注免责条款）',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.primary,
+                        ),
                       ),
                     ),
                   ],
@@ -652,12 +699,14 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                 color: Colors.green.shade700,
               ),
               const SizedBox(width: 6),
-              Text(
-                '本地签署存证：已于 $dateStr 同意（版本 ${_acceptedVersion ?? LegalService.currentVersion}）',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: theme.colorScheme.onSurfaceVariant,
+              Expanded(
+                child: Text(
+                  '本地签署存证：已于 $dateStr 同意（版本 ${_acceptedVersion ?? LegalService.currentVersion}）',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ],

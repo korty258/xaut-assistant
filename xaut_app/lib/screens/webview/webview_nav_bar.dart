@@ -5,11 +5,13 @@ import 'webview_constants.dart';
 class WebViewNavBar extends StatelessWidget {
   final String currentUrl;
   final ValueChanged<String> onNavigate;
+  final bool isInitialized;
 
   const WebViewNavBar({
     super.key,
     required this.currentUrl,
     required this.onNavigate,
+    this.isInitialized = true,
   });
 
   Widget _buildNavChip({
@@ -46,7 +48,7 @@ class WebViewNavBar extends StatelessWidget {
             : theme.colorScheme.onSurface,
         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
       ),
-      onPressed: () => onNavigate(targetUrl),
+      onPressed: isInitialized ? () => onNavigate(targetUrl) : null,
     );
   }
 

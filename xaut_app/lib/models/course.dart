@@ -137,20 +137,32 @@ class Course {
       throw const FormatException('Course JSON 缺少有效的星期或节次字段');
     }
 
-    List<int> parsedWeeks = [];
-    if (json['weeks'] != null) {
-      parsedWeeks = (json['weeks'] as List).map((e) => (e as num).toInt()).toList();
+    final rawWeeks = json['weeks'];
+    final List<int> parsedWeeks = [];
+    if (rawWeeks != null) {
+      if (rawWeeks is! List) {
+        throw const FormatException('Course JSON weeks 字段必须为数组');
+      }
+      for (final item in rawWeeks) {
+        if (item is! num) {
+          throw const FormatException('Course JSON weeks 元素必须为数字');
+        }
+        parsedWeeks.add(item.toInt());
+      }
     }
 
-    final rawWeekStr = json['rawWeekStr'] as String? ?? '';
+    final rawWeekVal = json['rawWeekStr'];
+    final rawWeekStr = rawWeekVal is String ? rawWeekVal : '';
     if (parsedWeeks.isEmpty && rawWeekStr.trim().isEmpty) {
       throw const FormatException('Course JSON 缺少有效的教学周次信息');
     }
 
+    final rawTeacher = json['teacher'];
+    final rawRoom = json['room'];
     return Course(
       name: rawName,
-      teacher: json['teacher'] as String? ?? '',
-      room: json['room'] as String? ?? '',
+      teacher: rawTeacher is String ? rawTeacher : '',
+      room: rawRoom is String ? rawRoom : '',
       day: rawDay.toInt(),
       startSection: rawStartSection.toInt(),
       stepCount: rawStepCount.toInt(),

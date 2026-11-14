@@ -162,12 +162,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              '金花课表',
-              style: TextStyle(
-                fontSize: 16.5,
-                fontWeight: FontWeight.bold,
-                color: theme.colorScheme.onSurface,
+            Flexible(
+              child: Text(
+                '金花课表',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 16.5,
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.onSurface,
+                ),
               ),
             ),
           ],
@@ -179,7 +183,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             isViewingActual: isViewingActual,
             isWide: isWide,
           ),
-          const SizedBox(width: 6),
+          SizedBox(width: isWide ? 6 : 2),
 
           // 核心切换按钮: 仅本周 / 所有周
           InkWell(
@@ -226,12 +230,13 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 4),
+          SizedBox(width: isWide ? 4 : 0),
 
           // 导入/同步按钮
           IconButton(
             icon: const Icon(Icons.sync_rounded),
             tooltip: '强智教务登录与一键同步',
+            visualDensity: isWide ? null : VisualDensity.compact,
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (context) => const WebViewLoginScreen()),
@@ -243,6 +248,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             tooltip: '更多操作',
+            padding: isWide ? const EdgeInsets.all(8.0) : EdgeInsets.zero,
             onSelected: (val) {
               if (val == 'calibrate') {
                 unawaited(SemesterCalibrateDialog.show(context, provider));

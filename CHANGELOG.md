@@ -6,6 +6,22 @@
 
 ## [Unreleased]
 
+## [2.4.0-pre3] - 2026-11-14
+
+金花助手 `v2.4.0-pre3`（开发预览版 · WebView 未就绪/销毁竞态全链路防护、成绩别名回退与模型反序列化 `TypeError` 隔离、合规页脚与课表顶栏窄屏溢出修复）！
+
+### Fixed
+- **BUG-1 WebView 未初始化交互拦截与异步销毁竞态修复 (`WebViewPlatformAdapter`、`WebViewNavBar` & `WebViewLoginScreen`)**：
+  - 为 `WebViewPlatformAdapter` 引入 `_isDisposed`（`isDisposed`）生命周期标志，在 `_initWindows()` 每次 `await` 恢复后、`catch` 状态回写前以及移动端代理回调中校验 `_isDisposed`（若在等待初始化完成期间页面已关闭，立即安全释放控制器并停止后续流订阅与 `ValueNotifier` 赋值），消除控制器/流泄漏与 `use-after-dispose` 异常；
+  - `navigateTo()` 与 `reload()` 在 `_isDisposed || !isInitialized` 时安全提前返回，同时将顶部刷新按钮、`_handleClearCookies()` 后置跳转及 `WebViewNavBar(isInitialized: ...)` 快捷跳转 `ActionChip` 统一纳入 `!_adapter.isInitialized` 禁用与 `try/catch` 异常捕获保护。
+- **BUG-2 `GradeItem.fromJson` `'grade'` 别名赋值修复与 `TypeError` 解析隔离 (`GradeItem`、`Course`、`ExamItem` & `SyncResultParser`)**：
+  - 修复 `GradeItem.fromJson` 校验通过 `'grade'` 别名却在构造时仅读取 `'score'` 导致成绩被置空的语义缺陷（优先读取 `score`、缺失时回退读取 `grade`）；
+  - 为 `Course.fromJson`、`GradeItem.fromJson`、`GradeSummary.fromJson` 与 `ExamItem.fromJson` 移除不安全 `as` 强转，对非法 `weeks` 类型统一抛出 `FormatException` 其余可选字段采用类型安全读取；
+  - 在 `SyncResultParser._parseModelList<T>()` 同时隔离 `FormatException` 与 `TypeError`，为 `parseGradesResult()` 中 `GradeSummary.fromJson` 增加异常兜底，并将 `parseSyncAllResult()` 的 `data['error']` 改为 `?.toString()`。
+- **BUG-3 合规存证页脚、阅读卡片与课表顶栏窄屏溢出修复 (`LegalGateScreen`、`LegalDocSelector`、`LegalMarkdownReader` & `ScheduleScreen`)**：
+  - 为 `LegalGateScreen._buildReaderFooter()` 本地签署存证行内 `Text` 外包 `Expanded`，为 `LegalDocSelector` 分段标签增加横向滚动与 `Flexible(..., overflow: TextOverflow.ellipsis)`，为 `LegalMarkdownReader` 阅读完成状态行 `Text` 外包 `Flexible`，并为 `LegalGateScreen` 在窄屏高缩放场景下提供自适应纵向滚动布局；
+  - 为 `ScheduleScreen` 顶栏 `AppBar` 标题 `'金花课表'` 外包 `Flexible(..., overflow: TextOverflow.ellipsis)` 并在窄屏（`!isWide`）模式下收紧右侧按钮间距与密度，消除 320–360dp 屏幕/大字号下的横纵向溢出。
+
 ## [2.4.0-pre2] - 2026-11-14
 
 金花助手 `v2.4.0-pre2`（开发预览版 · 损坏缓存重置去重与未捕获异常消零、模型反序列化契约强化与多模块解析隔离、WebView 同步弹窗窄屏溢出/根导航退栈防护、Provider 可注入实例完备化）！
@@ -702,7 +718,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre2...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre3...HEAD
+[2.4.0-pre3]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre2...v2.4.0-pre3
 [2.4.0-pre2]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre1...v2.4.0-pre2
 [2.4.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc5...v2.4.0-pre1
 [2.3.9-rc5]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc4...v2.3.9-rc5

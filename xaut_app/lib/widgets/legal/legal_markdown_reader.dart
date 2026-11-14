@@ -42,33 +42,42 @@ class LegalDocSelector extends StatelessWidget {
     final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: SegmentedButton<int>(
-        segments: [
-          for (int i = 0; i < docs.length; i++)
-            ButtonSegment<int>(
-              value: i,
-              label: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(docs[i].title),
-                  if (isGate) ...[
-                    const SizedBox(width: 4),
-                    Icon(
-                      docsRead[i]
-                          ? Icons.check_circle_rounded
-                          : Icons.radio_button_unchecked,
-                      size: 13,
-                      color: docsRead[i]
-                          ? Colors.green
-                          : theme.colorScheme.outline.withValues(alpha: 0.6),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SegmentedButton<int>(
+          segments: [
+            for (int i = 0; i < docs.length; i++)
+              ButtonSegment<int>(
+                value: i,
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        docs[i].title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
+                    if (isGate) ...[
+                      const SizedBox(width: 4),
+                      Icon(
+                        docsRead[i]
+                            ? Icons.check_circle_rounded
+                            : Icons.radio_button_unchecked,
+                        size: 13,
+                        color: docsRead[i]
+                            ? Colors.green
+                            : theme.colorScheme.outline.withValues(alpha: 0.6),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-        ],
-        selected: {selectedDoc},
-        onSelectionChanged: (val) => onSelect(val.first),
+          ],
+          selected: {selectedDoc},
+          onSelectionChanged: (val) => onSelect(val.first),
+        ),
       ),
     );
   }
@@ -300,14 +309,16 @@ class LegalMarkdownReader extends StatelessWidget {
                 color: isRead ? Colors.green : theme.colorScheme.primary,
               ),
               const SizedBox(width: 8),
-              Text(
-                isRead
-                    ? '已完整阅读《${docs[index].title}》'
-                    : '请继续向下滑动至文档最末尾以完成阅读',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: isRead ? Colors.green : theme.colorScheme.primary,
+              Flexible(
+                child: Text(
+                  isRead
+                      ? '已完整阅读《${docs[index].title}》'
+                      : '请继续向下滑动至文档最末尾以完成阅读',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isRead ? Colors.green : theme.colorScheme.primary,
+                  ),
                 ),
               ),
             ],
