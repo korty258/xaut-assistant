@@ -71,6 +71,7 @@ class StorageService {
 
   final AppCryptoService? _crypto;
   AppCryptoService get _effectiveCrypto => _crypto ?? AppCryptoService.instance;
+  AppCryptoService get cryptoService => _effectiveCrypto;
 
   Future<bool> Function(SharedPreferences prefs, String key, String value)?
       _debugSyncTimeWriter;

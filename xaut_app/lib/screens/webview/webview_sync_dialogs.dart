@@ -221,7 +221,7 @@ abstract final class WebViewSyncDialogs {
             children: [
               Icon(icon, color: iconColor),
               const SizedBox(width: 8),
-              Text(title),
+              Expanded(child: Text(title)),
             ],
           ),
           content: Text(content),
@@ -283,7 +283,7 @@ abstract final class WebViewSyncDialogs {
             children: [
               Icon(Icons.auto_awesome, color: Colors.blue),
               SizedBox(width: 8),
-              Text('智能识别提示'),
+              Expanded(child: Text('智能识别提示')),
             ],
           ),
           content: Text(
@@ -325,7 +325,7 @@ abstract final class WebViewSyncDialogs {
             children: [
               const Icon(Icons.check_circle, color: Colors.green),
               const SizedBox(width: 8),
-              Text(title),
+              Expanded(child: Text(title)),
             ],
           ),
           content: Text(content),
@@ -333,7 +333,9 @@ abstract final class WebViewSyncDialogs {
             FilledButton(
               onPressed: () {
                 Navigator.of(ctx).pop();
-                Navigator.of(context).pop();
+                if (context.mounted) {
+                  unawaited(Navigator.of(context).maybePop());
+                }
               },
               child: Text(returnLabel),
             ),
@@ -358,7 +360,7 @@ abstract final class WebViewSyncDialogs {
             children: [
               const Icon(Icons.info_outline, color: Colors.orange),
               const SizedBox(width: 8),
-              Text(title),
+              Expanded(child: Text(title)),
             ],
           ),
           content: Text(content),
@@ -564,7 +566,9 @@ abstract final class WebViewSyncDialogs {
                 FilledButton(
                   onPressed: () {
                     Navigator.of(ctx).pop();
-                    Navigator.of(context).pop();
+                    if (context.mounted) {
+                      unawaited(Navigator.of(context).maybePop());
+                    }
                   },
                   child: const Text('返回主页查看'),
                 ),

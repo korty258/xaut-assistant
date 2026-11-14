@@ -10,6 +10,12 @@ class ExamsProvider extends ChangeNotifier {
   static const String _keyExams = 'xaut_cached_exams';
 
   final DateTime Function() _nowProvider;
+  final StorageService? _storage;
+  final AppCryptoService? _crypto;
+
+  StorageService get _effectiveStorage => _storage ?? StorageService.instance;
+  AppCryptoService get _effectiveCrypto =>
+      _crypto ?? _effectiveStorage.cryptoService;
 
   List<ExamItem> _exams = [];
   bool _isLoading = true;
@@ -25,7 +31,7 @@ class ExamsProvider extends ChangeNotifier {
   bool get hasStorageError => _hasDecryptionError || _hasDataFormatError;
   bool get hasMigrationFailure =>
       _hasMigrationFailure &&
-      AppCryptoService.pendingMigrationKeys.contains(_keyExams);
+      _effectiveCrypto.instancePendingMigrationKeys.contains(_keyExams);
   DateTime? get lastSyncTime => _lastSyncTime;
 
   /// 智能排序后的考试列表：即将开考（按时间升序） -> 时间待定 -> 已结束（沉底弱化）
@@ -37,8 +43,11 @@ class ExamsProvider extends ChangeNotifier {
     return _exams.where((e) => e.evaluateStatus(current).isActiveOrUpcoming).length;
   }
 
-  ExamsProvider({DateTime Function()? nowProvider})
-      : _nowProvider = nowProvider ?? DateTime.now {
+  ExamsProvider({
+    DateTime Function()? nowProvider,
+    this._storage,
+    this._crypto,
+  })  : _nowProvider = nowProvider ?? DateTime.now {
     unawaited(_init());
   }
 
@@ -97,12 +106,14 @@ class ExamsProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    _lastSyncTime = await StorageService.loadExamsSyncTime();
+    _lastSyncTime = await _effectiveStorage.loadExamsSyncTimeInstance();
 
     final prefs = await SharedPreferences.getInstance();
     try {
-      final res =
-          await AppCryptoService.loadEncryptedStringWithStatus(prefs, _keyExams);
+      final res = await _effectiveCrypto.loadEncryptedStringWithStatusInstance(
+        prefs,
+        _keyExams,
+      );
       _hasMigrationFailure = res.migrationFailed;
       final examsStr = res.value;
       if (examsStr != null && examsStr.isNotEmpty) {
@@ -118,7 +129,7 @@ class ExamsProvider extends ChangeNotifier {
     } on CryptoException {
       _hasDecryptionError = true;
       _hasDataFormatError = false;
-      _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
+      _hasMigrationFailure = _effectiveCrypto.instanceHasPendingMigrationFailure;
       _exams = [];
     } on Object catch (_) {
       _hasDecryptionError = false;
@@ -142,7 +153,7 @@ class ExamsProvider extends ChangeNotifier {
   }) async {
     final candidateExams = List<ExamItem>.from(exams);
     final prefs = await SharedPreferences.getInstance();
-    final ok = await AppCryptoService.saveEncryptedString(
+    final ok = await _effectiveCrypto.saveEncryptedStringInstance(
       prefs,
       _keyExams,
       jsonEncode(candidateExams.map((e) => e.toJson()).toList()),
@@ -155,8 +166,8 @@ class ExamsProvider extends ChangeNotifier {
     _hasDecryptionError = false;
     _hasDataFormatError = false;
     _hasMigrationFailure = false;
-    if (AppCryptoService.hasPendingMigrationFailure) {
-      await StorageService.retryPendingCryptoMigrations();
+    if (_effectiveCrypto.instanceHasPendingMigrationFailure) {
+      await _effectiveStorage.retryPendingCryptoMigrationsInstance();
     }
 
     bool timeOk = true;
@@ -164,7 +175,7 @@ class ExamsProvider extends ChangeNotifier {
     if (updateSyncTime) {
       final t = _nowProvider();
       attemptedSyncTime = t;
-      timeOk = await StorageService.saveExamsSyncTime(t);
+      timeOk = await _effectiveStorage.saveExamsSyncTimeInstance(t);
       if (timeOk) {
         _lastSyncTime = t;
       }
@@ -183,7 +194,7 @@ class ExamsProvider extends ChangeNotifier {
   /// 仅重试持久化考试同步时间（用于业务数据已落盘但时间戳写入失败的局部恢复）
   Future<bool> retrySaveSyncTime([DateTime? time]) async {
     final syncTime = time ?? _nowProvider();
-    final timeOk = await StorageService.saveExamsSyncTime(syncTime);
+    final timeOk = await _effectiveStorage.saveExamsSyncTimeInstance(syncTime);
     if (timeOk) {
       _lastSyncTime = syncTime;
       notifyListeners();
@@ -196,7 +207,7 @@ class ExamsProvider extends ChangeNotifier {
     _exams = [];
     _hasDecryptionError = false;
     _hasDataFormatError = false;
-    _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
+    _hasMigrationFailure = _effectiveCrypto.instanceHasPendingMigrationFailure;
     _lastSyncTime = null;
     notifyListeners();
   }
@@ -204,7 +215,7 @@ class ExamsProvider extends ChangeNotifier {
   Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
     // 严格先删同步时间戳键，最后再删主考试键；失败时回滚元数据，确保主数据不被部分误删
-    final res = await StorageService.deleteKeysSafely(
+    final res = await _effectiveStorage.deleteKeysSafelyInstance(
       prefs,
       metadataKeys: const [StorageService.keyLastExamsSync],
       primaryKey: _keyExams,

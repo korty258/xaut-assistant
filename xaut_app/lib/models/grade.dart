@@ -20,10 +20,21 @@ class GradeItem {
   });
 
   factory GradeItem.fromJson(Map<String, dynamic> json) {
+    final rawCourseName = json['courseName'];
+    if (rawCourseName is! String || rawCourseName.trim().isEmpty) {
+      throw const FormatException('GradeItem JSON 缺少有效的课程名称 (courseName)');
+    }
+    final hasCoreGradeField = json['score'] is String ||
+        json['grade'] is String ||
+        json['credit'] is num;
+    if (!hasCoreGradeField) {
+      throw const FormatException('GradeItem JSON 缺少成绩或学分核心字段');
+    }
+
     return GradeItem(
       semester: json['semester'] as String? ?? '',
       courseCode: json['courseCode'] as String? ?? '',
-      courseName: json['courseName'] as String? ?? '',
+      courseName: rawCourseName,
       score: json['score'] as String? ?? '',
       credit: (json['credit'] as num?)?.toDouble() ?? 0.0,
       gpa: (json['gpa'] as num?)?.toDouble() ?? -1.0,

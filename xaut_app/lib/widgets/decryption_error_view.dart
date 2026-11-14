@@ -138,7 +138,9 @@ class DecryptionErrorView extends StatelessWidget {
                     }
                     return;
                   }
-                  onReset();
+                  if (context.mounted) {
+                    onReset();
+                  }
                 }
               },
               icon: const Icon(Icons.delete_sweep_rounded),
