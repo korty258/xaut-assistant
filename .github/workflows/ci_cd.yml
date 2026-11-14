@@ -29,18 +29,20 @@ jobs:
         shell: bash
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          PUBSPEC_VERSION=$(tr -d '\r' < xaut_app/pubspec.yaml | grep -E '^version:' | sed -E 's/^version:[[:space:]]*//; s/\+.*//; s/[[:space:]]*$//')
+          PUBSPEC_VERSION=$(sed -nE 's/\r$//; /^version:/{s/^version:[[:space:]]*//; s/\+.*//; s/[[:space:]]*$//; p; q;}' xaut_app/pubspec.yaml)
           echo "Tag version: $TAG_VERSION / pubspec version: $PUBSPEC_VERSION"
           if [ "$TAG_VERSION" != "$PUBSPEC_VERSION" ]; then
             echo "::error::Tag ($GITHUB_REF_NAME) does not match pubspec.yaml version ($PUBSPEC_VERSION)."
             exit 1
           fi
-          SECTION_PREVIEW=$(tr -d '\r' < CHANGELOG.md | awk -v ver="$TAG_VERSION" '
+          SECTION_PREVIEW=$(awk -v ver="$TAG_VERSION" '
+            { sub(/\r$/, "") }
             index($0, "## [" ver "]") == 1 { found = 1; next }
             found && /^## \[/ { exit }
             found && /^\[[^]]+\]: / { exit }
-            found { print }
-          ' | sed -e '/./,$!d')
+            found && !started && $0 == "" { next }
+            found { started = 1; print }
+          ' CHANGELOG.md)
           if [ -z "$SECTION_PREVIEW" ]; then
             echo "::error::CHANGELOG.md has no non-empty section for version [$TAG_VERSION]. Please add it before tagging."
             exit 1
@@ -111,7 +113,7 @@ jobs:
           '
 
       - name: Upload Coverage Report
-        if: always()
+        if: always() && hashFiles('xaut_app/coverage/lcov.info') != ''
         uses: actions/upload-artifact@v7
         with:
           name: flutter-coverage-lcov
@@ -305,12 +307,14 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          tr -d '\r' < CHANGELOG.md | awk -v ver="$VERSION" '
+          awk -v ver="$VERSION" '
+            { sub(/\r$/, "") }
             index($0, "## [" ver "]") == 1 { found = 1; next }
             found && /^## \[/ { exit }
             found && /^\[[^]]+\]: / { exit }
-            found { print }
-          ' | sed -e '/./,$!d' > section.md
+            found && !started && $0 == "" { next }
+            found { started = 1; print }
+          ' CHANGELOG.md > section.md
 
           if [ ! -s section.md ]; then
             echo "::error::CHANGELOG.md has no section for version [$VERSION]. Please add it before tagging."
