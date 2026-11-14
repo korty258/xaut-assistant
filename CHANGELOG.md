@@ -6,6 +6,24 @@
 
 ## [Unreleased]
 
+## [2.4.0-pre2] - 2026-11-14
+
+金花助手 `v2.4.0-pre2`（开发预览版 · 损坏缓存重置去重与未捕获异常消零、模型反序列化契约强化与多模块解析隔离、WebView 同步弹窗窄屏溢出/根导航退栈防护、Provider 可注入实例完备化）！
+
+### Fixed
+- **BUG-1 损坏重置回调去重与未捕获异步异常消除 (`ScheduleScreen`、`GradesScreen`、`ExamsScreen` & `DecryptionErrorView`)**：
+  - 将三处页面的 `DecryptionErrorView.onReset` 回调从冗余调用 `provider.clearAll()` 收口为纯 UI SnackBar 提示（`已重置损坏缓存与主密钥，请重新同步教务数据`），并在回调执行前校验 `context.mounted`，避免在 `resetCorruptedDataWithReport()` 与 `resetInMemoryAfterCorruptReset()` 已完成全盘物理清理后二次删盘及抛出未捕获 `StorageWriteException`。
+- **BUG-2 核心业务模型 `fromJson` 必需字段强校验与实时解析隔离 (`Course`、`GradeItem`、`ExamItem` & `SyncResultParser`)**：
+  - 为 `Course.fromJson`、`GradeItem.fromJson` 与 `ExamItem.fromJson` 增加严格字段与结构校验（拒绝 `[{}]`、关键字段缺失或空名称等畸形数据并抛出 `FormatException`），确保畸形本地缓存可正确触发 `StorageFormatException` 与 `hasDataFormatError` 门禁；
+  - 在 `SyncResultParser` 中抽取 `_parseModelList<T>()` 并在 `parseSyncAllResult()` 内为课表/成绩/考试增加独立异常隔离，单条畸形 DOM 项或单一模块解析异常不会拖垮同批次其他健康模块。
+- **BUG-3 WebView 同步弹窗窄屏布局溢出与路由安全退栈 (`WebViewSyncDialogs`)**：
+  - 为 `showSimpleNoticeDialog()`、`showSmartRouteHintDialog()`、`showModuleSuccessDialog()` 与 `showMissingTableDialog()` 标题行中的 `Text` 外包 `Expanded`，消除大字号/窄屏场景下的 `RenderFlex` 横向溢出；
+  - 将 `showModuleSuccessDialog()` 与 `showSyncAllSummaryDialog()` 中未校验 `context.mounted` 的裸 `Navigator.pop()` 替换为 `if (context.mounted) { unawaited(Navigator.of(context).maybePop()); }`，防止根导航栈误弹窗黑屏。
+
+### Changed
+- **Provider 实例级依赖注入完备化 (`StorageService`、`ScheduleProvider`、`GradesProvider` & `ExamsProvider`)**：
+  - 为 `StorageService` 增加 `cryptoService` 实例只读属性，并为 `ScheduleProvider`、`GradesProvider` 与 `ExamsProvider` 构造函数新增可选 `{StorageService? storage, AppCryptoService? crypto}` 参数，内部统一经由实例门面委派持久化与密钥操作，兼顾默认全局单例体验与测试隔离。
+
 ## [2.4.0-pre1] - 2026-11-14
 
 金花助手 `v2.4.0-pre1`（开发预览版 · 安全 Fail-Closed 全链路加固、JSON 格式损坏显式隔离、Windows 单实例防重开、Android R8 体积混淆裁剪、超长模块解耦与可注入服务体系、`dart analyze --fatal-infos` 全量清零）！
@@ -684,7 +702,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre1...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre2...HEAD
+[2.4.0-pre2]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre1...v2.4.0-pre2
 [2.4.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc5...v2.4.0-pre1
 [2.3.9-rc5]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc4...v2.3.9-rc5
 [2.3.9-rc4]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc3...v2.3.9-rc4

@@ -12,6 +12,12 @@ class GradesProvider extends ChangeNotifier {
   static const String _legacyKeySummary = 'xaut_cached_grade_summary';
 
   final DateTime Function() _nowProvider;
+  final StorageService? _storage;
+  final AppCryptoService? _crypto;
+
+  StorageService get _effectiveStorage => _storage ?? StorageService.instance;
+  AppCryptoService get _effectiveCrypto =>
+      _crypto ?? _effectiveStorage.cryptoService;
 
   List<GradeItem> _grades = [];
   String _selectedSemester = '全部';
@@ -29,7 +35,7 @@ class GradesProvider extends ChangeNotifier {
   bool get hasStorageError => _hasDecryptionError || _hasDataFormatError;
   bool get hasMigrationFailure =>
       _hasMigrationFailure &&
-      AppCryptoService.pendingMigrationKeys.contains(_keyGrades);
+      _effectiveCrypto.instancePendingMigrationKeys.contains(_keyGrades);
   bool get isAllSemesters => _selectedSemester == '全部';
   DateTime? get lastSyncTime => _lastSyncTime;
 
@@ -56,8 +62,11 @@ class GradesProvider extends ChangeNotifier {
     return calculateSummary(_grades);
   }
 
-  GradesProvider({DateTime Function()? nowProvider})
-      : _nowProvider = nowProvider ?? DateTime.now {
+  GradesProvider({
+    DateTime Function()? nowProvider,
+    this._storage,
+    this._crypto,
+  })  : _nowProvider = nowProvider ?? DateTime.now {
     unawaited(_init());
   }
 
@@ -65,12 +74,14 @@ class GradesProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    _lastSyncTime = await StorageService.loadGradesSyncTime();
+    _lastSyncTime = await _effectiveStorage.loadGradesSyncTimeInstance();
 
     final prefs = await SharedPreferences.getInstance();
     try {
-      final res =
-          await AppCryptoService.loadEncryptedStringWithStatus(prefs, _keyGrades);
+      final res = await _effectiveCrypto.loadEncryptedStringWithStatusInstance(
+        prefs,
+        _keyGrades,
+      );
       _hasMigrationFailure = res.migrationFailed;
       final gradesStr = res.value;
       if (gradesStr != null && gradesStr.isNotEmpty) {
@@ -86,7 +97,7 @@ class GradesProvider extends ChangeNotifier {
     } on CryptoException {
       _hasDecryptionError = true;
       _hasDataFormatError = false;
-      _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
+      _hasMigrationFailure = _effectiveCrypto.instanceHasPendingMigrationFailure;
       _grades = [];
     } on Object catch (_) {
       _hasDecryptionError = false;
@@ -109,7 +120,7 @@ class GradesProvider extends ChangeNotifier {
   }) async {
     final candidateGrades = List<GradeItem>.from(grades);
     final prefs = await SharedPreferences.getInstance();
-    final ok = await AppCryptoService.saveEncryptedString(
+    final ok = await _effectiveCrypto.saveEncryptedStringInstance(
       prefs,
       _keyGrades,
       jsonEncode(candidateGrades.map((g) => g.toJson()).toList()),
@@ -122,8 +133,8 @@ class GradesProvider extends ChangeNotifier {
     _hasDecryptionError = false;
     _hasDataFormatError = false;
     _hasMigrationFailure = false;
-    if (AppCryptoService.hasPendingMigrationFailure) {
-      await StorageService.retryPendingCryptoMigrations();
+    if (_effectiveCrypto.instanceHasPendingMigrationFailure) {
+      await _effectiveStorage.retryPendingCryptoMigrationsInstance();
     }
     // 若当前选中的学期在新数据中已不存在，自动回退至「全部」
     if (_selectedSemester != '全部' && !availableSemesters.contains(_selectedSemester)) {
@@ -135,7 +146,7 @@ class GradesProvider extends ChangeNotifier {
     if (updateSyncTime) {
       final now = _nowProvider();
       attemptedSyncTime = now;
-      timeOk = await StorageService.saveGradesSyncTime(now);
+      timeOk = await _effectiveStorage.saveGradesSyncTimeInstance(now);
       if (timeOk) {
         _lastSyncTime = now;
       }
@@ -154,7 +165,7 @@ class GradesProvider extends ChangeNotifier {
   /// 仅重试持久化成绩同步时间（用于业务数据已落盘但时间戳写入失败的局部恢复）
   Future<bool> retrySaveSyncTime([DateTime? time]) async {
     final syncTime = time ?? _nowProvider();
-    final timeOk = await StorageService.saveGradesSyncTime(syncTime);
+    final timeOk = await _effectiveStorage.saveGradesSyncTimeInstance(syncTime);
     if (timeOk) {
       _lastSyncTime = syncTime;
       notifyListeners();
@@ -171,7 +182,7 @@ class GradesProvider extends ChangeNotifier {
     _grades = [];
     _hasDecryptionError = false;
     _hasDataFormatError = false;
-    _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
+    _hasMigrationFailure = _effectiveCrypto.instanceHasPendingMigrationFailure;
     _selectedSemester = '全部';
     _lastSyncTime = null;
     notifyListeners();
@@ -180,7 +191,7 @@ class GradesProvider extends ChangeNotifier {
   Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
     // 严格先删历史/时间戳等元数据键，最后再删主成绩键；失败时回滚元数据，确保主数据不被部分误删
-    final res = await StorageService.deleteKeysSafely(
+    final res = await _effectiveStorage.deleteKeysSafelyInstance(
       prefs,
       metadataKeys: const [_legacyKeySummary, StorageService.keyLastGradesSync],
       primaryKey: _keyGrades,

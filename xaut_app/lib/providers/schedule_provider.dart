@@ -7,6 +7,12 @@ import '../utils/course_schedule_parser.dart';
 
 class ScheduleProvider extends ChangeNotifier {
   final DateTime Function() _nowProvider;
+  final StorageService? _storage;
+  final AppCryptoService? _crypto;
+
+  StorageService get _effectiveStorage => _storage ?? StorageService.instance;
+  AppCryptoService get _effectiveCrypto =>
+      _crypto ?? _effectiveStorage.cryptoService;
 
   List<Course> _courses = [];
   int _currentWeek = 1;
@@ -32,7 +38,8 @@ class ScheduleProvider extends ChangeNotifier {
   bool get hasStorageError => _hasDecryptionError || _hasDataFormatError;
   bool get hasMigrationFailure =>
       _hasMigrationFailure &&
-      AppCryptoService.pendingMigrationKeys.contains('xaut_cached_courses');
+      _effectiveCrypto.instancePendingMigrationKeys
+          .contains('xaut_cached_courses');
   DateTime? get lastSyncTime => _lastSyncTime;
   DateTime? get semesterStartDate => _semesterStartDate;
   String get semesterName => _semesterName;
@@ -60,8 +67,11 @@ class ScheduleProvider extends ChangeNotifier {
   /// 当前界面所浏览的周次是否即为真实本周
   bool get isViewingActualWeek => !hasSemesterStart || _currentWeek == actualCurrentWeek;
 
-  ScheduleProvider({DateTime Function()? nowProvider})
-      : _nowProvider = nowProvider ?? DateTime.now {
+  ScheduleProvider({
+    DateTime Function()? nowProvider,
+    this._storage,
+    this._crypto,
+  })  : _nowProvider = nowProvider ?? DateTime.now {
     unawaited(_init());
   }
 
@@ -127,14 +137,15 @@ class ScheduleProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    final savedWeek = await StorageService.loadCurrentWeek();
-    _onlyCurrentWeek = await StorageService.loadOnlyCurrentWeek();
-    _lastSyncTime = await StorageService.loadLastSyncTime();
-    _semesterStartDate = await StorageService.loadSemesterStartDate();
-    _semesterName = await StorageService.loadSemesterName();
+    final savedWeek = await _effectiveStorage.loadCurrentWeekInstance();
+    _onlyCurrentWeek = await _effectiveStorage.loadOnlyCurrentWeekInstance();
+    _lastSyncTime = await _effectiveStorage.loadLastSyncTimeInstance();
+    _semesterStartDate =
+        await _effectiveStorage.loadSemesterStartDateInstance();
+    _semesterName = await _effectiveStorage.loadSemesterNameInstance();
 
     try {
-      final loadedRes = await StorageService.loadCoursesWithStatus();
+      final loadedRes = await _effectiveStorage.loadCoursesWithStatusInstance();
       final loaded = loadedRes.courses;
       _hasMigrationFailure = loadedRes.migrationFailed;
       _courses = _deduplicateCourses(loaded);
@@ -142,7 +153,10 @@ class ScheduleProvider extends ChangeNotifier {
       _hasDataFormatError = false;
       // 仅当正常加载去重后数量/内容有变动时，静默回写存储自愈（不改写上次同步时间）
       if (_courses.isNotEmpty && !_isSameCourseList(loaded, _courses)) {
-        final upgradedOk = await StorageService.saveCourses(_courses, updateSyncTime: false);
+        final upgradedOk = await _effectiveStorage.saveCoursesInstance(
+          _courses,
+          updateSyncTime: false,
+        );
         if (upgradedOk) {
           _hasMigrationFailure = false;
         }
@@ -150,7 +164,8 @@ class ScheduleProvider extends ChangeNotifier {
     } on CryptoException {
       _hasDecryptionError = true;
       _hasDataFormatError = false;
-      _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
+      _hasMigrationFailure =
+          _effectiveCrypto.instanceHasPendingMigrationFailure;
       _courses = [];
     } on Object catch (_) {
       _hasDecryptionError = false;
@@ -163,7 +178,7 @@ class ScheduleProvider extends ChangeNotifier {
     // 打开即对齐：若已记录开学第 1 周周一基准日，每次启动自动按系统当天日期对齐当前教学周
     if (_semesterStartDate != null) {
       _currentWeek = actualCurrentWeek;
-      await StorageService.saveCurrentWeek(_currentWeek);
+      await _effectiveStorage.saveCurrentWeekInstance(_currentWeek);
     } else {
       _currentWeek = savedWeek.clamp(1, _maxWeeks);
     }
@@ -202,7 +217,7 @@ class ScheduleProvider extends ChangeNotifier {
     if (week < 1 || week > _maxWeeks) return;
     _currentWeek = week;
     notifyListeners();
-    await StorageService.saveCurrentWeek(week);
+    await _effectiveStorage.saveCurrentWeekInstance(week);
   }
 
   /// 一键回到真实本周
@@ -242,8 +257,8 @@ class ScheduleProvider extends ChangeNotifier {
       if (startWritten) {
         try {
           final ok = prevStart != null
-              ? await StorageService.saveSemesterStartDate(prevStart)
-              : await StorageService.removeSemesterStartDate();
+              ? await _effectiveStorage.saveSemesterStartDateInstance(prevStart)
+              : await _effectiveStorage.removeSemesterStartDateInstance();
           if (!ok) rollbackOk = false;
         } on Object catch (_) {
           rollbackOk = false;
@@ -252,8 +267,8 @@ class ScheduleProvider extends ChangeNotifier {
       if (nameWritten) {
         try {
           final ok = prevSemester.isNotEmpty
-              ? await StorageService.saveSemesterName(prevSemester)
-              : await StorageService.removeSemesterName();
+              ? await _effectiveStorage.saveSemesterNameInstance(prevSemester)
+              : await _effectiveStorage.removeSemesterNameInstance();
           if (!ok) rollbackOk = false;
         } on Object catch (_) {
           rollbackOk = false;
@@ -261,7 +276,9 @@ class ScheduleProvider extends ChangeNotifier {
       }
       if (weekWritten) {
         try {
-          final ok = await StorageService.saveCurrentWeek(prevCurrentWeek);
+          final ok = await _effectiveStorage.saveCurrentWeekInstance(
+            prevCurrentWeek,
+          );
           if (!ok) rollbackOk = false;
         } on Object catch (_) {
           rollbackOk = false;
@@ -274,7 +291,8 @@ class ScheduleProvider extends ChangeNotifier {
     }
 
     try {
-      final bool startOk = await StorageService.saveSemesterStartDate(startMonday);
+      final bool startOk =
+          await _effectiveStorage.saveSemesterStartDateInstance(startMonday);
       if (!startOk) {
         _maxWeeks = prevMaxWeeks;
         _semesterStartDate = prevStart;
@@ -283,7 +301,8 @@ class ScheduleProvider extends ChangeNotifier {
       startWritten = true;
 
       if (hasNewSemester) {
-        final bool nameOk = await StorageService.saveSemesterName(nextSemester);
+        final bool nameOk =
+            await _effectiveStorage.saveSemesterNameInstance(nextSemester);
         if (!nameOk) {
           _maxWeeks = prevMaxWeeks;
           _semesterStartDate = prevStart;
@@ -293,7 +312,8 @@ class ScheduleProvider extends ChangeNotifier {
         nameWritten = true;
       }
 
-      final bool weekOk = await StorageService.saveCurrentWeek(nextCurrentWeek);
+      final bool weekOk =
+          await _effectiveStorage.saveCurrentWeekInstance(nextCurrentWeek);
       if (!weekOk) {
         _maxWeeks = prevMaxWeeks;
         _semesterStartDate = prevStart;
@@ -370,7 +390,7 @@ class ScheduleProvider extends ChangeNotifier {
     _lastCalibrationRollbackFailed = false;
     final trimmed = semester.trim();
     if (trimmed.isEmpty || trimmed == _semesterName) return true;
-    final ok = await StorageService.saveSemesterName(trimmed);
+    final ok = await _effectiveStorage.saveSemesterNameInstance(trimmed);
     if (!ok) return false;
     _semesterName = trimmed;
     notifyListeners();
@@ -482,7 +502,7 @@ class ScheduleProvider extends ChangeNotifier {
       _lastEvaluatedDay = nowDay;
       if (_currentWeek == prevActual) {
         _currentWeek = actualCurrentWeek;
-        unawaited(StorageService.saveCurrentWeek(_currentWeek));
+        unawaited(_effectiveStorage.saveCurrentWeekInstance(_currentWeek));
       }
     } else {
       _lastEvaluatedDay = nowDay;
@@ -494,7 +514,7 @@ class ScheduleProvider extends ChangeNotifier {
   Future<void> setOnlyCurrentWeek(bool value) async {
     _onlyCurrentWeek = value;
     notifyListeners();
-    await StorageService.saveOnlyCurrentWeek(value);
+    await _effectiveStorage.saveOnlyCurrentWeekInstance(value);
   }
 
   /// 快速取反切换 仅本周 / 所有周
@@ -505,7 +525,10 @@ class ScheduleProvider extends ChangeNotifier {
   /// 导入并覆盖当前课表（先校验加密写入结果，再提交内存状态与同步时间）
   Future<void> updateCourses(List<Course> newCourses) async {
     final deduped = _deduplicateCourses(newCourses);
-    final ok = await StorageService.saveCourses(deduped, updateSyncTime: false);
+    final ok = await _effectiveStorage.saveCoursesInstance(
+      deduped,
+      updateSyncTime: false,
+    );
     if (!ok) {
       throw const StorageWriteException('课表数据写入本地存储失败，已保留原数据');
     }
@@ -516,12 +539,12 @@ class ScheduleProvider extends ChangeNotifier {
     _hasMigrationFailure = false;
     _recalculateMaxWeeks(_currentWeek);
 
-    if (AppCryptoService.hasPendingMigrationFailure) {
-      await StorageService.retryPendingCryptoMigrations();
+    if (_effectiveCrypto.instanceHasPendingMigrationFailure) {
+      await _effectiveStorage.retryPendingCryptoMigrationsInstance();
     }
 
     final syncTime = _nowProvider();
-    final timeOk = await StorageService.saveCoursesSyncTime(syncTime);
+    final timeOk = await _effectiveStorage.saveCoursesSyncTimeInstance(syncTime);
     if (timeOk) {
       _lastSyncTime = syncTime;
     }
@@ -539,7 +562,7 @@ class ScheduleProvider extends ChangeNotifier {
   /// 仅重试持久化课表同步时间（用于业务数据已落盘但时间戳写入失败的局部恢复）
   Future<bool> retrySaveSyncTime([DateTime? time]) async {
     final syncTime = time ?? _nowProvider();
-    final timeOk = await StorageService.saveCoursesSyncTime(syncTime);
+    final timeOk = await _effectiveStorage.saveCoursesSyncTimeInstance(syncTime);
     if (timeOk) {
       _lastSyncTime = syncTime;
       notifyListeners();
@@ -566,12 +589,15 @@ class ScheduleProvider extends ChangeNotifier {
   }) async {
     try {
       final restored = List<Course>.from(prevCourses);
-      final dataOk = await StorageService.saveCourses(restored, updateSyncTime: false);
+      final dataOk = await _effectiveStorage.saveCoursesInstance(
+        restored,
+        updateSyncTime: false,
+      );
       if (!dataOk) return false;
 
       final timeOk = prevSyncTime != null
-          ? await StorageService.saveCoursesSyncTime(prevSyncTime)
-          : await StorageService.removeCoursesSyncTime();
+          ? await _effectiveStorage.saveCoursesSyncTimeInstance(prevSyncTime)
+          : await _effectiveStorage.removeCoursesSyncTimeInstance();
       if (!timeOk) return false;
 
       _courses = restored;
@@ -591,7 +617,8 @@ class ScheduleProvider extends ChangeNotifier {
     _courses = [];
     _hasDecryptionError = false;
     _hasDataFormatError = false;
-    _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
+    _hasMigrationFailure =
+        _effectiveCrypto.instanceHasPendingMigrationFailure;
     _lastSyncTime = null;
     _semesterStartDate = null;
     _semesterName = '';
@@ -601,7 +628,7 @@ class ScheduleProvider extends ChangeNotifier {
 
   /// 清空本地课表（先删同步时间戳与学期元数据，最后删主课表键；失败时回滚元数据，保证主数据完整保留）
   Future<void> clearAll() async {
-    final res = await StorageService.clearCoursesWithReport();
+    final res = await _effectiveStorage.clearCoursesWithReportInstance();
     if (!res.allCleared) {
       if (!res.primaryRemoved) {
         throw StorageWriteException(

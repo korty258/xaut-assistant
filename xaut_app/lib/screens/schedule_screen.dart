@@ -326,7 +326,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           ? DecryptionErrorView(
               moduleName: '课表',
               isFormatError: provider.hasDataFormatError,
-              onReset: () => provider.clearAll(),
+              onReset: () {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context)
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(
+                    const SnackBar(content: Text('已重置损坏缓存与主密钥，请重新同步教务数据')),
+                  );
+              },
             )
           : provider.courses.isEmpty
               ? const ScheduleEmptyGuide()

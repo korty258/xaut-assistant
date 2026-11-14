@@ -115,29 +115,66 @@ class SyncResultParser {
         );
       }
 
-      final courses = parseCoursesResult(data['courses']);
-      final gradesResult = parseGradesResult(data['gradesData']);
-      final exams = parseExamsResult(data['exams']);
+      List<Course> courses = const [];
+      String? parseErrorCourses;
+      try {
+        courses = parseCoursesResult(data['courses']);
+      } on Object catch (_) {
+        parseErrorCourses = '课表数据格式解析异常';
+      }
+
+      ({
+        List<GradeItem> grades,
+        GradeSummary? summary,
+        SyncModuleStatus status,
+        String? error,
+      }) gradesResult = (
+        grades: <GradeItem>[],
+        summary: null,
+        status: SyncModuleStatus.error,
+        error: null,
+      );
+      String? parseErrorGrades;
+      try {
+        gradesResult = parseGradesResult(data['gradesData']);
+      } on Object catch (_) {
+        parseErrorGrades = '成绩数据格式解析异常';
+      }
+
+      List<ExamItem> exams = const [];
+      String? parseErrorExams;
+      try {
+        exams = parseExamsResult(data['exams']);
+      } on Object catch (_) {
+        parseErrorExams = '考试数据格式解析异常';
+      }
+
       final weekInfo = parseWeekInfoResult(data['weekInfo']);
 
       final statusMap = data['status'] is Map ? data['status'] as Map : const {};
       final errorsMap = data['errors'] is Map ? data['errors'] as Map : const {};
 
-      final statusCourses = SyncModuleStatus.fromString(
-        statusMap['courses']?.toString(),
-        fallbackOk: courses.isNotEmpty,
-        defaultStatus: SyncModuleStatus.error,
-      );
-      final statusGrades = SyncModuleStatus.fromString(
-        statusMap['grades']?.toString(),
-        fallbackOk: gradesResult.grades.isNotEmpty,
-        defaultStatus: SyncModuleStatus.error,
-      );
-      final statusExams = SyncModuleStatus.fromString(
-        statusMap['exams']?.toString(),
-        fallbackOk: exams.isNotEmpty,
-        defaultStatus: SyncModuleStatus.error,
-      );
+      final statusCourses = parseErrorCourses != null
+          ? SyncModuleStatus.error
+          : SyncModuleStatus.fromString(
+              statusMap['courses']?.toString(),
+              fallbackOk: courses.isNotEmpty,
+              defaultStatus: SyncModuleStatus.error,
+            );
+      final statusGrades = parseErrorGrades != null
+          ? SyncModuleStatus.error
+          : SyncModuleStatus.fromString(
+              statusMap['grades']?.toString(),
+              fallbackOk: gradesResult.grades.isNotEmpty,
+              defaultStatus: SyncModuleStatus.error,
+            );
+      final statusExams = parseErrorExams != null
+          ? SyncModuleStatus.error
+          : SyncModuleStatus.fromString(
+              statusMap['exams']?.toString(),
+              fallbackOk: exams.isNotEmpty,
+              defaultStatus: SyncModuleStatus.error,
+            );
 
       return SyncAllResult(
         courses: courses,
@@ -146,9 +183,9 @@ class SyncResultParser {
         statusCourses: statusCourses,
         statusGrades: statusGrades,
         statusExams: statusExams,
-        errorCourses: errorsMap['courses']?.toString(),
-        errorGrades: errorsMap['grades']?.toString(),
-        errorExams: errorsMap['exams']?.toString(),
+        errorCourses: parseErrorCourses ?? errorsMap['courses']?.toString(),
+        errorGrades: parseErrorGrades ?? errorsMap['grades']?.toString(),
+        errorExams: parseErrorExams ?? errorsMap['exams']?.toString(),
         detectedWeek: weekInfo.currentWeek,
         detectedSemester: weekInfo.semester,
         detectedSemesterStart: weekInfo.semesterStartDate,
@@ -274,14 +311,7 @@ class SyncResultParser {
     }
 
     if (data is List) {
-      return data.map((item) {
-        if (item is Map<String, dynamic>) {
-          return Course.fromJson(item);
-        } else if (item is Map) {
-          return Course.fromJson(Map<String, dynamic>.from(item));
-        }
-        return null;
-      }).whereType<Course>().toList();
+      return _parseModelList(data, Course.fromJson);
     }
 
     return [];
@@ -330,14 +360,10 @@ class SyncResultParser {
       GradeSummary? summary;
 
       if (data['grades'] is List) {
-        grades = (data['grades'] as List).map((item) {
-          if (item is Map<String, dynamic>) {
-            return GradeItem.fromJson(item);
-          } else if (item is Map) {
-            return GradeItem.fromJson(Map<String, dynamic>.from(item));
-          }
-          return null;
-        }).whereType<GradeItem>().toList();
+        grades = _parseModelList(
+          data['grades'] as List,
+          GradeItem.fromJson,
+        );
       }
 
       if (data['summary'] is Map) {
@@ -361,14 +387,7 @@ class SyncResultParser {
     }
 
     if (data is List) {
-      final grades = data.map((item) {
-        if (item is Map<String, dynamic>) {
-          return GradeItem.fromJson(item);
-        } else if (item is Map) {
-          return GradeItem.fromJson(Map<String, dynamic>.from(item));
-        }
-        return null;
-      }).whereType<GradeItem>().toList();
+      final grades = _parseModelList(data, GradeItem.fromJson);
       return (
         grades: grades,
         summary: null,
@@ -463,16 +482,29 @@ class SyncResultParser {
     }
 
     if (data is List) {
-      return data.map((item) {
-        if (item is Map<String, dynamic>) {
-          return ExamItem.fromJson(item);
-        } else if (item is Map) {
-          return ExamItem.fromJson(Map<String, dynamic>.from(item));
-        }
-        return null;
-      }).whereType<ExamItem>().toList();
+      return _parseModelList(data, ExamItem.fromJson);
     }
 
     return [];
+  }
+
+  /// 逐条反序列化强智 DOM 提取的模型列表，安全过滤单条格式畸形项以避免整批同步崩溃
+  static List<T> _parseModelList<T>(
+    List<dynamic> items,
+    T Function(Map<String, dynamic>) fromJson,
+  ) {
+    final result = <T>[];
+    for (final item in items) {
+      try {
+        if (item is Map<String, dynamic>) {
+          result.add(fromJson(item));
+        } else if (item is Map) {
+          result.add(fromJson(Map<String, dynamic>.from(item)));
+        }
+      } on FormatException {
+        // 忽略单条字段缺失/畸形的 DOM 行，防止污染或拖垮同批次其他有效数据
+      }
+    }
+    return result;
   }
 }

@@ -125,20 +125,37 @@ class Course {
   }
 
   factory Course.fromJson(Map<String, dynamic> json) {
+    final rawName = json['name'];
+    if (rawName is! String || rawName.trim().isEmpty) {
+      throw const FormatException('Course JSON 缺少有效的课程名称 (name)');
+    }
+
+    final rawDay = json['day'];
+    final rawStartSection = json['startSection'];
+    final rawStepCount = json['stepCount'];
+    if (rawDay is! num || rawStartSection is! num || rawStepCount is! num) {
+      throw const FormatException('Course JSON 缺少有效的星期或节次字段');
+    }
+
     List<int> parsedWeeks = [];
     if (json['weeks'] != null) {
       parsedWeeks = (json['weeks'] as List).map((e) => (e as num).toInt()).toList();
     }
 
+    final rawWeekStr = json['rawWeekStr'] as String? ?? '';
+    if (parsedWeeks.isEmpty && rawWeekStr.trim().isEmpty) {
+      throw const FormatException('Course JSON 缺少有效的教学周次信息');
+    }
+
     return Course(
-      name: json['name'] as String? ?? '未知课程',
+      name: rawName,
       teacher: json['teacher'] as String? ?? '',
       room: json['room'] as String? ?? '',
-      day: (json['day'] as num?)?.toInt() ?? 1,
-      startSection: (json['startSection'] as num?)?.toInt() ?? 1,
-      stepCount: (json['stepCount'] as num?)?.toInt() ?? 2,
+      day: rawDay.toInt(),
+      startSection: rawStartSection.toInt(),
+      stepCount: rawStepCount.toInt(),
       weeks: parsedWeeks,
-      rawWeekStr: json['rawWeekStr'] as String? ?? '',
+      rawWeekStr: rawWeekStr,
     );
   }
 

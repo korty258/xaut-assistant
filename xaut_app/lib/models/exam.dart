@@ -178,11 +178,22 @@ class ExamItem {
   }
 
   factory ExamItem.fromJson(Map<String, dynamic> json) {
+    final rawCourseName = json['courseName'];
+    if (rawCourseName is! String || rawCourseName.trim().isEmpty) {
+      throw const FormatException('ExamItem JSON 缺少有效的课程名称 (courseName)');
+    }
+    final hasScheduleOrVenue = json['examTime'] is String ||
+        json['room'] is String ||
+        json['campus'] is String;
+    if (!hasScheduleOrVenue) {
+      throw const FormatException('ExamItem JSON 缺少考试时间或地点核心字段');
+    }
+
     return ExamItem(
       campus: json['campus'] as String? ?? '',
       batch: json['batch'] as String? ?? '',
       courseCode: json['courseCode'] as String? ?? '',
-      courseName: json['courseName'] as String? ?? '',
+      courseName: rawCourseName,
       teacher: json['teacher'] as String? ?? '',
       examTime: json['examTime'] as String? ?? '',
       room: json['room'] as String? ?? '',
