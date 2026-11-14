@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:webview_windows/webview_windows.dart' as win;
+import '../utils/date_time_utils.dart';
 import 'app_crypto_service.dart';
 import 'legal_service.dart';
 import 'parser_service.dart';
@@ -85,26 +86,68 @@ class DiagnosticSnapshot {
 
 /// 脱敏同步遥测与运行环境诊断服务
 ///
-/// 遵循《个人信息保护法》最小必要原则：
-/// 1. 仅在内存中暂存最近一次教务同步的状态码与纯类别错误；
-/// 2. 严禁采集或包含学号、密码、Cookie、课表课程名、成绩、GPA、考试名称或原始 HTML/堆栈；
-/// 3. 诊断信息仅供用户在关于页显式预览后手动复制用于 GitHub Issue 故障申报。
+/// 同时支持实例注入（[DiagnosticsService.new]）与默认单例静态门面，兼顾调用简洁与单元测试隔离性。
 class DiagnosticsService {
-  static DateTime? _lastSyncTimestamp;
-  static String? _triggerMode;
-  static int? _durationMs;
-  static SyncModuleStatus? _coursesStatus;
-  static SyncModuleStatus? _gradesStatus;
-  static SyncModuleStatus? _examsStatus;
-  static String? _coursesErrorCategory;
-  static String? _gradesErrorCategory;
-  static String? _examsErrorCategory;
+  static DiagnosticsService _instance = DiagnosticsService();
+
+  static DiagnosticsService get instance => _instance;
 
   @visibleForTesting
-  static Future<String?> Function()? debugWebViewVersionProvider;
+  static set instance(DiagnosticsService custom) => _instance = custom;
+
+  DiagnosticsService({
+    this._storage,
+    this._crypto,
+    Future<String?> Function()? webViewVersionProvider,
+  }) : _debugWebViewVersionProvider = webViewVersionProvider;
+
+  final StorageService? _storage;
+  final AppCryptoService? _crypto;
+  StorageService get _effectiveStorage => _storage ?? StorageService.instance;
+  AppCryptoService get _effectiveCrypto => _crypto ?? AppCryptoService.instance;
+
+  DateTime? _lastSyncTimestamp;
+  String? _triggerMode;
+  int? _durationMs;
+  SyncModuleStatus? _coursesStatus;
+  SyncModuleStatus? _gradesStatus;
+  SyncModuleStatus? _examsStatus;
+  String? _coursesErrorCategory;
+  String? _gradesErrorCategory;
+  String? _examsErrorCategory;
+
+  Future<String?> Function()? _debugWebViewVersionProvider;
+
+  @visibleForTesting
+  static Future<String?> Function()? get debugWebViewVersionProvider =>
+      _instance._debugWebViewVersionProvider;
+  @visibleForTesting
+  static set debugWebViewVersionProvider(Future<String?> Function()? fn) =>
+      _instance._debugWebViewVersionProvider = fn;
 
   /// 记录最近一次教务同步的脱敏遥测数据
   static void recordSyncEvent({
+    required String triggerMode,
+    required int durationMs,
+    SyncModuleStatus? coursesStatus,
+    SyncModuleStatus? gradesStatus,
+    SyncModuleStatus? examsStatus,
+    Object? coursesError,
+    Object? gradesError,
+    Object? examsError,
+  }) =>
+      _instance.recordSyncEventInstance(
+        triggerMode: triggerMode,
+        durationMs: durationMs,
+        coursesStatus: coursesStatus,
+        gradesStatus: gradesStatus,
+        examsStatus: examsStatus,
+        coursesError: coursesError,
+        gradesError: gradesError,
+        examsError: examsError,
+      );
+
+  void recordSyncEventInstance({
     required String triggerMode,
     required int durationMs,
     SyncModuleStatus? coursesStatus,
@@ -134,8 +177,13 @@ class DiagnosticsService {
     final text = error.toString();
     if (text.contains('CryptoKeyException')) return 'CryptoKeyException';
     if (text.contains('CryptoException')) return 'CryptoException';
-    if (text.contains('BridgeException') || text.contains('bridge')) return 'BridgeException';
-    if (text.contains('Timeout') || text.contains('timed out')) return 'TimeoutException';
+    if (text.contains('StorageFormatException')) return 'StorageFormatException';
+    if (text.contains('BridgeException') || text.contains('bridge')) {
+      return 'BridgeException';
+    }
+    if (text.contains('Timeout') || text.contains('timed out')) {
+      return 'TimeoutException';
+    }
     if (text.contains('MissingPluginException')) return 'MissingPluginException';
     if (text.contains('DomParse') || text.contains('HTML') || text.contains('DOM')) {
       return 'DomParseError';
@@ -143,38 +191,34 @@ class DiagnosticsService {
     if (text.contains('StateError')) return 'StateError';
     if (text.contains('ArgumentError')) return 'ArgumentError';
 
-    // 仅保留运行时纯类名，丢弃 message 文本以防携带用户数据
     return error.runtimeType.toString();
   }
 
   /// 格式化时间戳
   static String formatDateTime(DateTime? dt) {
     if (dt == null) return '无 (未同步)';
-    final y = dt.year.toString().padLeft(4, '0');
-    final m = dt.month.toString().padLeft(2, '0');
-    final d = dt.day.toString().padLeft(2, '0');
-    final h = dt.hour.toString().padLeft(2, '0');
-    final min = dt.minute.toString().padLeft(2, '0');
-    final s = dt.second.toString().padLeft(2, '0');
-    return '$y-$m-$d $h:$min:$s';
+    return DateTimeUtils.formatFullDateTime(dt);
   }
 
   /// 采集当前脱敏诊断数据快照，供界面结构化展示与 Markdown 导出复用
-  static Future<DiagnosticSnapshot> collectSnapshot() async {
-    final coursesSyncTime = await StorageService.loadLastSyncTime();
-    final gradesSyncTime = await StorageService.loadGradesSyncTime();
-    final examsSyncTime = await StorageService.loadExamsSyncTime();
+  static Future<DiagnosticSnapshot> collectSnapshot() =>
+      _instance.collectSnapshotInstance();
+
+  Future<DiagnosticSnapshot> collectSnapshotInstance() async {
+    final coursesSyncTime = await _effectiveStorage.loadLastSyncTimeInstance();
+    final gradesSyncTime = await _effectiveStorage.loadGradesSyncTimeInstance();
+    final examsSyncTime = await _effectiveStorage.loadExamsSyncTimeInstance();
 
     String webView2Info = '不适用 (${defaultTargetPlatform.name})';
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
-      if (debugWebViewVersionProvider != null) {
-        final v = await debugWebViewVersionProvider!();
+      if (_debugWebViewVersionProvider != null) {
+        final v = await _debugWebViewVersionProvider!();
         webView2Info = v != null && v.isNotEmpty ? '已安装 ($v)' : '未检测到运行时 (缺失)';
       } else {
         try {
           final v = await win.WebviewController.getWebViewVersion();
           webView2Info = v != null && v.isNotEmpty ? '已安装 ($v)' : '未检测到运行时 (缺失)';
-        } catch (e) {
+        } on Object catch (e) {
           webView2Info = '检测异常: ${sanitizeErrorCategory(e)}';
         }
       }
@@ -197,28 +241,22 @@ class DiagnosticsService {
       coursesErrorCategory: _coursesErrorCategory ?? 'none',
       gradesErrorCategory: _gradesErrorCategory ?? 'none',
       examsErrorCategory: _examsErrorCategory ?? 'none',
-      pendingMigrationCount: AppCryptoService.pendingMigrationKeys.length,
-      hasKeyBlockedMigration: AppCryptoService.hasKeyBlockedMigrationFailure,
+      pendingMigrationCount: _effectiveCrypto.instancePendingMigrationKeys.length,
+      hasKeyBlockedMigration: _effectiveCrypto.instanceHasKeyBlockedMigrationFailure,
     );
   }
 
   /// 生成纯文本/Markdown 格式的脱敏诊断摘要报告
-  static Future<String> buildDiagnosticReport() async {
-    final snapshot = await collectSnapshot();
+  static Future<String> buildDiagnosticReport() =>
+      _instance.buildDiagnosticReportInstance();
+
+  Future<String> buildDiagnosticReportInstance() async {
+    final snapshot = await collectSnapshotInstance();
     return snapshot.toMarkdownReport();
   }
 
   @visibleForTesting
   static void resetForTesting() {
-    _lastSyncTimestamp = null;
-    _triggerMode = null;
-    _durationMs = null;
-    _coursesStatus = null;
-    _gradesStatus = null;
-    _examsStatus = null;
-    _coursesErrorCategory = null;
-    _gradesErrorCategory = null;
-    _examsErrorCategory = null;
-    debugWebViewVersionProvider = null;
+    _instance = DiagnosticsService();
   }
 }

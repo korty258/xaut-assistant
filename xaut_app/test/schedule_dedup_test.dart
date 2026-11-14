@@ -96,12 +96,12 @@ void main() {
     await provider.updateCourses(courses);
 
     // 第9周不应有课
-    provider.setCurrentWeek(9);
+    await provider.setCurrentWeek(9);
     final week9Courses = provider.getCoursesForDay(1);
     expect(week9Courses.isEmpty, true);
 
     // 第15周应有课，且节次跨度修正为 7-10 节 (4 节课)
-    provider.setCurrentWeek(15);
+    await provider.setCurrentWeek(15);
     final week15Courses = provider.getCoursesForDay(1);
     expect(week15Courses.length, 1);
     expect(week15Courses.first.name, '电路基础实验');

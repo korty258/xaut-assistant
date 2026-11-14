@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/exam.dart';
 import '../providers/exams_provider.dart';
+import '../utils/date_time_utils.dart';
 import 'webview_login_screen.dart';
 import '../widgets/calendar_export_dialog.dart';
 import '../widgets/decryption_error_view.dart';
@@ -9,14 +11,6 @@ import '../widgets/diagnostics_dialog.dart';
 
 class ExamsScreen extends StatelessWidget {
   const ExamsScreen({super.key});
-
-  static String _formatSyncTime(DateTime dt) {
-    final m = dt.month.toString().padLeft(2, '0');
-    final d = dt.day.toString().padLeft(2, '0');
-    final h = dt.hour.toString().padLeft(2, '0');
-    final min = dt.minute.toString().padLeft(2, '0');
-    return '$m-$d $h:$min';
-  }
 
   static ({Color bg, Color fg, IconData icon}) _resolveCountdownStyle(
     ThemeData theme,
@@ -106,7 +100,7 @@ class ExamsScreen extends StatelessWidget {
             ),
             if (provider.lastSyncTime != null)
               Text(
-                '同步于 ${_formatSyncTime(provider.lastSyncTime!)}',
+                '同步于 ${DateTimeUtils.formatShortSyncTime(provider.lastSyncTime!)}',
                 style: TextStyle(
                   fontSize: 11,
                   color: theme.colorScheme.onSurfaceVariant,
@@ -129,7 +123,7 @@ class ExamsScreen extends StatelessWidget {
             tooltip: '更多操作',
             onSelected: (val) {
               if (val == 'export_calendar') {
-                CalendarExportDialog.show(context, preferExams: true);
+                unawaited(CalendarExportDialog.show(context, preferExams: true));
               } else if (val == 'clear') {
                 _showClearExamsDialog(context, provider);
               } else {
@@ -166,9 +160,10 @@ class ExamsScreen extends StatelessWidget {
       ),
       body: provider.isLoading
           ? const Center(child: CircularProgressIndicator())
-          : provider.hasDecryptionError
+          : provider.hasStorageError
               ? DecryptionErrorView(
                   moduleName: '考试日程',
+                  isFormatError: provider.hasDataFormatError,
                   onReset: () => provider.clearAll(),
                 )
               : exams.isEmpty
@@ -438,29 +433,30 @@ class ExamsScreen extends StatelessWidget {
     }
 
     final theme = Theme.of(context);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        icon: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error, size: 36),
-        title: const Text('确认清空考试数据？'),
-        content: const Text('此操作将清空本地已保存的所有考试日程与考场信息。清空后可随时点击同步按钮重新登录教务系统进行同步。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              try {
-                await provider.clearAll();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已清空本地考试数据')),
-                  );
-                }
-              } catch (e) {
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          icon: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error, size: 36),
+          title: const Text('确认清空考试数据？'),
+          content: const Text('此操作将清空本地已保存的所有考试日程与考场信息。清空后可随时点击同步按钮重新登录教务系统进行同步。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                try {
+                  await provider.clearAll();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('已清空本地考试数据')),
+                    );
+                  }
+                } on Object catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -474,6 +470,7 @@ class ExamsScreen extends StatelessWidget {
             child: Text('确认清空', style: TextStyle(color: theme.colorScheme.onError)),
           ),
         ],
+      ),
       ),
     );
   }

@@ -12,7 +12,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await LegalService.runPendingWipeIfNeeded();
-  } catch (e) {
+  } on Object catch (e) {
     debugPrint('LegalService.runPendingWipeIfNeeded error: $e');
   }
   LegalService.registerCustomLicenses();

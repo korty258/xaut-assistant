@@ -6,6 +6,46 @@
 
 ## [Unreleased]
 
+## [2.4.0-pre1] - 2026-11-14
+
+金花助手 `v2.4.0-pre1`（开发预览版 · 安全 Fail-Closed 全链路加固、JSON 格式损坏显式隔离、Windows 单实例防重开、Android R8 体积混淆裁剪、超长模块解耦与可注入服务体系、`dart analyze --fatal-infos` 全量清零）！
+
+### Fixed
+- **P0-1 主密钥异常类型收敛与 Fail-Closed 全链路一致化 (`AppCryptoService`)**：
+  - 将 `_loadOrCreateMasterKey()` 中安全存储读取失败、主密钥长度非 64 位或含非法十六进制字符抛出的 `StateError` / `FormatException` 统一收敛为 `CryptoKeyException`；
+  - 保证 `loadEncryptedStringWithStatus()` 在旧版明文透明迁移路径下与密文读取路径均严格遵守 Fail-Closed 契约并精确标记 `keyBlockedMigration`。
+- **P0-2 缓存 JSON / 模型格式损坏停止静默吞错 (`StorageService`、`ScheduleProvider`、`GradesProvider`、`ExamsProvider` & `DecryptionErrorView`)**：
+  - 新增 `StorageFormatException` 与 `StorageService.decodeJsonList()`，移除 `loadCoursesWithStatus()` 对 JSON 反序列化异常返回 `[]` 的静默吞错；
+  - 在 `ScheduleProvider`、`GradesProvider` 与 `ExamsProvider` 中区分密钥/AEAD 解密失败（`hasDecryptionError`）与结构损坏失败（`hasDataFormatError`），并暴露统一的 `hasStorageError` 门禁状态；
+  - `DecryptionErrorView` 支持 `isFormatError` 分流提示，明确告知“本地数据格式损坏”而非误报“密钥不可用”。
+- **P0-3 Windows 桌面端单实例互斥锁与既有窗口前置唤醒 (`windows/runner/main.cpp`)**：
+  - 引入命名内核互斥体 `Local\JinhuaAssistant_SingleInstance_Mutex_v1`；当检测到已有实例运行时，通过 `FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"\u91d1\u82b1\u52a9\u624b")` 还原最小化窗口并前置聚焦后安全退出，消除双开导致的 `SharedPreferences` 与 WebView2 数据目录写入竞争。
+- **P1-7 死代码清理与 README 同步机制措辞修正**：
+  - 移除 `SyncScriptBuilder` 中未使用的 `isNotLoggedIn` 冗余变量；
+  - 将 `README.md` 中教务全量同步描述由“并发”修正为符合实际分步管线实现的“顺序/分步全量拉取”与“一键全量同步”。
+
+### Refactored & Improved
+- **P1-1 超长 UI/协调模块职责拆分**：
+  - 将原 `webview_sync_coordinator.dart` 拆分为核心协调器与独立模块：`WebViewSyncDialogs`（结果与部分异常弹窗呈现）与 `WebViewSyncCalibration`（教学周自动校准与磁盘回滚协同）；
+  - 将原 `legal_gate_screen.dart` 拆分为阅读容器组件 `LegalMarkdownReader`、撤回确认与状态弹窗模块 `LegalRevokeDialogs` 及精简后的页面主视图。
+- **P1-2 课程解析规则与日期时间格式化共享收敛**：
+  - 新增 `CourseScheduleParser` 统一承载教学周字符串解析（`parseWeeks`）、中括号连排节次解析（`parseBracketSections`）、伪课程清洗与智能去重逻辑，`ScheduleProvider` 委托调用不再内联重复正则；
+  - 新增 `DateTimeUtils` 统一承载分模块短同步时间 (`MM-dd HH:mm`) 与诊断完整时间戳 (`yyyy-MM-dd HH:mm:ss`)，消除各页面及服务间的 `_formatSyncTime` 重复实现。
+- **P1-3 核心服务实例注入化改造（完全向后兼容既有静态 API）**：
+  - 为 `AppCryptoService`、`StorageService`、`LegalService`、`DiagnosticsService` 提供可构造、可独立注入依赖的实例及 `*Instance()` 方法，同时保留原有 `.instance` 单例与静态门面方法以确保全量既有调用方平滑兼容。
+
+### CI/CD & Engineering
+- **P1-4 Android Release 启用 R8 代码混淆裁剪与资源收缩**：
+  - 在 `xaut_app/android/app/build.gradle.kts` 的 `release` 构建类型启用 `isMinifyEnabled = true` 与 `isShrinkResources = true`，并配置针对 `flutter_secure_storage`、`webview_flutter_android`、`share_plus` 及通道反射类的高兼容性 `android/app/proguard-rules.pro`。
+- **P1-5 启用更严格的 Dart 静态分析规则 (`analysis_options.yaml`)**：
+  - 新增启用 `unawaited_futures`、`discarded_futures`、`cancel_subscriptions` 与 `avoid_catches_without_on_clauses` 四项严格 lint 规则，全量修复既有代码及测试中的 73 项隐患并实现 `dart analyze --fatal-infos` 零告警通过。
+- **P1-6 CI 流水线集成覆盖率报表归档与最低门禁**：
+  - 在 `.github/workflows/ci_cd.yml` 的 `quality_check` 任务中新增 `Coverage Summary & Threshold Gate`（行覆盖率 < `65.00%` 阻断并向 GitHub Step Summary 输出统计）与 `Upload Coverage Report`（归档 `lcov.info`）。
+
+### Tests
+- 在 `app_crypto_service_test.dart`、`storage_lifecycle_smoke_test.dart`、`schedule_layout_test.dart` 与 `diagnostics_service_test.dart` 中新增回归测试，覆盖 `CryptoKeyException` 异常统一、JSON 格式损坏 Fail-Closed 状态隔离与 `DecryptionErrorView` 提示分流、`CourseScheduleParser` / `DateTimeUtils` 边界行为及服务多实例零污染隔离；
+- Flutter 单元与组件测试扩充至 **162 项** 全绿通过（行覆盖率 **74.59%**），Node 24 JSDOM 解析器回归测试保持 **30 项** 全通。
+
 ## [2.3.9-rc5] - 2026-11-14
 
 金花助手 `v2.3.9-rc5`（候选发布版 · Android 原生清理回调与目录结果校验、学期基准回滚状态精确透传、损坏重置按模块事务隔离与早停保护、`.ics` 课程与考试 UID 碰撞消除）！本候选版本全面修补 `v2.3.9-rc4` 静态审查确认的 4 项问题并完善全路径异常注入与唯一性回归测试。
@@ -644,7 +684,10 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc3...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre1...HEAD
+[2.4.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc5...v2.4.0-pre1
+[2.3.9-rc5]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc4...v2.3.9-rc5
+[2.3.9-rc4]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc3...v2.3.9-rc4
 [2.3.9-rc3]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc2...v2.3.9-rc3
 [2.3.9-rc2]: https://github.com/korty258/xaut-assistant/compare/v2.3.9-rc1...v2.3.9-rc2
 [2.3.9-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.3.8...v2.3.9-rc1

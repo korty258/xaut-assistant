@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,12 +14,15 @@ class ExamsProvider extends ChangeNotifier {
   List<ExamItem> _exams = [];
   bool _isLoading = true;
   bool _hasDecryptionError = false;
+  bool _hasDataFormatError = false;
   bool _hasMigrationFailure = false;
   DateTime? _lastSyncTime;
 
   DateTime get now => _nowProvider();
   bool get isLoading => _isLoading;
   bool get hasDecryptionError => _hasDecryptionError;
+  bool get hasDataFormatError => _hasDataFormatError;
+  bool get hasStorageError => _hasDecryptionError || _hasDataFormatError;
   bool get hasMigrationFailure =>
       _hasMigrationFailure &&
       AppCryptoService.pendingMigrationKeys.contains(_keyExams);
@@ -35,7 +39,7 @@ class ExamsProvider extends ChangeNotifier {
 
   ExamsProvider({DateTime Function()? nowProvider})
       : _nowProvider = nowProvider ?? DateTime.now {
-    _init();
+    unawaited(_init());
   }
 
   /// 纯函数排序：未考科目按开考时间从近到远置顶，时间待定居中，已考完科目置底
@@ -102,15 +106,23 @@ class ExamsProvider extends ChangeNotifier {
       _hasMigrationFailure = res.migrationFailed;
       final examsStr = res.value;
       if (examsStr != null && examsStr.isNotEmpty) {
-        final List<dynamic> list = jsonDecode(examsStr);
-        _exams = list.map((e) => ExamItem.fromJson(e as Map<String, dynamic>)).toList();
+        final items = StorageService.decodeJsonList('考试', examsStr);
+        try {
+          _exams = items.map(ExamItem.fromJson).toList();
+        } on Object catch (e) {
+          throw StorageFormatException('考试', e);
+        }
       }
       _hasDecryptionError = false;
+      _hasDataFormatError = false;
     } on CryptoException {
       _hasDecryptionError = true;
+      _hasDataFormatError = false;
       _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
       _exams = [];
-    } catch (_) {
+    } on Object catch (_) {
+      _hasDecryptionError = false;
+      _hasDataFormatError = true;
       _exams = [];
     }
 
@@ -141,6 +153,7 @@ class ExamsProvider extends ChangeNotifier {
 
     _exams = candidateExams;
     _hasDecryptionError = false;
+    _hasDataFormatError = false;
     _hasMigrationFailure = false;
     if (AppCryptoService.hasPendingMigrationFailure) {
       await StorageService.retryPendingCryptoMigrations();
@@ -182,6 +195,7 @@ class ExamsProvider extends ChangeNotifier {
   void resetInMemoryAfterCorruptReset() {
     _exams = [];
     _hasDecryptionError = false;
+    _hasDataFormatError = false;
     _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
     _lastSyncTime = null;
     notifyListeners();

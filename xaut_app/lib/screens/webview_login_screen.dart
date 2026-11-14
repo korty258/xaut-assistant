@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart' as af;
@@ -31,7 +32,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     _adapter = WebViewPlatformAdapter(
       onBlockedUrl: _showBlockedUrlDialog,
       onPageLoadFinished: () {
-        _coordinator.tryCaptureWeekInfoSilently();
+        unawaited(_coordinator.tryCaptureWeekInfoSilently());
       },
     );
 
@@ -47,14 +48,14 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
       },
     );
 
-    _initAdapter();
+    unawaited(_initAdapter());
   }
 
   Future<void> _initAdapter() async {
     try {
       await _adapter.initialize();
       if (mounted) setState(() {});
-    } catch (e) {
+    } on Object catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('WebView 初始化失败: $e')),
@@ -65,7 +66,8 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
 
   void _showBlockedUrlDialog(String url) {
     if (!mounted) return;
-    showDialog(
+    unawaited(
+      showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         icon: const Icon(Icons.security_rounded, color: Colors.red, size: 36),
@@ -81,6 +83,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -109,7 +112,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
             const SnackBar(content: Text('已清除浏览器登录会话 Cookie，已重置至统一认证页面')),
           );
         }
-      } catch (e) {
+      } on Object catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('清理 Cookie 失败: $e')),
@@ -290,7 +293,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                     tooltip: '更多安全操作',
                     onSelected: (val) {
                       if (val == 'clear_cookies') {
-                        _handleClearCookies();
+                        unawaited(_handleClearCookies());
                       }
                     },
                     itemBuilder: (ctx) => [

@@ -86,6 +86,38 @@ jobs:
         working-directory: xaut_app
         run: flutter test --coverage
 
+      - name: Coverage Summary & Threshold Gate
+        working-directory: xaut_app
+        run: |
+          python3 -c '
+          import os, sys
+          lf = lh = 0
+          with open("coverage/lcov.info", "r", encoding="utf-8") as f:
+              for line in f:
+                  if line.startswith("LF:"):
+                      lf += int(line[3:].strip())
+                  elif line.startswith("LH:"):
+                      lh += int(line[3:].strip())
+          pct = (lh / lf * 100.0) if lf else 0.0
+          summary = f"### Flutter Line Coverage\n- Covered lines: **{lh} / {lf}** (**{pct:.2f}%**)\n- Minimum gate: **65.00%**\n"
+          print(summary)
+          gh_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if gh_summary:
+              with open(gh_summary, "a", encoding="utf-8") as out:
+                  out.write(summary)
+          if pct < 65.0:
+              print(f"::error::Line coverage {pct:.2f}% is below 65.00% gate!", file=sys.stderr)
+              sys.exit(1)
+          '
+
+      - name: Upload Coverage Report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flutter-coverage-lcov
+          path: xaut_app/coverage/lcov.info
+          retention-days: 7
+
   # 2. 编译 Android Release APK (Tag、手动触发或 PR 门禁)
   build_android:
     name: Build Android APK

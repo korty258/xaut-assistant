@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../providers/schedule_provider.dart';
 
@@ -30,7 +31,8 @@ class WeekSelectorSheet extends StatelessWidget {
     required ScheduleProvider provider,
     required VoidCallback onCalibrateRequested,
   }) {
-    showModalBottomSheet(
+    unawaited(
+      showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
@@ -46,6 +48,7 @@ class WeekSelectorSheet extends StatelessWidget {
         onWeekSelected: (w) => provider.setCurrentWeek(w),
         onResetToActualWeek: () => provider.resetToActualCurrentWeek(),
         onCalibratePressed: onCalibrateRequested,
+      ),
       ),
     );
   }
@@ -457,7 +460,7 @@ class _SemesterCalibrateDialogState extends State<SemesterCalibrateDialog> {
             bool ok = false;
             try {
               ok = await widget.provider.calibrateFromStartDate(_mondayDate);
-            } catch (_) {
+            } on Object catch (_) {
               ok = false;
             }
             if (!context.mounted) return;

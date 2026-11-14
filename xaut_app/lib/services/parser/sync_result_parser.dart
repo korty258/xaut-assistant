@@ -30,7 +30,7 @@ class SyncResultParser {
     dynamic data = rawResult;
     try {
       data = unwrapJson(rawResult);
-    } catch (_) {
+    } on Object catch (_) {
       return (currentWeek: null, semester: null, semesterStartDate: null);
     }
 
@@ -86,7 +86,7 @@ class SyncResultParser {
     dynamic data;
     try {
       data = unwrapJson(rawResult);
-    } catch (e) {
+    } on Object catch (e) {
       return SyncAllResult(
         courses: const [],
         grades: const [],
@@ -190,7 +190,7 @@ class SyncResultParser {
     dynamic data;
     try {
       data = unwrapJson(rawResult);
-    } catch (_) {
+    } on Object catch (_) {
       return (
         courses: <Course>[],
         detectedWeek: null,
@@ -265,7 +265,7 @@ class SyncResultParser {
     dynamic data;
     try {
       data = unwrapJson(rawResult);
-    } catch (_) {
+    } on Object catch (_) {
       return [];
     }
 
@@ -306,7 +306,7 @@ class SyncResultParser {
     dynamic data;
     try {
       data = unwrapJson(rawResult);
-    } catch (_) {
+    } on Object catch (_) {
       return (
         grades: <GradeItem>[],
         summary: null,
@@ -402,7 +402,7 @@ class SyncResultParser {
     dynamic data;
     try {
       data = unwrapJson(rawResult);
-    } catch (_) {
+    } on Object catch (_) {
       return (
         exams: <ExamItem>[],
         status: SyncModuleStatus.error,
@@ -458,7 +458,7 @@ class SyncResultParser {
     dynamic data;
     try {
       data = unwrapJson(rawResult);
-    } catch (_) {
+    } on Object catch (_) {
       return [];
     }
 

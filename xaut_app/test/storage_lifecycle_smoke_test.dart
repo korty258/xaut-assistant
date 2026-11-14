@@ -229,15 +229,15 @@ void main() {
 
       await expectLater(
         () => s.updateCourses([sampleCourseB]),
-        throwsA(isA<StateError>()),
+        throwsA(isA<CryptoKeyException>()),
       );
       await expectLater(
         () => g.updateGrades([sampleGradeB]),
-        throwsA(isA<StateError>()),
+        throwsA(isA<CryptoKeyException>()),
       );
       await expectLater(
         () => e.updateExams([sampleExamB]),
-        throwsA(isA<StateError>()),
+        throwsA(isA<CryptoKeyException>()),
       );
 
       // 内存旧数据、学期筛选与同步时间完全保留
@@ -1488,6 +1488,62 @@ void main() {
 
       coordinator.dispose();
       adapter.dispose();
+    });
+  });
+
+  group('P0-2 Data Format Corruption Fail-Closed & DecryptionErrorView Tests', () {
+    test('Corrupted JSON inside valid ENC:v2 ciphertext sets hasDataFormatError across all 3 providers', () async {
+      SharedPreferences.setMockInitialValues({});
+      AppCryptoService.resetForTesting();
+      StorageService.resetForTesting();
+      AppCryptoService.setMockMasterKey(enc.Key.fromBase64(fixedKeyBase64));
+
+      final prefs = await SharedPreferences.getInstance();
+      await AppCryptoService.saveEncryptedString(prefs, 'xaut_cached_courses', '{corrupted_json');
+      await AppCryptoService.saveEncryptedString(prefs, 'xaut_cached_grades', '{"not":"a_list"}');
+      await AppCryptoService.saveEncryptedString(prefs, 'xaut_cached_exams', '[12345]');
+
+      // StorageService.loadCoursesWithStatus 必须抛出 StorageFormatException，而非静默返回 []
+      await expectLater(
+        StorageService.loadCoursesWithStatus,
+        throwsA(isA<StorageFormatException>()),
+      );
+
+      final sp = ScheduleProvider();
+      final gp = GradesProvider();
+      final ep = ExamsProvider();
+      await _waitForProviders(schedule: sp, grades: gp, exams: ep);
+
+      expect(sp.hasDecryptionError, isFalse);
+      expect(sp.hasDataFormatError, isTrue);
+      expect(sp.hasStorageError, isTrue);
+
+      expect(gp.hasDecryptionError, isFalse);
+      expect(gp.hasDataFormatError, isTrue);
+      expect(gp.hasStorageError, isTrue);
+
+      expect(ep.hasDecryptionError, isFalse);
+      expect(ep.hasDataFormatError, isTrue);
+      expect(ep.hasStorageError, isTrue);
+    });
+
+    testWidgets('DecryptionErrorView renders format error guidance when isFormatError is true', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DecryptionErrorView(
+              moduleName: '成绩',
+              isFormatError: true,
+              onReset: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('本地成绩数据格式损坏'), findsOneWidget);
+      expect(find.textContaining('JSON 结构异常或版本不兼容'), findsOneWidget);
+      expect(find.text('本地成绩解密失败'), findsNothing);
     });
   });
 }

@@ -260,5 +260,38 @@ void main() {
       expect(find.text('已成功完成 1 项密文升级'), findsOneWidget);
       expect(AppCryptoService.pendingMigrationKeys, isEmpty);
     });
+
+    test('P1-3: Isolated DiagnosticsService uses injected dependencies without polluting singleton', () async {
+      final crypto = AppCryptoService(
+        storageReader: (_) async => List.filled(32, '43').join(),
+      );
+      final storage = StorageService(crypto: crypto);
+      final isolated = DiagnosticsService(
+        storage: storage,
+        crypto: crypto,
+        webViewVersionProvider: () async => 'MockWebView2 99.0',
+      );
+
+      isolated.recordSyncEventInstance(
+        triggerMode: 'courses',
+        durationMs: 320,
+        coursesStatus: SyncModuleStatus.ok,
+      );
+
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      late final String isolatedReport;
+      late final String globalReport;
+      try {
+        isolatedReport = await isolated.buildDiagnosticReportInstance();
+        globalReport = await DiagnosticsService.buildDiagnosticReport();
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+
+      expect(isolatedReport.contains('MockWebView2 99.0'), isTrue);
+      expect(isolatedReport.contains('- 触发模式: courses'), isTrue);
+      expect(globalReport.contains('- 触发模式: courses'), isFalse);
+      expect(globalReport.contains('MockWebView2 99.0'), isFalse);
+    });
   });
 }

@@ -1,25 +1,23 @@
+import 'dart:async';
 import 'dart:io' show Platform, exit;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/exams_provider.dart';
 import '../providers/grades_provider.dart';
 import '../providers/schedule_provider.dart';
 import '../services/legal_service.dart';
+import '../utils/date_time_utils.dart';
 import '../widgets/diagnostics_dialog.dart';
+import '../widgets/legal/legal_markdown_reader.dart';
+import '../widgets/legal/legal_revoke_dialogs.dart';
 import 'home_screen.dart';
 
 /// 首次启动法律门禁与条款查阅页面
 class LegalGateScreen extends StatefulWidget {
-  /// 是否作为强制准入门禁模式。
-  /// true: 首次启动/版本更新门禁，包含强制勾选与退出确认；
-  /// false: 从关于页查阅模式，供浏览条款、查看签署存证与撤回同意。
   final bool isGate;
-
-  /// 默认选中的文档类型：0 = 用户协议, 1 = 隐私政策, 2 = 免责声明
   final int initialDocIndex;
 
   const LegalGateScreen({
@@ -42,14 +40,11 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
 
   final Map<int, String> _docTexts = {};
   late final List<ScrollController> _scrollControllers;
-
-  /// 记录各文书是否已滑动阅读完毕（门禁模式下需 3 份全部读完）
   late final List<bool> _docsRead;
+  late final List<LegalDocItem> _docs;
 
   bool get _allDocsRead => _docsRead.every((r) => r);
   int get _unreadCount => _docsRead.where((r) => !r).length;
-
-  late final List<({String title, String assetPath})> _docs;
 
   @override
   void initState() {
@@ -75,7 +70,7 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
       }
       return ctrl;
     });
-    _initData();
+    unawaited(_initData());
   }
 
   void _checkScrollProgress(int index) {
@@ -85,8 +80,8 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
     if (!controller.hasClients) return;
 
     final position = controller.position;
-    // 当文档高度不需要滚动（内容全部展示），或已滑动到接近末尾（距底 <= 32 像素）时标记为读完
-    if (position.maxScrollExtent <= 10 || position.pixels >= position.maxScrollExtent - 32) {
+    if (position.maxScrollExtent <= 10 ||
+        position.pixels >= position.maxScrollExtent - 32) {
       if (mounted) {
         setState(() {
           _docsRead[index] = true;
@@ -118,7 +113,7 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
       try {
         final text = await rootBundle.loadString(_docs[i].assetPath);
         _docTexts[i] = text;
-      } catch (e) {
+      } on Object catch (e) {
         _docTexts[i] = '加载 ${_docs[i].title} 失败: $e';
       }
     }
@@ -145,37 +140,14 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
     if (!_agreed) return;
     await LegalService.accept();
     if (mounted) {
-      Navigator.of(context).pushReplacement(
+      await Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const HomeScreen()),
       );
     }
   }
 
   Future<void> _onDisagree() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        icon: const Icon(Icons.warning_amber_rounded, size: 36, color: Colors.orange),
-        title: const Text('退出应用'),
-        content: const Text(
-          '如您不同意《用户协议》《隐私政策》或《免责声明》，将无法使用本软件。点击“确定退出”将关闭本应用。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('返回阅读'),
-          ),
-          FilledButton.tonal(
-            style: FilledButton.styleFrom(
-              foregroundColor: Theme.of(ctx).colorScheme.error,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('确定退出'),
-          ),
-        ],
-      ),
-    );
-
+    final confirmed = await LegalRevokeDialogs.confirmDisagree(context);
     if (confirmed == true) {
       if (!kIsWeb && Platform.isAndroid) {
         await SystemNavigator.pop();
@@ -186,37 +158,17 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
   }
 
   Future<void> _onRevokeConsent() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        icon: Icon(Icons.delete_forever_rounded, size: 36, color: Theme.of(ctx).colorScheme.error),
-        title: const Text('撤回同意并清空数据？'),
-        content: Text(
-          '依据《个人信息保护法》第 15 条，您有权撤回同意。\n\n'
-          '撤回同意后，本软件将清除保存在本机设备上的所有课表、成绩、考试数据以及授权凭证，并退回首次启动法律门禁。\n\n'
-          '${!kIsWeb && defaultTargetPlatform == TargetPlatform.windows ? "【Windows 提示】由于便携版及 WebView2 进程特性，彻底清除内嵌网页缓存请在退出软件后手动删除程序同级目录下的 *.WebView2 文件夹及 %APPDATA%\\Jinhua Assistant OpenSource Community\\金花助手 目录。\n\n" : ""}'
-          '此操作不可撤销，确定撤回吗？',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-              foregroundColor: Theme.of(ctx).colorScheme.onError,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('确定撤回并清空'),
-          ),
-        ],
-      ),
-    );
-
+    final confirmed = await LegalRevokeDialogs.confirmRevokeConsent(context);
     if (confirmed == true) {
       await _executeRevokeCleanup();
     }
+  }
+
+  void _navigateToFreshGate() {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: true)),
+      (_) => false,
+    );
   }
 
   Future<void> _executeRevokeCleanup() async {
@@ -224,19 +176,18 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
       ScheduleProvider? sp;
       GradesProvider? gp;
       ExamsProvider? ep;
-      try { sp = context.read<ScheduleProvider>(); } catch (_) {}
-      try { gp = context.read<GradesProvider>(); } catch (_) {}
-      try { ep = context.read<ExamsProvider>(); } catch (_) {}
-      try { await sp?.clearAll(); } catch (_) {}
-      try { await gp?.clearAll(); } catch (_) {}
-      try { await ep?.clearAll(); } catch (_) {}
+      try { sp = context.read<ScheduleProvider>(); } on Object catch (_) {}
+      try { gp = context.read<GradesProvider>(); } on Object catch (_) {}
+      try { ep = context.read<ExamsProvider>(); } on Object catch (_) {}
+      try { await sp?.clearAll(); } on Object catch (_) {}
+      try { await gp?.clearAll(); } on Object catch (_) {}
+      try { await ep?.clearAll(); } on Object catch (_) {}
     }
 
     final cleanupResult = await LegalService.revokeAndClearAll();
     if (!mounted) return;
 
     final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
-    final items = cleanupResult.describeItems(isWindows: isWindows);
 
     if (cleanupResult.isFullyCleaned) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -246,14 +197,12 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: true)),
-        (_) => false,
-      );
+      _navigateToFreshGate();
       return;
     }
 
-    if (!cleanupResult.hasUnqueuedFailures && cleanupResult.hasPendingColdStartWipe) {
+    if (!cleanupResult.hasUnqueuedFailures &&
+        cleanupResult.hasPendingColdStartWipe) {
       final queuedNames = <String>[];
       if (cleanupResult.masterKeyPendingQueued) {
         queuedNames.add('主加密密钥');
@@ -270,91 +219,21 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: true)),
-        (_) => false,
-      );
+      _navigateToFreshGate();
       return;
     }
 
-    // 存在未能清理且未写入补偿队列的失败项时，按项诚实反馈并给出重试/手动清理指引
-    final action = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        icon: Icon(
-          Icons.warning_amber_rounded,
-          size: 36,
-          color: Theme.of(ctx).colorScheme.error,
-        ),
-        title: const Text('部分本地数据未能完成清理'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('已执行撤回清理，各项真实处理结果如下：'),
-              const SizedBox(height: 10),
-              for (final item in items)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        item.isFailedUnqueued
-                            ? Icons.error_outline_rounded
-                            : (item.isQueued
-                                ? Icons.schedule_rounded
-                                : Icons.check_circle_outline_rounded),
-                        size: 18,
-                        color: item.isFailedUnqueued
-                            ? Theme.of(ctx).colorScheme.error
-                            : (item.isQueued ? Colors.orange : Colors.green),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '${item.label}：${item.status}',
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: 8),
-              Text(
-                '说明：标记为“未加入待清理队列”的失败项不会在下次启动时自动补偿。'
-                '您可以点击“重试清理”，或前往${isWindows ? '应用数据目录 (%APPDATA%\\Jinhua Assistant OpenSource Community\\金花助手) 与同级 *.WebView2 目录手动删除' : '系统应用设置中手动执行“清除全部数据”'}。',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(ctx).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop('gate'),
-            child: const Text('返回法律门禁'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop('retry'),
-            child: const Text('重试清理'),
-          ),
-        ],
-      ),
+    final action = await LegalRevokeDialogs.showPartialCleanupDialog(
+      context,
+      cleanupResult: cleanupResult,
+      isWindows: isWindows,
     );
 
     if (!mounted) return;
     if (action == 'retry') {
       await _executeRevokeCleanup();
     } else if (action == 'gate') {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: true)),
-        (_) => false,
-      );
+      _navigateToFreshGate();
     }
   }
 
@@ -371,19 +250,7 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
               centerTitle: false,
               actions: [
                 TextButton.icon(
-                  onPressed: () {
-                    showLicensePage(
-                      context: context,
-                      applicationName: '金花助手',
-                      applicationVersion: LegalService.appVersion,
-                      applicationIcon: Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Image.asset('assets/logo.png', width: 44, height: 44),
-                      ),
-                      applicationLegalese: 'Copyright (C) 2026 Jinhua Assistant Contributors\n'
-                          '基于 GNU General Public License v3.0 (GPL-3.0) 授权',
-                    );
-                  },
+                  onPressed: () => showJinhuaLicensePage(context),
                   icon: const Icon(Icons.policy_outlined, size: 18),
                   label: const Text(
                     '开源许可库',
@@ -392,10 +259,17 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                 ),
                 TextButton.icon(
                   onPressed: _onRevokeConsent,
-                  icon: Icon(Icons.delete_outline, size: 18, color: theme.colorScheme.error),
+                  icon: Icon(
+                    Icons.delete_outline,
+                    size: 18,
+                    color: theme.colorScheme.error,
+                  ),
                   label: Text(
                     '撤回同意',
-                    style: TextStyle(color: theme.colorScheme.error, fontSize: 13),
+                    style: TextStyle(
+                      color: theme.colorScheme.error,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -408,11 +282,25 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
             child: Column(
               children: [
                 _buildHeader(theme),
-                _buildDocSelector(theme),
+                LegalDocSelector(
+                  docs: _docs,
+                  docsRead: _docsRead,
+                  selectedDoc: _selectedDoc,
+                  isGate: widget.isGate,
+                  onSelect: _switchDoc,
+                ),
                 Expanded(
                   child: _isLoading
                       ? const Center(child: CircularProgressIndicator())
-                      : _buildDocReader(theme),
+                      : LegalMarkdownReader(
+                          docs: _docs,
+                          docsRead: _docsRead,
+                          scrollControllers: _scrollControllers,
+                          docTexts: _docTexts,
+                          selectedDoc: _selectedDoc,
+                          isGate: widget.isGate,
+                          onSwitchDoc: _switchDoc,
+                        ),
                 ),
                 if (widget.isGate)
                   _buildGateConsentBar(theme)
@@ -426,7 +314,6 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
     );
   }
 
-  /// 顶栏：应用图标、名称、副标题与要点告知卡片
   Widget _buildHeader(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
@@ -459,7 +346,10 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                         ),
                         const SizedBox(width: 8),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: theme.colorScheme.tertiaryContainer,
                             borderRadius: BorderRadius.circular(6),
@@ -488,7 +378,6 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          // 4项核心法务要点告知卡片
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -503,7 +392,11 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.info_outline_rounded, size: 16, color: theme.colorScheme.primary),
+                    Icon(
+                      Icons.info_outline_rounded,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    ),
                     const SizedBox(width: 6),
                     Text(
                       '使用前重要须知（请特别关注免责条款）',
@@ -515,10 +408,22 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                _buildBulletText('本软件为在校学生个人开发的非官方开源工具，与西安理工大学无任何隶属、合作、代理或授权关系。', theme),
-                _buildBulletText('账号密码仅在学校官方登录页输入，本软件不读取、不上传；数据仅保存在本机设备。', theme),
-                _buildBulletText('课表、成绩、GPA、考试倒计时均为本地解析或估算，仅供参考，以官方教务为准。', theme),
-                _buildBulletText('请合理使用，严禁高频批量抓取或实施任何影响学校教务系统正常运行的行为。', theme),
+                _buildBulletText(
+                  '本软件为在校学生个人开发的非官方开源工具，与西安理工大学无任何隶属、合作、代理或授权关系。',
+                  theme,
+                ),
+                _buildBulletText(
+                  '账号密码仅在学校官方登录页输入，本软件不读取、不上传；数据仅保存在本机设备。',
+                  theme,
+                ),
+                _buildBulletText(
+                  '课表、成绩、GPA、考试倒计时均为本地解析或估算，仅供参考，以官方教务为准。',
+                  theme,
+                ),
+                _buildBulletText(
+                  '请合理使用，严禁高频批量抓取或实施任何影响学校教务系统正常运行的行为。',
+                  theme,
+                ),
               ],
             ),
           ),
@@ -533,7 +438,13 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('• ', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 11)),
+          Text(
+            '• ',
+            style: TextStyle(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontSize: 11,
+            ),
+          ),
           Expanded(
             child: Text(
               text,
@@ -549,279 +460,6 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
     );
   }
 
-  /// 文档切换 Tab（门禁模式展示已读状态绿色圆点）
-  Widget _buildDocSelector(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: SegmentedButton<int>(
-        segments: [
-          for (int i = 0; i < _docs.length; i++)
-            ButtonSegment<int>(
-              value: i,
-              label: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_docs[i].title),
-                  if (widget.isGate) ...[
-                    const SizedBox(width: 4),
-                    Icon(
-                      _docsRead[i] ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
-                      size: 13,
-                      color: _docsRead[i] ? Colors.green : theme.colorScheme.outline.withValues(alpha: 0.6),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-        ],
-        selected: {_selectedDoc},
-        onSelectionChanged: (val) => _switchDoc(val.first),
-      ),
-    );
-  }
-
-  /// 预处理 Markdown 源码中中文标点与加粗语法冲突的边界情况
-  /// 将形如 **“文字”** 或 **"文字"** 自动转换为 “**文字**”，避免 CommonMark 将 ** 识别为纯字符
-  static String _sanitizeMarkdown(String raw) {
-    // 1. 处理紧随括号说明的情况：**“文字”（注记）** -> “**文字**”（注记）
-    var text = raw.replaceAllMapped(
-      RegExp(r'\*\*([“"「『])(.*?)([”"」』])([（\(].*?[）\)])\*\*'),
-      (m) => '${m[1]}**${m[2]}**${m[3]}${m[4]}',
-    );
-    // 2. 处理标准成对引号：**“文字”** -> “**文字**”
-    text = text.replaceAllMapped(
-      RegExp(r'\*\*([“"「『])(.*?)([”"」』])\*\*'),
-      (m) => '${m[1]}**${m[2]}**${m[3]}',
-    );
-    // 3. 处理中文字符紧贴 **“ 的情况：字**“ -> 字 “**
-    text = text.replaceAllMapped(
-      RegExp(r'([\u4e00-\u9fa5])\*\*([“"「『])'),
-      (m) => '${m[1]} ${m[2]}**',
-    );
-    return text;
-  }
-
-  /// 本地 Markdown 格式化排版多文档独立滚动阅读器
-  Widget _buildDocReader(ThemeData theme) {
-    final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
-    final fallbackFonts = isWindows
-        ? const ['Microsoft YaHei', 'Segoe UI', 'sans-serif']
-        : const ['PingFang SC', 'sans-serif'];
-
-    final markdownStyle = MarkdownStyleSheet.fromTheme(theme).copyWith(
-      h1: theme.textTheme.titleLarge?.copyWith(
-        fontWeight: FontWeight.bold,
-        color: theme.colorScheme.onSurface,
-        fontSize: 18,
-        fontFamilyFallback: fallbackFonts,
-      ),
-      h2: theme.textTheme.titleMedium?.copyWith(
-        fontWeight: FontWeight.bold,
-        color: theme.colorScheme.primary,
-        fontSize: 15,
-        fontFamilyFallback: fallbackFonts,
-      ),
-      h3: theme.textTheme.titleSmall?.copyWith(
-        fontWeight: FontWeight.w600,
-        color: theme.colorScheme.onSurface,
-        fontSize: 13.5,
-        fontFamilyFallback: fallbackFonts,
-      ),
-      p: theme.textTheme.bodyMedium?.copyWith(
-        fontSize: 13,
-        height: 1.6,
-        color: theme.colorScheme.onSurface,
-        fontFamilyFallback: fallbackFonts,
-      ),
-      strong: TextStyle(
-        fontWeight: FontWeight.bold,
-        color: theme.colorScheme.onSurface,
-        fontFamilyFallback: fallbackFonts,
-      ),
-      blockquote: theme.textTheme.bodySmall?.copyWith(
-        fontSize: 12.5,
-        height: 1.5,
-        color: theme.colorScheme.onSurfaceVariant,
-        fontStyle: FontStyle.normal,
-        fontFamilyFallback: fallbackFonts,
-      ),
-      blockquotePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      blockquoteDecoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
-        borderRadius: BorderRadius.circular(6),
-        border: Border(
-          left: BorderSide(
-            color: theme.colorScheme.primary,
-            width: 3.5,
-          ),
-        ),
-      ),
-      tableBorder: TableBorder.all(
-        color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
-        width: 0.8,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      tableHead: TextStyle(
-        fontWeight: FontWeight.bold,
-        fontSize: 12,
-        color: theme.colorScheme.onSurface,
-        fontFamilyFallback: fallbackFonts,
-      ),
-      tableBody: TextStyle(
-        fontSize: 12,
-        height: 1.4,
-        color: theme.colorScheme.onSurface,
-        fontFamilyFallback: fallbackFonts,
-      ),
-      tableCellsPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      horizontalRuleDecoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-            width: 1,
-          ),
-        ),
-      ),
-      listBullet: TextStyle(
-        color: theme.colorScheme.primary,
-        fontSize: 13,
-      ),
-    );
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
-        ),
-      ),
-      child: IndexedStack(
-        index: _selectedDoc,
-        children: [
-          for (int i = 0; i < _docs.length; i++)
-            _buildSingleDocReader(i, theme, markdownStyle),
-        ],
-      ),
-    );
-  }
-
-  /// 单个文档的独立渲染器，具备独立的 ScrollController，各 Tab 翻动互不干扰
-  Widget _buildSingleDocReader(int index, ThemeData theme, MarkdownStyleSheet markdownStyle) {
-    final rawText = _docTexts[index] ?? '加载中...';
-    final sanitizedText = _sanitizeMarkdown(rawText);
-    final controller = _scrollControllers[index];
-
-    return Scrollbar(
-      controller: controller,
-      thumbVisibility: true,
-      child: SingleChildScrollView(
-        key: PageStorageKey<String>('legal_doc_scroll_$index'),
-        controller: controller,
-        padding: const EdgeInsets.only(right: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SelectionArea(
-              child: MarkdownBody(
-                data: sanitizedText,
-                selectable: false, // SelectionArea handles selection
-                styleSheet: markdownStyle,
-              ),
-            ),
-            if (widget.isGate) ...[
-              const SizedBox(height: 24),
-              _buildDocBottomReaderCard(index, theme),
-              const SizedBox(height: 16),
-            ] else if (index == 3) ...[
-              const SizedBox(height: 24),
-              Center(
-                child: FilledButton.tonalIcon(
-                  onPressed: () {
-                    showLicensePage(
-                      context: context,
-                      applicationName: '金花助手',
-                      applicationVersion: LegalService.appVersion,
-                      applicationIcon: Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Image.asset('assets/logo.png', width: 44, height: 44),
-                      ),
-                      applicationLegalese: 'Copyright (C) 2026 Jinhua Assistant Contributors\n'
-                          '基于 GNU General Public License v3.0 (GPL-3.0) 授权',
-                    );
-                  },
-                  icon: const Icon(Icons.policy_outlined),
-                  label: const Text('打开全量开源组件许可证页面 (LicensePage)'),
-                ),
-              ),
-              const SizedBox(height: 32),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 文档底部滑动阅读状态卡片与快捷下一份跳转
-  Widget _buildDocBottomReaderCard(int index, ThemeData theme) {
-    final isRead = _docsRead[index];
-    final nextUnread = _docsRead.indexWhere((r) => !r);
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: isRead
-            ? Colors.green.withValues(alpha: 0.08)
-            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isRead
-              ? Colors.green.withValues(alpha: 0.35)
-              : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-        ),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                isRead ? Icons.check_circle_rounded : Icons.arrow_downward_rounded,
-                size: 18,
-                color: isRead ? Colors.green : theme.colorScheme.primary,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                isRead
-                    ? '已完整阅读《${_docs[index].title}》'
-                    : '请继续向下滑动至文档最末尾以完成阅读',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: isRead ? Colors.green : theme.colorScheme.primary,
-                ),
-              ),
-            ],
-          ),
-          if (isRead && nextUnread != -1 && nextUnread != index) ...[
-            const SizedBox(height: 8),
-            FilledButton.tonalIcon(
-              onPressed: () => _switchDoc(nextUnread),
-              icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-              label: Text('继续阅读下一份：《${_docs[nextUnread].title}》'),
-              style: FilledButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// 底部门禁同意栏（仅在 isGate 模式展示）
   Widget _buildGateConsentBar(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -836,7 +474,6 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 阅读进度提示条
           Container(
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -867,15 +504,15 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
-                      color: _allDocsRead ? Colors.green : theme.colorScheme.onPrimaryContainer,
+                      color: _allDocsRead
+                          ? Colors.green
+                          : theme.colorScheme.onPrimaryContainer,
                     ),
                   ),
                 ),
               ],
             ),
           ),
-
-          // 显式勾选框（全部文书滑动阅读完毕后方可勾选）
           InkWell(
             onTap: _allDocsRead
                 ? () {
@@ -886,7 +523,9 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                 : () {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('请先完整滑动阅读全部 3 份条款至底部（还剩 $_unreadCount 份待阅读）'),
+                        content: Text(
+                          '请先完整滑动阅读全部 3 份条款至底部（还剩 $_unreadCount 份待阅读）',
+                        ),
                         duration: const Duration(seconds: 2),
                         behavior: SnackBarBehavior.floating,
                       ),
@@ -926,7 +565,6 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          // 两个并排按钮
           Row(
             children: [
               Expanded(
@@ -951,10 +589,9 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
     );
   }
 
-  /// 查阅模式底栏：展示本地存证信息与联系渠道
   Widget _buildReaderFooter(ThemeData theme) {
     final dateStr = _acceptedAt != null
-        ? '${_acceptedAt!.year}-${_acceptedAt!.month.toString().padLeft(2, '0')}-${_acceptedAt!.day.toString().padLeft(2, '0')} ${_acceptedAt!.hour.toString().padLeft(2, '0')}:${_acceptedAt!.minute.toString().padLeft(2, '0')}'
+        ? DateTimeUtils.formatFullDateTime(_acceptedAt).substring(0, 16)
         : '未记录';
 
     return Container(
@@ -978,8 +615,14 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
               FilledButton.tonalIcon(
                 style: FilledButton.styleFrom(
                   visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 onPressed: () => DiagnosticsDialog.show(context),
                 icon: const Icon(Icons.bug_report_outlined, size: 16),
@@ -988,7 +631,10 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
                   visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   textStyle: const TextStyle(fontSize: 12),
                 ),
                 onPressed: () => DiagnosticsDialog.copyIssuesUrl(context),
@@ -1000,7 +646,11 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
           const SizedBox(height: 8),
           Row(
             children: [
-              Icon(Icons.verified_outlined, size: 15, color: Colors.green.shade700),
+              Icon(
+                Icons.verified_outlined,
+                size: 15,
+                color: Colors.green.shade700,
+              ),
               const SizedBox(width: 6),
               Text(
                 '本地签署存证：已于 $dateStr 同意（版本 ${_acceptedVersion ?? LegalService.currentVersion}）',

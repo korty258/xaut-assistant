@@ -1,42 +1,18 @@
+import 'dart:async' show unawaited;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../providers/schedule_provider.dart';
-import '../../providers/grades_provider.dart';
 import '../../providers/exams_provider.dart';
+import '../../providers/grades_provider.dart';
+import '../../providers/schedule_provider.dart';
 import '../../services/diagnostics_service.dart';
 import '../../services/parser_service.dart';
 import '../../services/storage_service.dart';
 import 'webview_constants.dart';
 import 'webview_platform_adapter.dart';
+import 'webview_sync_calibration.dart';
+import 'webview_sync_dialogs.dart';
 
-class _PersistOutcome {
-  final String? errorCategory;
-  final bool dataSavedOnly;
-  final DateTime? pendingSyncTime;
-  final String? overrideMessage;
-
-  const _PersistOutcome.success()
-      : errorCategory = null,
-        dataSavedOnly = false,
-        pendingSyncTime = null,
-        overrideMessage = null;
-
-  const _PersistOutcome.partialSyncTime({
-    required String this.errorCategory,
-    this.pendingSyncTime,
-  })  : dataSavedOnly = true,
-        overrideMessage = null;
-
-  const _PersistOutcome.failed(
-    String this.errorCategory, {
-    this.overrideMessage,
-  })  : dataSavedOnly = false,
-        pendingSyncTime = null;
-
-  bool get isOk => errorCategory == null;
-}
-
-/// 负责调度强智教务系统跨模块同步业务流与结果弹窗
+/// 负责调度强智教务系统跨模块同步业务流（并发防抖、脚本触发、持久化事务与诊断记账）
 class WebViewSyncCoordinator {
   final BuildContext Function() getContext;
   final WebViewPlatformAdapter adapter;
@@ -73,153 +49,25 @@ class WebViewSyncCoordinator {
     _lastSyncAttemptTime = null;
   }
 
-  Future<_PersistOutcome> _persistSafely(Future<void> Function() action) async {
+  Future<SyncPersistOutcome> _persistSafely(
+    Future<void> Function() action,
+  ) async {
     try {
       await action();
-      return const _PersistOutcome.success();
+      return const SyncPersistOutcome.success();
     } on StorageWriteException catch (e) {
       final category = DiagnosticsService.sanitizeErrorCategory(e);
       if (e.dataSaved) {
-        return _PersistOutcome.partialSyncTime(
+        return SyncPersistOutcome.partialSyncTime(
           errorCategory: category,
           pendingSyncTime: e.pendingSyncTime,
         );
       }
-      return _PersistOutcome.failed(category);
-    } catch (e) {
-      return _PersistOutcome.failed(
+      return SyncPersistOutcome.failed(category);
+    } on Object catch (e) {
+      return SyncPersistOutcome.failed(
         DiagnosticsService.sanitizeErrorCategory(e),
       );
-    }
-  }
-
-  void _showPersistErrorDialog(
-    BuildContext context,
-    String moduleTitle,
-    _PersistOutcome outcome, {
-    Future<bool> Function()? onRetrySyncTime,
-  }) {
-    if (outcome.dataSavedOnly) {
-      bool isRetrying = false;
-      String? retryStatus;
-      showDialog(
-        context: context,
-        builder: (ctx) => StatefulBuilder(
-          builder: (ctx, setDialogState) => AlertDialog(
-            icon: const Icon(
-              Icons.warning_amber_rounded,
-              color: Colors.orange,
-              size: 36,
-            ),
-            title: Text('$moduleTitle已保存，但同步时间未更新'),
-            content: Text(
-              '已成功抓取并加密保存新的$moduleTitle，界面展示已更新为最新数据；'
-              '但写入“最近同步时间”时发生异常（${outcome.errorCategory}），同步时间仍保留上次记录。\n\n'
-              '您无需重新抓取教务，可直接重试保存同步时间。'
-              '${retryStatus != null ? "\n\n$retryStatus" : ""}',
-            ),
-            actions: [
-              TextButton(
-                onPressed: isRetrying ? null : () => Navigator.of(ctx).pop(),
-                child: const Text('稍后处理'),
-              ),
-              if (onRetrySyncTime != null)
-                FilledButton(
-                  onPressed: isRetrying
-                      ? null
-                      : () async {
-                          setDialogState(() {
-                            isRetrying = true;
-                            retryStatus = null;
-                          });
-                          final ok = await onRetrySyncTime();
-                          if (!ctx.mounted) return;
-                          if (ok) {
-                            Navigator.of(ctx).pop();
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('$moduleTitle同步时间已更新')),
-                              );
-                            }
-                          } else {
-                            setDialogState(() {
-                              isRetrying = false;
-                              retryStatus = '同步时间写入仍然失败，请稍后重试。';
-                            });
-                          }
-                        },
-                  child: Text(isRetrying ? '正在重试...' : '重试写入时间'),
-                ),
-            ],
-          ),
-        ),
-      );
-      return;
-    }
-
-    final bool hasMismatchWarning =
-        outcome.errorCategory == 'calibration_rollback_failed' ||
-        outcome.errorCategory == 'calibration_rollback_incomplete';
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        icon: Icon(
-          hasMismatchWarning
-              ? Icons.warning_amber_rounded
-              : Icons.error_outline_rounded,
-          color: hasMismatchWarning ? Colors.orange : Colors.red,
-          size: 36,
-        ),
-        title: Text(
-          hasMismatchWarning
-              ? '$moduleTitle与基准未完全一致'
-              : (outcome.overrideMessage != null
-                  ? '$moduleTitle同步已回滚'
-                  : '$moduleTitle本地保存失败'),
-        ),
-        content: Text(
-          outcome.overrideMessage ??
-              '已成功抓取教务数据，但在加密写入本地存储时发生异常（${outcome.errorCategory}）。\n\n'
-                  '为保障数据安全，本次未覆盖界面展示，已保留您原有的本地数据与同步时间。请重启应用或检查设备存储权限后重试。',
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('我知道了'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatModulePersistDetail({
-    required _PersistOutcome outcome,
-    required SyncModuleStatus status,
-    required String okSummary,
-    required String emptySummary,
-    required String retainLabel,
-    required String notLoggedInDetail,
-    required String errorDetail,
-  }) {
-    if (!outcome.isOk) {
-      if (outcome.overrideMessage != null) {
-        return outcome.overrideMessage!;
-      }
-      if (outcome.dataSavedOnly) {
-        final base = status.isOk ? okSummary : emptySummary;
-        return '$base，但同步时间写入失败 (${outcome.errorCategory})（已保留原同步时间）';
-      }
-      return '本地加密保存失败 (${outcome.errorCategory})（已保留原$retainLabel与同步时间）';
-    }
-    switch (status) {
-      case SyncModuleStatus.ok:
-        return okSummary;
-      case SyncModuleStatus.empty:
-        return emptySummary;
-      case SyncModuleStatus.notLoggedIn:
-        return notLoggedInDetail;
-      case SyncModuleStatus.error:
-        return errorDetail;
     }
   }
 
@@ -228,6 +76,22 @@ class WebViewSyncCoordinator {
     if (_isDisposed) return;
     isSyncingNotifier.value = syncing;
     onStateChanged(syncing, message);
+  }
+
+  /// 并发同步在途提示（返回 true 表示已有任务正在执行、调用方应中止）
+  bool _rejectIfSyncInFlight(BuildContext context) {
+    if (!_isSyncInFlight) return false;
+    if (!_isDisposed && context.mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('正在同步教务数据，请稍候...'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+    return true;
   }
 
   /// 同步防连击保护：限制 3 秒冷却，避免被教务系统识别为高频异常脚本
@@ -250,6 +114,19 @@ class WebViewSyncCoordinator {
     }
     _lastSyncAttemptTime = now;
     return false;
+  }
+
+  /// 统一同步准入守卫（先验在途并发，再验 3 秒防连击冷却）
+  bool _canStartSync(BuildContext context) =>
+      !_rejectIfSyncInFlight(context) && !isSyncCoolingDown();
+
+  void _handleSyncFailure(BuildContext context, String prefix, Object error) {
+    if (_isDisposed || !context.mounted) return;
+    final errStr = error.toString();
+    final isCancel = errStr.contains('取消') || errStr.contains('跳转');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(isCancel ? '同步已取消' : '$prefix: $error')),
+    );
   }
 
   /// 当教务页面加载完成时，静默嗅探右上角「2026-2027-1 第X周」标识并缓存
@@ -276,316 +153,32 @@ class WebViewSyncCoordinator {
       if (info.semesterStartDate != null) {
         _cachedDetectedStart = info.semesterStartDate;
       }
-    } catch (_) {}
+    } on Object catch (_) {}
   }
 
-  /// 阶段 1：评估并确认识别到的教学周或开学基准日（只做判定与用户确认，不提前改写磁盘或内存状态）
-  Future<
-      ({
-        SemesterCalibrationDecision? pendingDecision,
-        String? detailMessage,
-        bool rejectedByUser,
-        bool isSuccess,
-      })> _prepareWeekCalibration(
+  Future<PreparedCalibration> _prepareWeek(
     ScheduleProvider scheduleProvider, {
     int? detectedWeek,
     String? detectedSemester,
     DateTime? detectedStart,
-  }) async {
-    final decision = scheduleProvider.evaluateSemesterCalibration(
-      detectedWeek: detectedWeek ?? _cachedDetectedWeek,
-      detectedSemester: (detectedSemester != null && detectedSemester.isNotEmpty)
-          ? detectedSemester
-          : _cachedDetectedSemester,
-      detectedStart: detectedStart ?? _cachedDetectedStart,
-    );
-
-    if (!decision.hasUpdate) {
-      if (decision.candidateMonday != null && scheduleProvider.hasSemesterStart) {
-        return (
-          pendingDecision: null,
-          detailMessage: '当前第 ${scheduleProvider.actualCurrentWeek} 周基准一致，无需变更',
-          rejectedByUser: false,
-          isSuccess: true,
-        );
-      }
-      return (
-        pendingDecision: null,
-        detailMessage: null,
-        rejectedByUser: false,
-        isSuccess: false,
+  }) =>
+      WebViewSyncCalibrationHelper.prepareWeekCalibration(
+        scheduleProvider,
+        getContext: getContext,
+        isDisposed: () => _isDisposed,
+        confirmOverride: confirmSemesterCalibrationOverride,
+        detectedWeek: detectedWeek ?? _cachedDetectedWeek,
+        detectedSemester:
+            (detectedSemester != null && detectedSemester.isNotEmpty)
+                ? detectedSemester
+                : _cachedDetectedSemester,
+        detectedStart: detectedStart ?? _cachedDetectedStart,
       );
-    }
 
-    if (decision.requiresConfirmation) {
-      // 触发了需要确认的冲突或大幅跳变
-      bool confirmed = false;
-      if (confirmSemesterCalibrationOverride != null) {
-        confirmed = await confirmSemesterCalibrationOverride!(decision);
-      } else {
-        final context = getContext();
-        if (_isDisposed || !context.mounted) {
-          return (
-            pendingDecision: null,
-            detailMessage: '已保持原学期基准不变',
-            rejectedByUser: true,
-            isSuccess: false,
-          );
-        }
-        confirmed = await showDialog<bool>(
-              context: context,
-              barrierDismissible: false,
-              builder: (ctx) => AlertDialog(
-                icon: const Icon(Icons.warning_amber_rounded,
-                    color: Colors.orange, size: 36),
-                title: const Text('检测到学期基准变更或冲突'),
-                content: Text(
-                  '${decision.conflictReason ?? "教务系统返回的学期或开学周与当前本地设置存在偏差。"}\n\n'
-                  '若当前同步包含新课表数据：\n'
-                  '• 选择【保持原设置】：将同时保留原课表与原学期基准，避免新课表与旧学期日期错位混用；\n'
-                  '• 选择【更新学期基准】：将一并应用新课表与新学期基准。',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(false),
-                    child: const Text('保持原设置'),
-                  ),
-                  FilledButton(
-                    onPressed: () => Navigator.of(ctx).pop(true),
-                    child: const Text('更新学期基准'),
-                  ),
-                ],
-              ),
-            ) ??
-            false;
-      }
-
-      if (_isDisposed || !confirmed) {
-        return (
-          pendingDecision: null,
-          detailMessage: '已保持原学期基准不变',
-          rejectedByUser: true,
-          isSuccess: false,
-        );
-      }
-    }
-
-    return (
-      pendingDecision: decision,
-      detailMessage: null,
-      rejectedByUser: false,
-      isSuccess: false,
-    );
-  }
-
-  /// 阶段 2：仅在课表持久化成功后再提交学期与周次基准更新，保证两者原子一致
-  Future<({
-    String? detailMessage,
-    bool isSuccess,
-    bool saveFailed,
-    bool calibrationRollbackFailed,
-  })> _commitPendingWeekCalibration(
-    ScheduleProvider scheduleProvider, {
-    required SemesterCalibrationDecision? pendingDecision,
-    required String? preparedDetail,
-    required bool preparedSuccess,
-    required bool rejectedByUser,
-    required bool coursesPersisted,
-  }) async {
-    if (rejectedByUser) {
-      return (
-        detailMessage: '已保持原学期基准不变',
-        isSuccess: false,
-        saveFailed: false,
-        calibrationRollbackFailed: false,
-      );
-    }
-    if (pendingDecision == null) {
-      return (
-        detailMessage: preparedDetail,
-        isSuccess: preparedSuccess,
-        saveFailed: false,
-        calibrationRollbackFailed: false,
-      );
-    }
-    if (!coursesPersisted) {
-      return (
-        detailMessage: '由于课表保存失败，已保持原学期基准不变',
-        isSuccess: false,
-        saveFailed: false,
-        calibrationRollbackFailed: false,
-      );
-    }
-
-    try {
-      if (pendingDecision.candidateMonday != null) {
-        final ok = await scheduleProvider.setSemesterStartDate(
-          pendingDecision.candidateMonday!,
-          semester: pendingDecision.candidateSemester.isNotEmpty
-              ? pendingDecision.candidateSemester
-              : null,
-        );
-        if (!ok) {
-          final incomplete = scheduleProvider.lastCalibrationRollbackFailed;
-          return (
-            detailMessage: incomplete
-                ? '教学周基准保存失败，且原学期基准磁盘回滚未完成，请手动重新校准'
-                : '教学周基准保存失败，已保持原学期基准不变',
-            isSuccess: false,
-            saveFailed: true,
-            calibrationRollbackFailed: incomplete,
-          );
-        }
-        if (pendingDecision.requiresConfirmation) {
-          return (
-            detailMessage: '已按确认更新学期基准',
-            isSuccess: true,
-            saveFailed: false,
-            calibrationRollbackFailed: false,
-          );
-        }
-        final week = scheduleProvider.actualCurrentWeek;
-        final monday = scheduleProvider.semesterStartDate;
-        final monStr = monday != null
-            ? '${monday.year}-${monday.month.toString().padLeft(2, '0')}-${monday.day.toString().padLeft(2, '0')}'
-            : '';
-        return (
-          detailMessage: '已自动对齐第 $week 周${monStr.isNotEmpty ? " (第1周周一: $monStr)" : ""}',
-          isSuccess: true,
-          saveFailed: false,
-          calibrationRollbackFailed: false,
-        );
-      } else {
-        // 关键修复：无基准日期（未识别到周次或开学日，仅识别到学期名称）
-        if (pendingDecision.candidateSemester.isNotEmpty) {
-          final ok = await scheduleProvider
-              .setSemesterNameOnly(pendingDecision.candidateSemester);
-          if (!ok) {
-            return (
-              detailMessage: '学期名称保存失败，已保持原学期基准不变',
-              isSuccess: false,
-              saveFailed: true,
-              calibrationRollbackFailed: false,
-            );
-          }
-        }
-        return (
-          detailMessage: '已识别学期 ${pendingDecision.candidateSemester}，未检测到周次，请手动校准开学日',
-          isSuccess: false,
-          saveFailed: false,
-          calibrationRollbackFailed: false,
-        );
-      }
-    } catch (_) {
-      final incomplete = scheduleProvider.lastCalibrationRollbackFailed;
-      return (
-        detailMessage: incomplete
-            ? '教学周基准保存失败，且原学期基准磁盘回滚未完成，请手动重新校准'
-            : '教学周基准保存失败，已保持原学期基准不变',
-        isSuccess: false,
-        saveFailed: true,
-        calibrationRollbackFailed: incomplete,
-      );
-    }
-  }
-
-  /// 原子协调写入课表与教学周基准：分别校验课表快照回滚结果与学期基准磁盘回滚结果，绝不在回滚不完整时宣称完整恢复
-  Future<({
-    _PersistOutcome coursesOutcome,
-    ({
-      String? detailMessage,
-      bool isSuccess,
-      bool saveFailed,
-      bool calibrationRollbackFailed,
-    }) calibRes,
-  })> _persistCoursesAndCalibrationAtomic(
-    ScheduleProvider scheduleProvider, {
-    required Future<void> Function() writeCourses,
-    required SemesterCalibrationDecision? pendingDecision,
-    required String? preparedDetail,
-    required bool preparedSuccess,
-    required bool rejectedByUser,
-  }) async {
-    final prevCourses = scheduleProvider.courses.toList();
-    final prevSyncTime = scheduleProvider.lastSyncTime;
-    var coursesOutcome = await _persistSafely(writeCourses);
-    if (_isDisposed) {
-      return (
-        coursesOutcome: coursesOutcome,
-        calibRes: (
-          detailMessage: null,
-          isSuccess: false,
-          saveFailed: false,
-          calibrationRollbackFailed: false,
-        ),
-      );
-    }
-
-    var calibRes = await _commitPendingWeekCalibration(
-      scheduleProvider,
-      pendingDecision: pendingDecision,
-      preparedDetail: preparedDetail,
-      preparedSuccess: preparedSuccess,
-      rejectedByUser: rejectedByUser,
-      coursesPersisted: coursesOutcome.isOk || coursesOutcome.dataSavedOnly,
-    );
-
-    if (pendingDecision != null &&
-        calibRes.saveFailed &&
-        (coursesOutcome.isOk || coursesOutcome.dataSavedOnly)) {
-      final coursesRestored = await scheduleProvider.restoreCoursesSnapshot(
-        prevCourses,
-        prevSyncTime: prevSyncTime,
-      );
-      final calibIncomplete = calibRes.calibrationRollbackFailed;
-      final String msg;
-      final String errCat;
-      if (coursesRestored && !calibIncomplete) {
-        msg = '教学周基准保存失败，已回滚保留原课表与原学期基准';
-        errCat = 'calibration_rollback';
-      } else if (coursesRestored && calibIncomplete) {
-        msg = '教学周基准保存失败：原课表已回滚保留，但原学期名称/开学日磁盘回滚未完成，请手动重新校准';
-        errCat = 'calibration_rollback_incomplete';
-      } else if (!coursesRestored && calibIncomplete) {
-        msg = '新课表已写入，且教学周基准保存及课表、基准磁盘回滚均未完成，请手动校准并重新同步';
-        errCat = 'calibration_rollback_failed';
-      } else {
-        msg = '新课表已写入，但教学周基准保存失败且课表回滚未完成，请手动校准或重新同步';
-        errCat = 'calibration_rollback_failed';
-      }
-      coursesOutcome = _PersistOutcome.failed(
-        errCat,
-        overrideMessage: msg,
-      );
-      calibRes = (
-        detailMessage: msg,
-        isSuccess: false,
-        saveFailed: true,
-        calibrationRollbackFailed: calibIncomplete,
-      );
-    }
-
-    return (coursesOutcome: coursesOutcome, calibRes: calibRes);
-  }
-
-  /// 执行一键全量同步（同时同步 课表 + 成绩 + 考试 3大模块，消除 UI 冻结）
+  /// 执行一键全量同步（依次抓取 课表 + 成绩 + 考试 3 大模块，消除 UI 冻结）
   Future<void> syncAll() async {
     final context = getContext();
-    if (_isSyncInFlight) {
-      if (!_isDisposed && context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('正在同步教务数据，请稍候...'),
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-      return;
-    }
-
-    if (isSyncCoolingDown()) return;
+    if (!_canStartSync(context)) return;
 
     final scheduleProvider = context.read<ScheduleProvider>();
     final gradesProvider = context.read<GradesProvider>();
@@ -604,9 +197,7 @@ class WebViewSyncCoordinator {
         script: script,
         expectedType: 'sync_all_result',
         requestId: requestId,
-        onProgress: (msg) {
-          _setSyncingState(true, msg);
-        },
+        onProgress: (msg) => _setSyncingState(true, msg),
       );
       final result = ParserService.parseSyncAllResult(rawResult);
 
@@ -623,47 +214,21 @@ class WebViewSyncCoordinator {
 
       if (_isDisposed || !context.mounted) return;
 
-      // 全部未登录判定
       if (result.statusCourses.isNotLoggedIn &&
           result.statusGrades.isNotLoggedIn &&
           result.statusExams.isNotLoggedIn) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            icon: const Icon(Icons.lock_clock_rounded,
-                color: Colors.orange, size: 36),
-            title: const Text('未完成统一身份认证登录'),
-            content: const Text(
-              '未能提取数据：检测到统一身份认证尚未登录（已保留本地历史缓存）。\n\n'
-              '操作指引：\n'
-              '1. 请在下方网页中输入学号与密码完成登录；\n'
-              '2. 登录成功后，再次点击底部【一键同步全部】。',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('我知道了'),
-              ),
-            ],
-          ),
-        );
+        WebViewSyncDialogs.showSyncAllNotLoggedInDialog(context);
         return;
       }
 
-      // 0. 当课表模块有效返回（ok 或 empty）时，先仅做学期与周次基准冲突评估及用户确认（不提前改写磁盘或内存）
-      ({
-        SemesterCalibrationDecision? pendingDecision,
-        String? detailMessage,
-        bool rejectedByUser,
-        bool isSuccess,
-      }) prepCalib = (
+      PreparedCalibration prepCalib = (
         pendingDecision: null,
         detailMessage: null,
         rejectedByUser: false,
         isSuccess: false,
       );
       if (result.statusCourses.isOk || result.statusCourses.isEmpty) {
-        prepCalib = await _prepareWeekCalibration(
+        prepCalib = await _prepareWeek(
           scheduleProvider,
           detectedWeek: result.detectedWeek,
           detectedSemester: result.detectedSemester,
@@ -673,14 +238,8 @@ class WebViewSyncCoordinator {
       }
       final bool rejectedByUser = prepCalib.rejectedByUser;
 
-      // 1. 课表与教学周基准原子提交：若基准保存失败，主动回滚已写入的新课表与同步时间快照并区分基准自身是否完整回滚
-      var coursesOutcome = const _PersistOutcome.success();
-      ({
-        String? detailMessage,
-        bool isSuccess,
-        bool saveFailed,
-        bool calibrationRollbackFailed,
-      }) calibRes = (
+      var coursesOutcome = const SyncPersistOutcome.success();
+      CalibrationCommitResult calibRes = (
         detailMessage: rejectedByUser ? '已保持原学期基准不变' : prepCalib.detailMessage,
         isSuccess: !rejectedByUser && prepCalib.isSuccess,
         saveFailed: false,
@@ -688,8 +247,10 @@ class WebViewSyncCoordinator {
       );
       if (!rejectedByUser &&
           (result.statusCourses.isOk || result.statusCourses.isEmpty)) {
-        final atomic = await _persistCoursesAndCalibrationAtomic(
+        final atomic =
+            await WebViewSyncCalibrationHelper.persistCoursesAndCalibrationAtomic(
           scheduleProvider,
+          persistSafely: _persistSafely,
           writeCourses: () => scheduleProvider.updateCourses(
             result.statusCourses.isOk ? result.courses : const [],
           ),
@@ -697,12 +258,14 @@ class WebViewSyncCoordinator {
           preparedDetail: prepCalib.detailMessage,
           preparedSuccess: prepCalib.isSuccess,
           rejectedByUser: false,
+          isDisposed: () => _isDisposed,
         );
         if (_isDisposed) return;
         coursesOutcome = atomic.coursesOutcome;
         calibRes = atomic.calibRes;
       } else if (!rejectedByUser) {
-        calibRes = await _commitPendingWeekCalibration(
+        calibRes =
+            await WebViewSyncCalibrationHelper.commitPendingWeekCalibration(
           scheduleProvider,
           pendingDecision: prepCalib.pendingDecision,
           preparedDetail: prepCalib.detailMessage,
@@ -712,10 +275,8 @@ class WebViewSyncCoordinator {
         );
       }
       if (_isDisposed || !context.mounted) return;
-      // notLoggedIn 或 error 严格保留原有课表缓存
 
-      // 2. 成绩
-      var gradesOutcome = const _PersistOutcome.success();
+      var gradesOutcome = const SyncPersistOutcome.success();
       if (result.statusGrades.isOk) {
         gradesOutcome =
             await _persistSafely(() => gradesProvider.updateGrades(result.grades));
@@ -723,10 +284,8 @@ class WebViewSyncCoordinator {
         gradesOutcome =
             await _persistSafely(() => gradesProvider.updateGrades(const []));
       }
-      // notLoggedIn 或 error 严格保留原有成绩缓存
 
-      // 3. 考试
-      var examsOutcome = const _PersistOutcome.success();
+      var examsOutcome = const SyncPersistOutcome.success();
       if (result.statusExams.isOk) {
         examsOutcome =
             await _persistSafely(() => examsProvider.updateExams(result.exams));
@@ -734,11 +293,9 @@ class WebViewSyncCoordinator {
         examsOutcome =
             await _persistSafely(() => examsProvider.updateExams(const []));
       }
-      // notLoggedIn 或 error 严格保留原有考试缓存
 
       if (_isDisposed || !context.mounted) return;
 
-      // 全部空数据且三模块均完全写入成功时，展示简洁空数据弹窗
       if (!rejectedByUser &&
           result.statusCourses.isEmpty &&
           result.statusGrades.isEmpty &&
@@ -746,196 +303,32 @@ class WebViewSyncCoordinator {
           coursesOutcome.isOk &&
           gradesOutcome.isOk &&
           examsOutcome.isOk) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            icon: const Icon(Icons.info_outline_rounded,
-                color: Colors.blue, size: 36),
-            title: const Text('暂无已发布的教务数据'),
-            content: const Text(
-              '已成功连接强智教务系统，但当前学期暂未查询到课表、成绩或考试数据（本地旧列表已同步清空）。',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('我知道了'),
-              ),
-            ],
-          ),
+        WebViewSyncDialogs.showSimpleNoticeDialog(
+          context,
+          icon: Icons.info_outline_rounded,
+          iconColor: Colors.blue,
+          title: '暂无已发布的教务数据',
+          content: '已成功连接强智教务系统，但当前学期暂未查询到课表、成绩或考试数据（本地旧列表已同步清空）。',
+          useTextButton: true,
         );
         return;
       }
 
-      final String weekDetail = rejectedByUser
-          ? '已保持原学期基准不变'
-          : (calibRes.detailMessage ?? '未识别到顶栏周次，可在课表页手动校准开学日');
-
-      bool isRetryingSyncTimes = false;
-      String? syncTimeRetryNote;
-
-      showDialog(
+      WebViewSyncDialogs.showSyncAllSummaryDialog(
         context: context,
-        builder: (ctx) => StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            final String coursesDetail = rejectedByUser
-                ? '已按您的选择保留原课表与原学期基准'
-                : _formatModulePersistDetail(
-                    outcome: coursesOutcome,
-                    status: result.statusCourses,
-                    okSummary: '成功导入 ${result.courses.length} 门课程',
-                    emptySummary: '当前学期暂无课表数据（已清空旧缓存）',
-                    retainLabel: '课表',
-                    notLoggedInDetail: '未登录统一认证（已保留本地历史缓存）',
-                    errorDetail:
-                        '课表解析失败${result.errorCourses != null ? " (${result.errorCourses})" : " (页面可能已改版)"}（已保留本地历史缓存）',
-                  );
-            final String gradesDetail = _formatModulePersistDetail(
-              outcome: gradesOutcome,
-              status: result.statusGrades,
-              okSummary:
-                  '成功导入 ${result.grades.length} 门成绩 (GPA: ${gradesProvider.overallSummary?.averageGpa ?? "-"})',
-              emptySummary: '当前学期暂无成绩发布（已清空旧缓存）',
-              retainLabel: '成绩',
-              notLoggedInDetail: '未登录统一认证（已保留本地历史缓存）',
-              errorDetail:
-                  '成绩解析失败${result.errorGrades != null ? " (${result.errorGrades})" : " (页面可能已改版)"}（已保留本地历史缓存）',
-            );
-            final String examsDetail = _formatModulePersistDetail(
-              outcome: examsOutcome,
-              status: result.statusExams,
-              okSummary: '成功导入 ${result.exams.length} 门考试安排',
-              emptySummary: '当前学期暂无考试安排（已清空旧缓存）',
-              retainLabel: '考试',
-              notLoggedInDetail: '未登录统一认证（已保留本地历史缓存）',
-              errorDetail:
-                  '考试解析失败${result.errorExams != null ? " (${result.errorExams})" : " (页面可能已改版)"}（已保留本地历史缓存）',
-            );
-
-            final bool allPersistOk = coursesOutcome.isOk &&
-                gradesOutcome.isOk &&
-                examsOutcome.isOk &&
-                !calibRes.saveFailed;
-            final bool hasRetryableSyncTime = coursesOutcome.dataSavedOnly ||
-                gradesOutcome.dataSavedOnly ||
-                examsOutcome.dataSavedOnly;
-
-            return AlertDialog(
-              icon: Icon(
-                allPersistOk
-                    ? Icons.cloud_done_rounded
-                    : Icons.warning_amber_rounded,
-                color: allPersistOk ? Colors.green : Colors.orange,
-                size: 36,
-              ),
-              title: const Text('全量教务同步完成'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSyncResultRow(
-                    context: ctx,
-                    icon: Icons.calendar_month,
-                    title: '课表数据',
-                    detail: coursesDetail,
-                    isSuccess: !rejectedByUser &&
-                        coursesOutcome.isOk &&
-                        result.statusCourses.isOk,
-                  ),
-                  const SizedBox(height: 10),
-                  _buildSyncResultRow(
-                    context: ctx,
-                    icon: Icons.today_rounded,
-                    title: '教学周校准',
-                    detail: weekDetail,
-                    isSuccess: calibRes.isSuccess,
-                  ),
-                  const SizedBox(height: 10),
-                  _buildSyncResultRow(
-                    context: ctx,
-                    icon: Icons.grade,
-                    title: '学业成绩',
-                    detail: gradesDetail,
-                    isSuccess: gradesOutcome.isOk && result.statusGrades.isOk,
-                  ),
-                  const SizedBox(height: 10),
-                  _buildSyncResultRow(
-                    context: ctx,
-                    icon: Icons.assignment,
-                    title: '考试日程',
-                    detail: examsDetail,
-                    isSuccess: examsOutcome.isOk && result.statusExams.isOk,
-                  ),
-                  if (syncTimeRetryNote != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      syncTimeRetryNote!,
-                      style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-                            color: hasRetryableSyncTime ? Colors.orange : Colors.green,
-                          ),
-                    ),
-                  ],
-                ],
-              ),
-              actions: [
-                if (hasRetryableSyncTime)
-                  TextButton(
-                    onPressed: isRetryingSyncTimes
-                        ? null
-                        : () async {
-                            setDialogState(() {
-                              isRetryingSyncTimes = true;
-                              syncTimeRetryNote = null;
-                            });
-                            if (coursesOutcome.dataSavedOnly) {
-                              final ok = await scheduleProvider.retrySaveSyncTime(
-                                coursesOutcome.pendingSyncTime,
-                              );
-                              if (ok) {
-                                coursesOutcome = const _PersistOutcome.success();
-                              }
-                            }
-                            if (gradesOutcome.dataSavedOnly) {
-                              final ok = await gradesProvider.retrySaveSyncTime(
-                                gradesOutcome.pendingSyncTime,
-                              );
-                              if (ok) {
-                                gradesOutcome = const _PersistOutcome.success();
-                              }
-                            }
-                            if (examsOutcome.dataSavedOnly) {
-                              final ok = await examsProvider.retrySaveSyncTime(
-                                examsOutcome.pendingSyncTime,
-                              );
-                              if (ok) {
-                                examsOutcome = const _PersistOutcome.success();
-                              }
-                            }
-                            if (!ctx.mounted) return;
-                            final stillPending = coursesOutcome.dataSavedOnly ||
-                                gradesOutcome.dataSavedOnly ||
-                                examsOutcome.dataSavedOnly;
-                            setDialogState(() {
-                              isRetryingSyncTimes = false;
-                              syncTimeRetryNote = stillPending
-                                  ? '部分同步时间重试仍未成功，已更新成功项的时间记录。'
-                                  : '同步时间已全部补充更新。';
-                            });
-                          },
-                    child: Text(isRetryingSyncTimes ? '正在重试...' : '重试写入时间'),
-                  ),
-                FilledButton(
-                  onPressed: () {
-                    Navigator.of(ctx).pop();
-                    Navigator.of(context).pop();
-                  },
-                  child: const Text('返回主页查看'),
-                ),
-              ],
-            );
-          },
-        ),
+        result: result,
+        rejectedByUser: rejectedByUser,
+        calibrationDetailMessage: calibRes.detailMessage,
+        calibrationSuccess: calibRes.isSuccess,
+        calibrationSaveFailed: calibRes.saveFailed,
+        initialCoursesOutcome: coursesOutcome,
+        initialGradesOutcome: gradesOutcome,
+        initialExamsOutcome: examsOutcome,
+        scheduleProvider: scheduleProvider,
+        gradesProvider: gradesProvider,
+        examsProvider: examsProvider,
       );
-    } catch (e) {
+    } on Object catch (e) {
       DiagnosticsService.recordSyncEvent(
         triggerMode: 'syncAll',
         durationMs: stopwatch.elapsedMilliseconds,
@@ -946,12 +339,7 @@ class WebViewSyncCoordinator {
         gradesError: e,
         examsError: e,
       );
-      if (_isDisposed || !context.mounted) return;
-      final errStr = e.toString();
-      final isCancel = errStr.contains('取消') || errStr.contains('跳转');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isCancel ? '同步已取消' : '全量同步异常: $e')),
-      );
+      _handleSyncFailure(context, '全量同步异常', e);
     } finally {
       _setSyncingState(false, null);
     }
@@ -960,89 +348,30 @@ class WebViewSyncCoordinator {
   /// 自动识别当前网页并执行对应专项同步
   Future<void> syncCurrentPage() async {
     final context = getContext();
-    if (_isSyncInFlight) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('正在同步教务数据，请稍候...'),
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-      return;
-    }
+    if (_rejectIfSyncInFlight(context)) return;
 
     final dest = NavDestination.fromUrl(adapter.currentUrl);
-
     switch (dest) {
       case NavDestination.timetable:
         await syncSchedule();
-        break;
       case NavDestination.grades:
         await syncGrades();
-        break;
       case NavDestination.exams:
         await syncExams();
-        break;
       case NavDestination.home:
       case NavDestination.other:
-        // 关键修复 (P0-2)：仅弹出智能识别提示，绝不在此分支触发 isSyncCoolingDown() 记录时间戳
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.auto_awesome, color: Colors.blue),
-                SizedBox(width: 8),
-                Text('智能识别提示'),
-              ],
-            ),
-            content: Text(
-              '当前浏览页面为：${dest.label}\n\n'
-              '当前未处于课表、成绩或考试的特定功能页。\n\n'
-              '建议：\n'
-              '• 直接点击左侧【一键同步全部】在后台一次性全部提取；\n'
-              '• 或点击上方快捷跳转进入对应页面后再单独同步。',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  syncAll();
-                },
-                child: const Text('一键同步全部'),
-              ),
-            ],
-          ),
+        WebViewSyncDialogs.showSmartRouteHintDialog(
+          context,
+          dest: dest,
+          onTriggerSyncAll: () => unawaited(syncAll()),
         );
-        break;
     }
   }
 
   /// 执行一键解析并同步课表
   Future<void> syncSchedule() async {
     final context = getContext();
-    if (_isSyncInFlight) {
-      if (!_isDisposed && context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('正在同步教务数据，请稍候...'),
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-      return;
-    }
-
-    if (isSyncCoolingDown()) return;
+    if (!_canStartSync(context)) return;
 
     final scheduleProvider = context.read<ScheduleProvider>();
     _setSyncingState(true, '正在提取课表数据...');
@@ -1070,9 +399,11 @@ class WebViewSyncCoordinator {
 
       if (_isDisposed || !context.mounted) return;
 
-      if (syncRes.status == SyncModuleStatus.ok || syncRes.courses.isNotEmpty) {
-        // 先评估并确认学期基准与周次校准（不提前改写磁盘或内存），持久化成功后再提交
-        final prepCalib = await _prepareWeekCalibration(
+      if (syncRes.status == SyncModuleStatus.ok || syncRes.courses.isNotEmpty ||
+          syncRes.status == SyncModuleStatus.empty) {
+        final bool isOkCourses =
+            syncRes.status == SyncModuleStatus.ok || syncRes.courses.isNotEmpty;
+        final prepCalib = await _prepareWeek(
           scheduleProvider,
           detectedWeek: syncRes.detectedWeek,
           detectedSemester: syncRes.detectedSemester,
@@ -1081,205 +412,90 @@ class WebViewSyncCoordinator {
         if (_isDisposed || !context.mounted) return;
 
         if (prepCalib.rejectedByUser) {
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              icon: const Icon(Icons.info_outline, color: Colors.orange),
-              title: const Text('已取消课表更新'),
-              content: const Text('已取消更新：已保持原课表与原学期基准不变'),
-              actions: [
-                FilledButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('我知道了'),
-                ),
-              ],
-            ),
+          WebViewSyncDialogs.showSimpleNoticeDialog(
+            context,
+            icon: Icons.info_outline,
+            iconColor: Colors.orange,
+            title: '已取消课表更新',
+            content: '已取消更新：已保持原课表与原学期基准不变',
           );
           return;
         }
 
-        final atomic = await _persistCoursesAndCalibrationAtomic(
+        final atomic =
+            await WebViewSyncCalibrationHelper.persistCoursesAndCalibrationAtomic(
           scheduleProvider,
-          writeCourses: () => scheduleProvider.updateCourses(syncRes.courses),
+          persistSafely: _persistSafely,
+          writeCourses: () => scheduleProvider.updateCourses(
+            isOkCourses ? syncRes.courses : const [],
+          ),
           pendingDecision: prepCalib.pendingDecision,
           preparedDetail: prepCalib.detailMessage,
           preparedSuccess: prepCalib.isSuccess,
           rejectedByUser: false,
+          isDisposed: () => _isDisposed,
         );
         if (_isDisposed || !context.mounted) return;
-        final persistOutcome = atomic.coursesOutcome;
-        final calibRes = atomic.calibRes;
 
-        if (!persistOutcome.isOk) {
-          _showPersistErrorDialog(
+        if (!atomic.coursesOutcome.isOk) {
+          WebViewSyncDialogs.showPersistErrorDialog(
             context,
             '课表',
-            persistOutcome,
-            onRetrySyncTime: () =>
-                scheduleProvider.retrySaveSyncTime(persistOutcome.pendingSyncTime),
+            atomic.coursesOutcome,
+            onRetrySyncTime: () => scheduleProvider
+                .retrySaveSyncTime(atomic.coursesOutcome.pendingSyncTime),
           );
           return;
         }
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.green),
-                SizedBox(width: 8),
-                Text('课表同步成功'),
-              ],
-            ),
-            content: Text(
-              '成功解析并导入 ${syncRes.courses.length} 门课程！'
-              '${calibRes.detailMessage != null ? "\n${calibRes.detailMessage}" : ""}',
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  Navigator.of(context).pop();
-                },
-                child: const Text('返回课表查看'),
-              ),
-            ],
-          ),
-        );
-      } else if (syncRes.status == SyncModuleStatus.empty) {
-        final prepCalib = await _prepareWeekCalibration(
-          scheduleProvider,
-          detectedWeek: syncRes.detectedWeek,
-          detectedSemester: syncRes.detectedSemester,
-          detectedStart: syncRes.detectedSemesterStart,
-        );
-        if (_isDisposed || !context.mounted) return;
-        if (prepCalib.rejectedByUser) {
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              icon: const Icon(Icons.info_outline, color: Colors.orange),
-              title: const Text('已取消课表更新'),
-              content: const Text('已取消更新：已保持原课表与原学期基准不变'),
-              actions: [
-                FilledButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('我知道了'),
-                ),
-              ],
-            ),
-          );
-          return;
-        }
-        final atomic = await _persistCoursesAndCalibrationAtomic(
-          scheduleProvider,
-          writeCourses: () => scheduleProvider.updateCourses(const []),
-          pendingDecision: prepCalib.pendingDecision,
-          preparedDetail: prepCalib.detailMessage,
-          preparedSuccess: prepCalib.isSuccess,
-          rejectedByUser: false,
-        );
-        if (_isDisposed || !context.mounted) return;
-        final persistOutcome = atomic.coursesOutcome;
-
-        if (!persistOutcome.isOk) {
-          _showPersistErrorDialog(
+        if (isOkCourses) {
+          WebViewSyncDialogs.showModuleSuccessDialog(
             context,
-            '课表',
-            persistOutcome,
-            onRetrySyncTime: () =>
-                scheduleProvider.retrySaveSyncTime(persistOutcome.pendingSyncTime),
+            title: '课表同步成功',
+            content: '成功解析并导入 ${syncRes.courses.length} 门课程！'
+                '${atomic.calibRes.detailMessage != null ? "\n${atomic.calibRes.detailMessage}" : ""}',
+            returnLabel: '返回课表查看',
           );
-          return;
+        } else {
+          WebViewSyncDialogs.showSimpleNoticeDialog(
+            context,
+            icon: Icons.info_outline,
+            iconColor: Colors.blue,
+            title: '当前学期暂无课表',
+            content: '强智教务系统显示当前学期暂未排课或课表为空（本地旧课表已同步清空）。',
+          );
         }
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.blue),
-                SizedBox(width: 8),
-                Text('当前学期暂无课表'),
-              ],
-            ),
-            content: const Text(
-              '强智教务系统显示当前学期暂未排课或课表为空（本地旧课表已同步清空）。',
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('我知道了'),
-              ),
-            ],
-          ),
-        );
       } else if (syncRes.status == SyncModuleStatus.notLoggedIn) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.lock_clock_rounded, color: Colors.orange),
-                SizedBox(width: 8),
-                Text('未登录统一认证'),
-              ],
-            ),
-            content: const Text('检测到统一身份认证尚未登录（已保留本地历史课表缓存），请登录后再试。'),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('我知道了'),
-              ),
-            ],
-          ),
+        WebViewSyncDialogs.showSimpleNoticeDialog(
+          context,
+          icon: Icons.lock_clock_rounded,
+          iconColor: Colors.orange,
+          title: '未登录统一认证',
+          content: '检测到统一身份认证尚未登录（已保留本地历史课表缓存），请登录后再试。',
         );
       } else {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.orange),
-                SizedBox(width: 8),
-                Text('未检测到课表'),
-              ],
-            ),
-            content: Text(
+        WebViewSyncDialogs.showMissingTableDialog(
+          context,
+          title: '未检测到课表',
+          content:
               '当前页面未识别到课程表格 (table#timetable 或 table#kbtable)（已保留本地历史课表缓存）。\n\n'
               '操作提示：\n'
               '1. 请先在下方网页中完成统一身份认证登录；\n'
               '2. 登录成功后，点击上方导航条中的【我的课表】按钮；\n'
               '3. 待课表页面完整加载后，再次点击【同步当前课表】！\n'
               '${syncRes.error != null ? "详细原因: ${syncRes.error}" : ""}',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('我知道了'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  adapter.navigateTo(WebViewConstants.timetableUrl);
-                },
-                child: const Text('前往我的课表'),
-              ),
-            ],
-          ),
+          navigateLabel: '前往我的课表',
+          onNavigate: () =>
+              unawaited(adapter.navigateTo(WebViewConstants.timetableUrl)),
         );
       }
-    } catch (e) {
+    } on Object catch (e) {
       DiagnosticsService.recordSyncEvent(
         triggerMode: 'courses',
         durationMs: stopwatch.elapsedMilliseconds,
         coursesStatus: SyncModuleStatus.error,
         coursesError: e,
       );
-      if (_isDisposed || !context.mounted) return;
-      final errStr = e.toString();
-      final isCancel = errStr.contains('取消') || errStr.contains('跳转');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isCancel ? '同步已取消' : '课表解析异常: $e')),
-      );
+      _handleSyncFailure(context, '课表解析异常', e);
     } finally {
       _setSyncingState(false, null);
     }
@@ -1288,21 +504,7 @@ class WebViewSyncCoordinator {
   /// 执行一键解析并同步成绩
   Future<void> syncGrades() async {
     final context = getContext();
-    if (_isSyncInFlight) {
-      if (!_isDisposed && context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('正在同步教务数据，请稍候...'),
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-      return;
-    }
-
-    if (isSyncCoolingDown()) return;
+    if (!_canStartSync(context)) return;
 
     final gradesProvider = context.read<GradesProvider>();
     _setSyncingState(true, '正在提取成绩数据...');
@@ -1335,7 +537,7 @@ class WebViewSyncCoordinator {
             await _persistSafely(() => gradesProvider.updateGrades(result.grades));
         if (_isDisposed || !context.mounted) return;
         if (!persistOutcome.isOk) {
-          _showPersistErrorDialog(
+          WebViewSyncDialogs.showPersistErrorDialog(
             context,
             '学业成绩',
             persistOutcome,
@@ -1345,120 +547,52 @@ class WebViewSyncCoordinator {
           return;
         }
         final summary = gradesProvider.overallSummary;
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.green),
-                SizedBox(width: 8),
-                Text('成绩同步成功'),
-              ],
-            ),
-            content: Text(
-              '成功导入 ${result.grades.length} 门课程成绩！\n'
+        WebViewSyncDialogs.showModuleSuccessDialog(
+          context,
+          title: '成绩同步成功',
+          content: '成功导入 ${result.grades.length} 门课程成绩！\n'
               '平均 GPA: ${summary?.averageGpa ?? '-'}\n'
               '总修学分: ${summary?.totalCredits ?? '-'}',
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  Navigator.of(context).pop();
-                },
-                child: const Text('返回查看成绩'),
-              ),
-            ],
-          ),
+          returnLabel: '返回查看成绩',
         );
       } else if (result.status == SyncModuleStatus.empty) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.blue),
-                SizedBox(width: 8),
-                Text('当前页面暂无成绩'),
-              ],
-            ),
-            content: const Text(
+        WebViewSyncDialogs.showSimpleNoticeDialog(
+          context,
+          icon: Icons.info_outline,
+          iconColor: Colors.blue,
+          title: '当前页面暂无成绩',
+          content:
               '当前查询页面暂未显示任何已发布成绩（为防止网页学期筛选误删过往学期记录，已保留本地历史成绩缓存；如需全量校准请点击【一键同步全部】）。',
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('我知道了'),
-              ),
-            ],
-          ),
         );
       } else if (result.status == SyncModuleStatus.notLoggedIn) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.lock_clock_rounded, color: Colors.orange),
-                SizedBox(width: 8),
-                Text('未登录统一认证'),
-              ],
-            ),
-            content: const Text('检测到统一身份认证尚未登录（已保留本地历史成绩缓存），请登录后再试。'),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('我知道了'),
-              ),
-            ],
-          ),
+        WebViewSyncDialogs.showSimpleNoticeDialog(
+          context,
+          icon: Icons.lock_clock_rounded,
+          iconColor: Colors.orange,
+          title: '未登录统一认证',
+          content: '检测到统一身份认证尚未登录（已保留本地历史成绩缓存），请登录后再试。',
         );
       } else {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.orange),
-                SizedBox(width: 8),
-                Text('未检测到成绩表格'),
-              ],
-            ),
-            content: Text(
-              '当前页面未识别到成绩表格（已保留本地历史成绩缓存）。\n\n'
+        WebViewSyncDialogs.showMissingTableDialog(
+          context,
+          title: '未检测到成绩表格',
+          content: '当前页面未识别到成绩表格（已保留本地历史成绩缓存）。\n\n'
               '操作提示：\n'
               '请先点击上方快捷栏中的【成绩查询】按钮，跳转至成绩列表页后再执行同步。\n'
               '${result.error != null ? "详细原因: ${result.error}" : ""}',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('我知道了'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  adapter.navigateTo(WebViewConstants.gradesUrl);
-                },
-                child: const Text('前往成绩查询'),
-              ),
-            ],
-          ),
+          navigateLabel: '前往成绩查询',
+          onNavigate: () =>
+              unawaited(adapter.navigateTo(WebViewConstants.gradesUrl)),
         );
       }
-    } catch (e) {
+    } on Object catch (e) {
       DiagnosticsService.recordSyncEvent(
         triggerMode: 'grades',
         durationMs: stopwatch.elapsedMilliseconds,
         gradesStatus: SyncModuleStatus.error,
         gradesError: e,
       );
-      if (_isDisposed || !context.mounted) return;
-      final errStr = e.toString();
-      final isCancel = errStr.contains('取消') || errStr.contains('跳转');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isCancel ? '同步已取消' : '成绩解析异常: $e')),
-      );
+      _handleSyncFailure(context, '成绩解析异常', e);
     } finally {
       _setSyncingState(false, null);
     }
@@ -1467,21 +601,7 @@ class WebViewSyncCoordinator {
   /// 执行一键解析并同步考试安排
   Future<void> syncExams() async {
     final context = getContext();
-    if (_isSyncInFlight) {
-      if (!_isDisposed && context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('正在同步教务数据，请稍候...'),
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-      return;
-    }
-
-    if (isSyncCoolingDown()) return;
+    if (!_canStartSync(context)) return;
 
     final examsProvider = context.read<ExamsProvider>();
     _setSyncingState(true, '正在提取考试安排...');
@@ -1514,7 +634,7 @@ class WebViewSyncCoordinator {
             await _persistSafely(() => examsProvider.updateExams(result.exams));
         if (_isDisposed || !context.mounted) return;
         if (!persistOutcome.isOk) {
-          _showPersistErrorDialog(
+          WebViewSyncDialogs.showPersistErrorDialog(
             context,
             '考试日程',
             persistOutcome,
@@ -1523,35 +643,18 @@ class WebViewSyncCoordinator {
           );
           return;
         }
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.green),
-                SizedBox(width: 8),
-                Text('考试日程同步成功'),
-              ],
-            ),
-            content: Text(
-                '成功解析导入 ${result.exams.length} 门考试日程！已自动提取考试时间与考场教室。'),
-            actions: [
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  Navigator.of(context).pop();
-                },
-                child: const Text('返回查看考试'),
-              ),
-            ],
-          ),
+        WebViewSyncDialogs.showModuleSuccessDialog(
+          context,
+          title: '考试日程同步成功',
+          content: '成功解析导入 ${result.exams.length} 门考试日程！已自动提取考试时间与考场教室。',
+          returnLabel: '返回查看考试',
         );
       } else if (result.status == SyncModuleStatus.empty) {
         final persistOutcome =
             await _persistSafely(() => examsProvider.updateExams(const []));
         if (_isDisposed || !context.mounted) return;
         if (!persistOutcome.isOk) {
-          _showPersistErrorDialog(
+          WebViewSyncDialogs.showPersistErrorDialog(
             context,
             '考试日程',
             persistOutcome,
@@ -1560,141 +663,44 @@ class WebViewSyncCoordinator {
           );
           return;
         }
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.blue),
-                SizedBox(width: 8),
-                Text('当前暂无考试'),
-              ],
-            ),
-            content: const Text(
-              '强智教务系统显示当前学期暂未安排期末考试（本地旧考试日程已同步清空）。',
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('我知道了'),
-              ),
-            ],
-          ),
+        WebViewSyncDialogs.showSimpleNoticeDialog(
+          context,
+          icon: Icons.info_outline,
+          iconColor: Colors.blue,
+          title: '当前暂无考试',
+          content: '强智教务系统显示当前学期暂未安排期末考试（本地旧考试日程已同步清空）。',
         );
       } else if (result.status == SyncModuleStatus.notLoggedIn) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.lock_clock_rounded, color: Colors.orange),
-                SizedBox(width: 8),
-                Text('未登录统一认证'),
-              ],
-            ),
-            content: const Text('检测到统一身份认证尚未登录（已保留本地历史考试缓存），请登录后再试。'),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('我知道了'),
-              ),
-            ],
-          ),
+        WebViewSyncDialogs.showSimpleNoticeDialog(
+          context,
+          icon: Icons.lock_clock_rounded,
+          iconColor: Colors.orange,
+          title: '未登录统一认证',
+          content: '检测到统一身份认证尚未登录（已保留本地历史考试缓存），请登录后再试。',
         );
       } else {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.orange),
-                SizedBox(width: 8),
-                Text('未检测到考试表格'),
-              ],
-            ),
-            content: Text(
-              '当前页面未识别到考试安排数据（已保留本地历史考试缓存）。\n\n'
+        WebViewSyncDialogs.showMissingTableDialog(
+          context,
+          title: '未检测到考试表格',
+          content: '当前页面未识别到考试安排数据（已保留本地历史考试缓存）。\n\n'
               '操作提示：\n'
               '请先点击上方快捷栏中的【考试安排】按钮，跳转至考试查询页后再执行同步。\n'
               '${result.error != null ? "详细原因: ${result.error}" : ""}',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('我知道了'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  adapter.navigateTo(WebViewConstants.examsUrl);
-                },
-                child: const Text('前往考试安排'),
-              ),
-            ],
-          ),
+          navigateLabel: '前往考试安排',
+          onNavigate: () =>
+              unawaited(adapter.navigateTo(WebViewConstants.examsUrl)),
         );
       }
-    } catch (e) {
+    } on Object catch (e) {
       DiagnosticsService.recordSyncEvent(
         triggerMode: 'exams',
         durationMs: stopwatch.elapsedMilliseconds,
         examsStatus: SyncModuleStatus.error,
         examsError: e,
       );
-      if (_isDisposed || !context.mounted) return;
-      final errStr = e.toString();
-      final isCancel = errStr.contains('取消') || errStr.contains('跳转');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isCancel ? '同步已取消' : '考试解析异常: $e')),
-      );
+      _handleSyncFailure(context, '考试解析异常', e);
     } finally {
       _setSyncingState(false, null);
     }
-  }
-
-  Widget _buildSyncResultRow({
-    required BuildContext context,
-    required IconData icon,
-    required String title,
-    required String detail,
-    required bool isSuccess,
-  }) {
-    final theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(
-          isSuccess ? Icons.check_circle : Icons.remove_circle_outline,
-          color: isSuccess ? Colors.green : theme.colorScheme.onSurfaceVariant,
-          size: 18,
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: theme.colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                detail,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isSuccess
-                      ? theme.colorScheme.onSurface
-                      : theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
   }
 }

@@ -1,20 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/grades_provider.dart';
+import '../utils/date_time_utils.dart';
 import '../widgets/decryption_error_view.dart';
 import '../widgets/diagnostics_dialog.dart';
 import 'webview_login_screen.dart';
 
 class GradesScreen extends StatelessWidget {
   const GradesScreen({super.key});
-
-  static String _formatSyncTime(DateTime dt) {
-    final m = dt.month.toString().padLeft(2, '0');
-    final d = dt.day.toString().padLeft(2, '0');
-    final h = dt.hour.toString().padLeft(2, '0');
-    final min = dt.minute.toString().padLeft(2, '0');
-    return '$m-$d $h:$min';
-  }
 
   static ({Color bg, Color fg}) _resolveScoreColors(ThemeData theme, String rawScore) {
     final isDark = theme.brightness == Brightness.dark;
@@ -73,7 +67,7 @@ class GradesScreen extends StatelessWidget {
             const Text('学业成绩与绩点', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             if (provider.lastSyncTime != null)
               Text(
-                '同步于 ${_formatSyncTime(provider.lastSyncTime!)}',
+                '同步于 ${DateTimeUtils.formatShortSyncTime(provider.lastSyncTime!)}',
                 style: TextStyle(
                   fontSize: 11,
                   color: theme.colorScheme.onSurfaceVariant,
@@ -120,9 +114,10 @@ class GradesScreen extends StatelessWidget {
       ),
       body: provider.isLoading
           ? const Center(child: CircularProgressIndicator())
-          : provider.hasDecryptionError
+          : provider.hasStorageError
               ? DecryptionErrorView(
                   moduleName: '成绩',
+                  isFormatError: provider.hasDataFormatError,
                   onReset: () => provider.clearAll(),
                 )
               : provider.grades.isEmpty
@@ -425,29 +420,30 @@ class GradesScreen extends StatelessWidget {
     }
 
     final theme = Theme.of(context);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        icon: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error, size: 36),
-        title: const Text('确认清空成绩数据？'),
-        content: const Text('此操作将清空本地已保存的全部成绩与绩点统计。清空后可随时点击同步按钮重新登录教务系统进行同步。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              try {
-                await provider.clearAll();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已清空本地成绩数据')),
-                  );
-                }
-              } catch (e) {
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          icon: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error, size: 36),
+          title: const Text('确认清空成绩数据？'),
+          content: const Text('此操作将清空本地已保存的全部成绩与绩点统计。清空后可随时点击同步按钮重新登录教务系统进行同步。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                try {
+                  await provider.clearAll();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('已清空本地成绩数据')),
+                    );
+                  }
+                } on Object catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -461,6 +457,7 @@ class GradesScreen extends StatelessWidget {
             child: Text('确认清空', style: TextStyle(color: theme.colorScheme.onError)),
           ),
         ],
+      ),
       ),
     );
   }

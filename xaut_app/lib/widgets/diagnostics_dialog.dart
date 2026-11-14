@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -42,12 +43,14 @@ class DiagnosticsDialog {
   /// 统一处理各主页面「更多操作」中的支持与合规菜单动作
   static bool handleSupportMenuSelection(BuildContext context, String value) {
     if (value == menuActionDiagnostics) {
-      show(context);
+      unawaited(show(context));
       return true;
     }
     if (value == menuActionAboutLegal) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: false)),
+      unawaited(
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const LegalGateScreen(isGate: false)),
+        ),
       );
       return true;
     }
@@ -56,7 +59,7 @@ class DiagnosticsDialog {
 
   /// 复制开源仓库问题反馈地址并弹出提示
   static void copyIssuesUrl(BuildContext context) {
-    Clipboard.setData(const ClipboardData(text: issuesUrl));
+    unawaited(Clipboard.setData(const ClipboardData(text: issuesUrl)));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('开源仓库问题反馈地址已复制: $issuesUrl'),
@@ -265,7 +268,7 @@ class DiagnosticsDialog {
           ),
           FilledButton.icon(
             onPressed: () {
-              Clipboard.setData(ClipboardData(text: report));
+              unawaited(Clipboard.setData(ClipboardData(text: report)));
               Navigator.of(ctx).pop();
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
