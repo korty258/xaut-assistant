@@ -1,11 +1,15 @@
 import 'dart:async';
+import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/services/app_crypto_service.dart';
 import 'package:xaut_app/services/diagnostics_service.dart';
 import 'package:xaut_app/services/parser_service.dart';
 import 'package:xaut_app/services/storage_service.dart';
+import 'package:xaut_app/widgets/diagnostics_dialog.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -160,6 +164,101 @@ void main() {
 
       expect(await StorageService.loadGradesSyncTime(), isNull);
       expect(await StorageService.loadExamsSyncTime(), isNull);
+    });
+  });
+
+  group('DiagnosticSnapshot & Dialog Migration Retry Tests', () {
+    tearDown(() {
+      AppCryptoService.resetForTesting();
+    });
+
+    test('DiagnosticSnapshot and markdown report expose pendingMigrationCount and key-blocked status', () async {
+      AppCryptoService.resetForTesting();
+      final mockKey = enc.Key.fromBase64('MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=');
+      AppCryptoService.setMockMasterKey(mockKey);
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('diag_legacy_key', '[{"name":"线性代数"}]');
+
+      // 1) 写盘失败导致进入 pendingMigrationKeys
+      AppCryptoService.debugPrefsStringWriter = (_, _, _) async => false;
+      await AppCryptoService.loadEncryptedStringWithStatus(prefs, 'diag_legacy_key');
+      final snapWriteFail = await DiagnosticsService.collectSnapshot();
+      expect(snapWriteFail.pendingMigrationCount, equals(1));
+      expect(snapWriteFail.hasKeyBlockedMigration, isFalse);
+      expect(snapWriteFail.toMarkdownReport(), contains('待重试 1 项'));
+
+      // 2) CryptoKeyException 时标出受密钥阻塞
+      AppCryptoService.setMockMasterKey(null);
+      AppCryptoService.allowInMemoryTestKey = false;
+      AppCryptoService.debugStorageReader =
+          (_) async => throw MissingPluginException('Locked');
+      await expectLater(
+        () => AppCryptoService.loadEncryptedStringWithStatus(prefs, 'diag_legacy_key'),
+        throwsA(isA<CryptoKeyException>()),
+      );
+      final snapKeyFail = await DiagnosticsService.collectSnapshot();
+      expect(snapKeyFail.pendingMigrationCount, equals(1));
+      expect(snapKeyFail.hasKeyBlockedMigration, isTrue);
+      expect(snapKeyFail.toMarkdownReport(), contains('受密钥访问异常阻塞'));
+    });
+
+    testWidgets('DiagnosticsDialog exposes retry migration button and updates status after recovery', (tester) async {
+      AppCryptoService.resetForTesting();
+      final mockKey = enc.Key.fromBase64('MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=');
+      AppCryptoService.setMockMasterKey(mockKey);
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('diag_btn_key', '[{"name":"计算机网络"}]');
+      AppCryptoService.debugPrefsStringWriter = (_, _, _) async => false;
+      await AppCryptoService.loadEncryptedStringWithStatus(prefs, 'diag_btn_key');
+      expect(AppCryptoService.pendingMigrationKeys, contains('diag_btn_key'));
+
+      // 恢复写盘能力后打开诊断弹窗，应可见待重试计数及“重试密文升级”按钮
+      AppCryptoService.debugPrefsStringWriter = null;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => DiagnosticsDialog.show(context),
+                child: const Text('OpenDiagnostics'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.runAsync(() async {
+        await tester.tap(find.text('OpenDiagnostics'));
+        await tester.pump();
+        for (int i = 0; i < 20; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await tester.pump();
+          if (find.text('重试密文升级').evaluate().isNotEmpty) break;
+        }
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('待重试 1 项'), findsOneWidget);
+      expect(find.text('重试密文升级'), findsOneWidget);
+
+      await tester.runAsync(() async {
+        await tester.tap(find.text('重试密文升级'));
+        await tester.pump();
+        for (int i = 0; i < 20; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await tester.pump();
+          if (find.textContaining('已成功完成 1 项密文升级').evaluate().isNotEmpty) break;
+        }
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('已完成或无需升级'), findsOneWidget);
+      expect(find.text('已成功完成 1 项密文升级'), findsOneWidget);
+      expect(AppCryptoService.pendingMigrationKeys, isEmpty);
     });
   });
 }

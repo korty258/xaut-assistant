@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../screens/legal_gate_screen.dart';
 import '../services/diagnostics_service.dart';
 import '../services/parser_service.dart';
+import '../services/storage_service.dart';
 
 /// 客户端脱敏诊断摘要弹窗与支持菜单共享入口
 class DiagnosticsDialog {
@@ -67,46 +68,113 @@ class DiagnosticsDialog {
 
   /// 弹出完全脱敏的客户端运行与同步诊断摘要（原生结构化展示 + 一键复制 Markdown 反馈报告）
   static Future<void> show(BuildContext context) async {
-    final snapshot = await DiagnosticsService.collectSnapshot();
-    final report = snapshot.toMarkdownReport();
+    var snapshot = await DiagnosticsService.collectSnapshot();
+    var report = snapshot.toMarkdownReport();
     if (!context.mounted) return;
     final theme = Theme.of(context);
+    bool isRetryingMigration = false;
+    String? migrationFeedback;
 
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.monitor_heart_outlined, color: theme.colorScheme.primary),
-            const SizedBox(width: 8),
-            const Expanded(
-              child: Text(
-                '客户端脱敏诊断摘要',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildPrivacyBanner(theme),
-                const SizedBox(height: 12),
-                _buildSectionCard(
-                  theme,
-                  icon: Icons.devices_outlined,
-                  title: '运行环境',
-                  children: [
-                    _buildInfoRow(theme, '应用版本', snapshot.appVersion, monospace: true),
-                    _buildInfoRow(theme, '合规条款版本', snapshot.legalVersion, monospace: true),
-                    _buildInfoRow(theme, '运行平台', snapshot.platform),
-                    _buildInfoRow(theme, 'WebView2 运行时', snapshot.webView2Info),
-                  ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.monitor_heart_outlined, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  '客户端脱敏诊断摘要',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                 ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildPrivacyBanner(theme),
+                  const SizedBox(height: 12),
+                  _buildSectionCard(
+                    theme,
+                    icon: Icons.devices_outlined,
+                    title: '运行环境',
+                    children: [
+                      _buildInfoRow(theme, '应用版本', snapshot.appVersion, monospace: true),
+                      _buildInfoRow(theme, '合规条款版本', snapshot.legalVersion, monospace: true),
+                      _buildInfoRow(theme, '运行平台', snapshot.platform),
+                      _buildInfoRow(theme, 'WebView2 运行时', snapshot.webView2Info),
+                      _buildInfoRow(
+                        theme,
+                        '密文升级状态',
+                        snapshot.pendingMigrationCount == 0
+                            ? '已完成或无需升级'
+                            : '待重试 ${snapshot.pendingMigrationCount} 项'
+                                '${snapshot.hasKeyBlockedMigration ? " (密钥受阻)" : ""}',
+                      ),
+                      if (snapshot.pendingMigrationCount > 0 ||
+                          migrationFeedback != null) ...[
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            if (snapshot.pendingMigrationCount > 0)
+                              OutlinedButton.icon(
+                                onPressed: isRetryingMigration
+                                    ? null
+                                    : () async {
+                                        setDialogState(() {
+                                          isRetryingMigration = true;
+                                          migrationFeedback = null;
+                                        });
+                                        final res = await StorageService
+                                            .retryPendingCryptoMigrations();
+                                        final nextSnapshot =
+                                            await DiagnosticsService.collectSnapshot();
+                                        if (!ctx.mounted) return;
+                                        setDialogState(() {
+                                          isRetryingMigration = false;
+                                          snapshot = nextSnapshot;
+                                          report = nextSnapshot.toMarkdownReport();
+                                          if (res.failed == 0) {
+                                            migrationFeedback = res.succeeded > 0
+                                                ? '已成功完成 ${res.succeeded} 项密文升级'
+                                                : '暂无待升级项';
+                                          } else {
+                                            migrationFeedback = res.hadKeyError
+                                                ? '仍有 ${res.failed} 项受密钥访问异常阻塞'
+                                                : '仍有 ${res.failed} 项写入失败，请稍后重试';
+                                          }
+                                        });
+                                      },
+                                icon: const Icon(Icons.security_update_good_outlined,
+                                    size: 16),
+                                label: Text(
+                                  isRetryingMigration ? '正在重试升级...' : '重试密文升级',
+                                ),
+                              ),
+                            if (migrationFeedback != null)
+                              Text(
+                                migrationFeedback!,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: snapshot.pendingMigrationCount == 0
+                                      ? Colors.green
+                                      : Colors.orange,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
                 const SizedBox(height: 10),
                 _buildSectionCard(
                   theme,
@@ -210,7 +278,8 @@ class DiagnosticsDialog {
             icon: const Icon(Icons.copy_rounded, size: 16),
             label: const Text('复制到剪贴板'),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }

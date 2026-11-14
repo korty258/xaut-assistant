@@ -13,11 +13,15 @@ class ExamsProvider extends ChangeNotifier {
   List<ExamItem> _exams = [];
   bool _isLoading = true;
   bool _hasDecryptionError = false;
+  bool _hasMigrationFailure = false;
   DateTime? _lastSyncTime;
 
   DateTime get now => _nowProvider();
   bool get isLoading => _isLoading;
   bool get hasDecryptionError => _hasDecryptionError;
+  bool get hasMigrationFailure =>
+      _hasMigrationFailure &&
+      AppCryptoService.pendingMigrationKeys.contains(_keyExams);
   DateTime? get lastSyncTime => _lastSyncTime;
 
   /// 智能排序后的考试列表：即将开考（按时间升序） -> 时间待定 -> 已结束（沉底弱化）
@@ -93,7 +97,10 @@ class ExamsProvider extends ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     try {
-      final examsStr = await AppCryptoService.loadEncryptedString(prefs, _keyExams);
+      final res =
+          await AppCryptoService.loadEncryptedStringWithStatus(prefs, _keyExams);
+      _hasMigrationFailure = res.migrationFailed;
+      final examsStr = res.value;
       if (examsStr != null && examsStr.isNotEmpty) {
         final List<dynamic> list = jsonDecode(examsStr);
         _exams = list.map((e) => ExamItem.fromJson(e as Map<String, dynamic>)).toList();
@@ -101,6 +108,7 @@ class ExamsProvider extends ChangeNotifier {
       _hasDecryptionError = false;
     } on CryptoException {
       _hasDecryptionError = true;
+      _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
       _exams = [];
     } catch (_) {
       _exams = [];
@@ -133,6 +141,10 @@ class ExamsProvider extends ChangeNotifier {
 
     _exams = candidateExams;
     _hasDecryptionError = false;
+    _hasMigrationFailure = false;
+    if (AppCryptoService.hasPendingMigrationFailure) {
+      await StorageService.retryPendingCryptoMigrations();
+    }
 
     bool timeOk = true;
     DateTime? attemptedSyncTime;
@@ -166,18 +178,34 @@ class ExamsProvider extends ChangeNotifier {
     return timeOk;
   }
 
-  Future<void> clearAll() async {
-    final prefs = await SharedPreferences.getInstance();
-    final okExams = await StorageService.removeKey(prefs, _keyExams);
-    final okSync =
-        await StorageService.removeKey(prefs, StorageService.keyLastExamsSync);
-    if (!okExams || !okSync) {
-      throw const StorageWriteException('清空本地考试存储失败，已保留原数据');
-    }
-
+  /// 仅重置内存态（供损坏重置全盘删除确认后复用）
+  void resetInMemoryAfterCorruptReset() {
     _exams = [];
     _hasDecryptionError = false;
+    _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
     _lastSyncTime = null;
     notifyListeners();
+  }
+
+  Future<void> clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    // 严格先删同步时间戳键，最后再删主考试键；失败时回滚元数据，确保主数据不被部分误删
+    final res = await StorageService.deleteKeysSafely(
+      prefs,
+      metadataKeys: const [StorageService.keyLastExamsSync],
+      primaryKey: _keyExams,
+    );
+    if (!res.allCleared) {
+      if (!res.primaryRemoved) {
+        throw StorageWriteException(
+          res.rollbackComplete
+              ? '清空本地考试存储失败，已保留原数据'
+              : '清空本地考试失败：同步时间戳未回滚，原有考试数据仍保留',
+        );
+      }
+      throw const StorageWriteException('清空本地考试部分完成，请重试清空');
+    }
+
+    resetInMemoryAfterCorruptReset();
   }
 }

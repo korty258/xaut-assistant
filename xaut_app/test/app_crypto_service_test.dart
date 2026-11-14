@@ -669,5 +669,124 @@ void main() {
       expect(reloadedV1.value, equals('v1-payload'));
       expect(reloadedV1.migrationFailed, isFalse);
     });
+
+    test('retryPendingMigrationsWithReport isolates CryptoKeyException per key and preserves key unavailability flag', () async {
+      AppCryptoService.resetForTesting();
+      final mockKey = enc.Key.fromBase64('MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=');
+      AppCryptoService.setMockMasterKey(mockKey);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+
+      const keyBlocked = 'legacy_key_blocked';
+      const keyRecoverable = 'legacy_key_recoverable';
+      await prefs.setString(keyBlocked, '[{"name":"高数"}]');
+      await prefs.setString(keyRecoverable, '[{"name":"线代"}]');
+
+      // 模拟首轮升级写盘失败 -> 两键均进入待重试集合
+      AppCryptoService.debugPrefsStringWriter = (_, _, _) async => false;
+      await AppCryptoService.loadEncryptedStringWithStatus(prefs, keyBlocked);
+      await AppCryptoService.loadEncryptedStringWithStatus(prefs, keyRecoverable);
+      expect(
+        AppCryptoService.pendingMigrationKeys,
+        containsAll([keyBlocked, keyRecoverable]),
+      );
+
+      // 第二轮重试：读第一个 key 时抛出 CryptoKeyException，但写盘能力恢复后第二个 key 应继续完成升级
+      AppCryptoService.debugPrefsStringWriter = null;
+      AppCryptoService.allowInMemoryTestKey = false;
+      int keyReadAttempts = 0;
+      const keyHex64 =
+          '3031323334353637383930313233343536373839303132333435363738393031';
+      AppCryptoService.setMockMasterKey(null);
+      AppCryptoService.debugStorageReader = (storageKey) async {
+        keyReadAttempts++;
+        if (keyReadAttempts == 1) {
+          throw MissingPluginException('Temporary keystore lock');
+        }
+        return keyHex64;
+      };
+
+      final report = await AppCryptoService.retryPendingMigrationsWithReport(prefs);
+      expect(report.total, equals(2));
+      expect(report.succeeded, equals(1));
+      expect(report.failed, equals(1));
+      expect(report.hadKeyError, isTrue);
+      expect(AppCryptoService.hasKeyBlockedMigrationFailure, isTrue);
+      expect(AppCryptoService.pendingMigrationKeys, contains(keyBlocked));
+      expect(AppCryptoService.pendingMigrationKeys, isNot(contains(keyRecoverable)));
+      expect(
+        prefs.getString(keyRecoverable)!.startsWith(AppCryptoService.envelopePrefix),
+        isTrue,
+      );
+
+      // 恢复密钥读取后再次重试 -> 剩余键也应完成升级且阻塞标记归零
+      AppCryptoService.debugStorageReader = (_) async => keyHex64;
+      final report2 = await AppCryptoService.retryPendingMigrationsWithReport(prefs);
+      expect(report2.failed, equals(0));
+      expect(report2.hadKeyError, isFalse);
+      expect(AppCryptoService.hasKeyBlockedMigrationFailure, isFalse);
+      expect(AppCryptoService.pendingMigrationKeys, isEmpty);
+    });
+
+    test('StorageService.resetCorruptedDataWithReport deletes all 9 prefs keys BEFORE calling destroyMasterKey and skips key destruction on failure', () async {
+      AppCryptoService.resetForTesting();
+      StorageService.resetForTesting();
+      final mockKey = enc.Key.fromBase64('MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=');
+      AppCryptoService.setMockMasterKey(mockKey);
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+      for (final k in const [
+        'xaut_cached_courses',
+        'xaut_last_sync',
+        'xaut_semester_start_date',
+        'xaut_semester_name',
+        'xaut_cached_grades',
+        'xaut_cached_grade_summary',
+        'xaut_cached_exams',
+        'xaut_last_grades_sync',
+        'xaut_last_exams_sync',
+      ]) {
+        await prefs.setString(k, 'payload_$k');
+      }
+
+      final ops = <String>[];
+      AppCryptoService.debugStorageDeleter = (key) async {
+        ops.add('destroy_master_key:$key');
+      };
+
+      // 先注入第 5 个键（成绩密文）删除失败：必须中止，绝不调用 destroyMasterKey
+      StorageService.debugPrefsRemover = (p, key) async {
+        ops.add('remove_pref:$key');
+        if (key == 'xaut_cached_grades') return false;
+        return p.remove(key);
+      };
+
+      final failReport = await StorageService.resetCorruptedDataWithReport();
+      expect(failReport.success, isFalse);
+      expect(failReport.prefsCleared, isFalse);
+      expect(failReport.keyDestroyed, isFalse);
+      expect(ops.any((e) => e.startsWith('destroy_master_key:')), isFalse);
+      expect(prefs.getString('xaut_cached_grades'), isNotNull);
+
+      // 解除删除失败后再次执行：全部 9 个 remove_pref 操作必须排在 destroy_master_key 之前
+      ops.clear();
+      StorageService.debugPrefsRemover = (p, key) async {
+        ops.add('remove_pref:$key');
+        return p.remove(key);
+      };
+      final okReport = await StorageService.resetCorruptedDataWithReport();
+      expect(okReport.success, isTrue);
+      expect(okReport.prefsCleared, isTrue);
+      expect(okReport.keyDestroyed, isTrue);
+
+      final destroyIdx = ops.indexWhere((e) => e.startsWith('destroy_master_key:'));
+      expect(destroyIdx, equals(9));
+      expect(
+        ops.sublist(0, 9).every((e) => e.startsWith('remove_pref:')),
+        isTrue,
+      );
+      StorageService.resetForTesting();
+    });
   });
 }

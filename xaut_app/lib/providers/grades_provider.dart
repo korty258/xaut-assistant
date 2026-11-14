@@ -16,12 +16,16 @@ class GradesProvider extends ChangeNotifier {
   String _selectedSemester = '全部';
   bool _isLoading = true;
   bool _hasDecryptionError = false;
+  bool _hasMigrationFailure = false;
   DateTime? _lastSyncTime;
 
   List<GradeItem> get grades => _grades;
   String get selectedSemester => _selectedSemester;
   bool get isLoading => _isLoading;
   bool get hasDecryptionError => _hasDecryptionError;
+  bool get hasMigrationFailure =>
+      _hasMigrationFailure &&
+      AppCryptoService.pendingMigrationKeys.contains(_keyGrades);
   bool get isAllSemesters => _selectedSemester == '全部';
   DateTime? get lastSyncTime => _lastSyncTime;
 
@@ -61,7 +65,10 @@ class GradesProvider extends ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     try {
-      final gradesStr = await AppCryptoService.loadEncryptedString(prefs, _keyGrades);
+      final res =
+          await AppCryptoService.loadEncryptedStringWithStatus(prefs, _keyGrades);
+      _hasMigrationFailure = res.migrationFailed;
+      final gradesStr = res.value;
       if (gradesStr != null && gradesStr.isNotEmpty) {
         final List<dynamic> list = jsonDecode(gradesStr);
         _grades = list.map((e) => GradeItem.fromJson(e as Map<String, dynamic>)).toList();
@@ -69,6 +76,7 @@ class GradesProvider extends ChangeNotifier {
       _hasDecryptionError = false;
     } on CryptoException {
       _hasDecryptionError = true;
+      _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
       _grades = [];
     } catch (_) {
       _grades = [];
@@ -100,6 +108,10 @@ class GradesProvider extends ChangeNotifier {
 
     _grades = candidateGrades;
     _hasDecryptionError = false;
+    _hasMigrationFailure = false;
+    if (AppCryptoService.hasPendingMigrationFailure) {
+      await StorageService.retryPendingCryptoMigrations();
+    }
     // 若当前选中的学期在新数据中已不存在，自动回退至「全部」
     if (_selectedSemester != '全部' && !availableSemesters.contains(_selectedSemester)) {
       _selectedSemester = '全部';
@@ -141,20 +153,35 @@ class GradesProvider extends ChangeNotifier {
   static GradeSummary calculateSummary(List<GradeItem> list) =>
       GradeCalculator.calculateSummary(list);
 
-  Future<void> clearAll() async {
-    final prefs = await SharedPreferences.getInstance();
-    final okGrades = await StorageService.removeKey(prefs, _keyGrades);
-    final okSummary = await StorageService.removeKey(prefs, _legacyKeySummary);
-    final okSync =
-        await StorageService.removeKey(prefs, StorageService.keyLastGradesSync);
-    if (!okGrades || !okSummary || !okSync) {
-      throw const StorageWriteException('清空本地成绩存储失败，已保留原数据');
-    }
-
+  /// 仅重置内存态（供损坏重置全盘删除确认后复用）
+  void resetInMemoryAfterCorruptReset() {
     _grades = [];
     _hasDecryptionError = false;
+    _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
     _selectedSemester = '全部';
     _lastSyncTime = null;
     notifyListeners();
+  }
+
+  Future<void> clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    // 严格先删历史/时间戳等元数据键，最后再删主成绩键；失败时回滚元数据，确保主数据不被部分误删
+    final res = await StorageService.deleteKeysSafely(
+      prefs,
+      metadataKeys: const [_legacyKeySummary, StorageService.keyLastGradesSync],
+      primaryKey: _keyGrades,
+    );
+    if (!res.allCleared) {
+      if (!res.primaryRemoved) {
+        throw StorageWriteException(
+          res.rollbackComplete
+              ? '清空本地成绩存储失败，已保留原数据'
+              : '清空本地成绩失败：同步时间或旧摘要元数据未完全回滚，原有成绩数据仍保留',
+        );
+      }
+      throw const StorageWriteException('清空本地成绩部分完成，请重试清空');
+    }
+
+    resetInMemoryAfterCorruptReset();
   }
 }

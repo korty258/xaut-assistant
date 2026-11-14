@@ -102,10 +102,24 @@ class DecryptionErrorView extends StatelessWidget {
                     try { gp = context.read<GradesProvider>(); } catch (_) {}
                     try { ep = context.read<ExamsProvider>(); } catch (_) {}
                   }
-                  await StorageService.resetCorruptedData();
-                  try { await sp?.clearAll(); } catch (_) {}
-                  try { await gp?.clearAll(); } catch (_) {}
-                  try { await ep?.clearAll(); } catch (_) {}
+                  final resetReport =
+                      await StorageService.resetCorruptedDataWithReport();
+                  if (!resetReport.success) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context)
+                        ..hideCurrentSnackBar()
+                        ..showSnackBar(
+                          const SnackBar(
+                            content: Text('清空本地损坏缓存失败，请重试或检查存储状态'),
+                            backgroundColor: Colors.redAccent,
+                          ),
+                        );
+                    }
+                    return;
+                  }
+                  sp?.resetInMemoryAfterCorruptReset();
+                  gp?.resetInMemoryAfterCorruptReset();
+                  ep?.resetInMemoryAfterCorruptReset();
                   onReset();
                 }
               },
