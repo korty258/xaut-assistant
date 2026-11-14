@@ -349,29 +349,37 @@ function parseQiangZhiGrades(doc = document) {
     examType: headerCells.findIndex(t => /考核方式|考试性质/.test(t))
   };
 
+  function readCellText(cells, idx) {
+    return idx >= 0 && idx < cells.length ? cells[idx] : "";
+  }
+
   for (let i = 1; i < rows.length; i++) {
     const cells = Array.from(rows[i].querySelectorAll("td")).map(c => getNodeText(c).trim());
     if (cells.length < 3) continue;
 
-    const courseName = colMap.courseName !== -1 ? cells[colMap.courseName] : "";
+    const courseName = readCellText(cells, colMap.courseName);
     if (!courseName || courseName === "未查询到数据") continue;
 
-    const scoreStr = (colMap.score !== -1 ? cells[colMap.score] : "").trim();
-    const credit = colMap.credit !== -1 ? parseFloat(cells[colMap.credit]) || 0 : 0;
-    const rawGpaText = colMap.gpa !== -1 ? cells[colMap.gpa] : "";
+    const scoreStr = readCellText(cells, colMap.score).trim();
+    const rawCreditText = readCellText(cells, colMap.credit).trim();
+    // 含 >=3 个单元格但既无成绩又无学分的短行（常见于 colspan 统计提示/备注行）不作为课程记录
+    if (!scoreStr && !rawCreditText) continue;
+
+    const credit = parseFloat(rawCreditText) || 0;
+    const rawGpaText = readCellText(cells, colMap.gpa);
     const parsedGpa = rawGpaText ? parseFloat(rawGpaText) : NaN;
     // 用 -1 区分“教务缺失/非法 GPA”与“官方明确为 0 绩点”，避免缺失 GPA 阻断 Dart 端兜底折算
     const gpa = Number.isFinite(parsedGpa) && parsedGpa >= 0 ? parsedGpa : -1;
 
     const gradeItem = {
-      semester: colMap.semester !== -1 ? cells[colMap.semester] : "",
-      courseCode: colMap.courseCode !== -1 ? cells[colMap.courseCode] : "",
+      semester: readCellText(cells, colMap.semester),
+      courseCode: readCellText(cells, colMap.courseCode),
       courseName: courseName,
       score: scoreStr,
       credit: credit,
       gpa: gpa,
-      category: colMap.courseCategory !== -1 ? cells[colMap.courseCategory] : "",
-      examType: colMap.examType !== -1 ? cells[colMap.examType] : ""
+      category: readCellText(cells, colMap.courseCategory),
+      examType: readCellText(cells, colMap.examType)
     };
 
     grades.push(gradeItem);
@@ -442,21 +450,25 @@ function parseQiangZhiExams(doc = document) {
     room: headerCells.findIndex(t => /考场|地点|教室/.test(t))
   };
 
+  function readExamCell(cells, idx) {
+    return idx >= 0 && idx < cells.length ? (cells[idx] || "") : "";
+  }
+
   for (let i = headerRowIndex + 1; i < rows.length; i++) {
     const cells = Array.from(rows[i].querySelectorAll("td, th")).map(c => getNodeText(c).trim());
     if (cells.length < 4) continue;
 
-    const courseName = colMap.courseName !== -1 ? cells[colMap.courseName] : "";
+    const courseName = readExamCell(cells, colMap.courseName);
     if (!courseName || courseName === "未查询到数据" || courseName === "课程名称") continue;
 
     exams.push({
-      campus: colMap.campus !== -1 ? (cells[colMap.campus] || "") : "",
-      batch: colMap.batch !== -1 ? (cells[colMap.batch] || "") : "",
-      courseCode: colMap.courseCode !== -1 ? (cells[colMap.courseCode] || "") : "",
+      campus: readExamCell(cells, colMap.campus),
+      batch: readExamCell(cells, colMap.batch),
+      courseCode: readExamCell(cells, colMap.courseCode),
       courseName: courseName,
-      teacher: colMap.teacher !== -1 ? (cells[colMap.teacher] || "") : "",
-      examTime: colMap.examTime !== -1 ? (cells[colMap.examTime] || "") : "",
-      room: colMap.room !== -1 ? (cells[colMap.room] || "") : ""
+      teacher: readExamCell(cells, colMap.teacher),
+      examTime: readExamCell(cells, colMap.examTime),
+      room: readExamCell(cells, colMap.room)
     });
   }
 

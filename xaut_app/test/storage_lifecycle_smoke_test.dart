@@ -21,6 +21,8 @@ import 'package:xaut_app/services/app_crypto_service.dart';
 import 'package:xaut_app/services/legal_service.dart';
 import 'package:xaut_app/services/parser_service.dart';
 import 'package:xaut_app/services/storage_service.dart';
+import 'package:xaut_app/widgets/decryption_error_view.dart';
+import 'package:xaut_app/widgets/week_selector_sheet.dart';
 
 Future<void> _pumpLegalGateLoaded(WidgetTester tester, {required bool isGate}) async {
   await tester.runAsync(() async {
@@ -953,6 +955,429 @@ void main() {
       expect(restartedSchedule.courses.map((c) => c.name), equals(['编译原理']));
       expect(restartedGrades.grades.map((g) => g.courseName), equals(['微积分']));
       expect(restartedExams.exams.map((e) => e.courseName), equals(['微积分']));
+    });
+
+    testWidgets('10. Multi-key clearAll deletes metadata BEFORE primaryKey and rolls back metadata if primaryKey fails', (WidgetTester tester) async {
+      final now = DateTime(2026, 11, 14, 9, 0);
+      AppCryptoService.setMockMasterKey(enc.Key.fromBase64(fixedKeyBase64));
+
+      final scheduleProvider = ScheduleProvider(nowProvider: () => now);
+      final gradesProvider = GradesProvider(nowProvider: () => now);
+      final examsProvider = ExamsProvider(nowProvider: () => now);
+      await tester.runAsync(() async {
+        await _waitForProviders(
+          schedule: scheduleProvider,
+          grades: gradesProvider,
+          exams: examsProvider,
+        );
+        await scheduleProvider.updateCourses([sampleCourseA]);
+        await gradesProvider.updateGrades([sampleGradeA]);
+        await examsProvider.updateExams([sampleExamA]);
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+
+      // 10a. 附属键（同步时间）删除失败：主密文键绝不可被提前删除
+      StorageService.debugPrefsRemover = (p, key) async {
+        if (key == 'xaut_last_sync' ||
+            key == 'xaut_last_grades_sync' ||
+            key == 'xaut_last_exams_sync') {
+          return false;
+        }
+        return p.remove(key);
+      };
+
+      await tester.runAsync(() async {
+        await expectLater(scheduleProvider.clearAll, throwsA(isA<StorageWriteException>()));
+        await expectLater(gradesProvider.clearAll, throwsA(isA<StorageWriteException>()));
+        await expectLater(examsProvider.clearAll, throwsA(isA<StorageWriteException>()));
+      });
+
+      expect(prefs.getString('xaut_cached_courses'), isNotNull);
+      expect(prefs.getString('xaut_cached_grades'), isNotNull);
+      expect(prefs.getString('xaut_cached_exams'), isNotNull);
+
+      // 10b. 主数据键最后删除失败：已删的同步时间等附属键必须回滚恢复
+      StorageService.debugPrefsRemover = (p, key) async {
+        if (key == 'xaut_cached_courses' ||
+            key == 'xaut_cached_grades' ||
+            key == 'xaut_cached_exams') {
+          return false;
+        }
+        return p.remove(key);
+      };
+
+      await tester.runAsync(() async {
+        await expectLater(scheduleProvider.clearAll, throwsA(isA<StorageWriteException>()));
+        await expectLater(gradesProvider.clearAll, throwsA(isA<StorageWriteException>()));
+        await expectLater(examsProvider.clearAll, throwsA(isA<StorageWriteException>()));
+      });
+
+      expect(prefs.getString('xaut_cached_courses'), isNotNull);
+      expect(prefs.getString('xaut_last_sync'), isNotNull);
+      expect(prefs.getString('xaut_cached_grades'), isNotNull);
+      expect(prefs.getString('xaut_last_grades_sync'), isNotNull);
+      expect(prefs.getString('xaut_cached_exams'), isNotNull);
+      expect(prefs.getString('xaut_last_exams_sync'), isNotNull);
+
+      // 重启验证全部数据与同步时间均完整保留
+      StorageService.debugPrefsRemover = null;
+      final rSchedule = ScheduleProvider(nowProvider: () => now);
+      final rGrades = GradesProvider(nowProvider: () => now);
+      final rExams = ExamsProvider(nowProvider: () => now);
+      await tester.runAsync(() => _waitForProviders(
+            schedule: rSchedule,
+            grades: rGrades,
+            exams: rExams,
+          ));
+      expect(rSchedule.courses.map((c) => c.name), equals(['编译原理']));
+      expect(rSchedule.lastSyncTime, isNotNull);
+      expect(rGrades.grades.map((g) => g.courseName), equals(['微积分']));
+      expect(rGrades.lastSyncTime, isNotNull);
+      expect(rExams.exams.map((e) => e.courseName), equals(['微积分']));
+      expect(rExams.lastSyncTime, isNotNull);
+    });
+
+    testWidgets('11. Calibration partial failure when prevStart == null cleans disk startDate, and syncSchedule rolls back new courses when calibration fails', (WidgetTester tester) async {
+      final now = DateTime(2026, 11, 14, 9, 30);
+      AppCryptoService.setMockMasterKey(enc.Key.fromBase64(fixedKeyBase64));
+      ParserService.setMockJsCode('/* mock parser */');
+
+      // 11a. 初始无学期基准 (prevStart == null)：startDate 写入成功但随后 semesterName 写入失败（false 或异常）
+      final spEmpty = ScheduleProvider(nowProvider: () => now);
+      await tester.runAsync(() => _waitForProviders(schedule: spEmpty));
+      expect(spEmpty.semesterStartDate, isNull);
+      expect(spEmpty.semesterName, isEmpty);
+
+      final prefs = await SharedPreferences.getInstance();
+      StorageService.debugPrefsStringWriter = (p, key, value) async {
+        if (key == 'xaut_semester_name') return false;
+        return p.setString(key, value);
+      };
+
+      bool ok = true;
+      await tester.runAsync(() async {
+        ok = await spEmpty.calibrateFromCurrentWeek(10, semester: '2026-2027-1');
+      });
+      expect(ok, isFalse);
+      expect(spEmpty.semesterStartDate, isNull);
+      expect(prefs.containsKey('xaut_semester_start_date'), isFalse);
+
+      // 抛异常场景同样必须回滚删除新写入的 xaut_semester_start_date 并向上传播异常
+      StorageService.debugPrefsStringWriter = (p, key, value) async {
+        if (key == 'xaut_semester_name') {
+          throw StateError('Disk full');
+        }
+        return p.setString(key, value);
+      };
+      await tester.runAsync(() async {
+        await expectLater(
+          () => spEmpty.calibrateFromStartDate(
+            DateTime(2026, 9, 7),
+            semester: '2026-2027-1',
+          ),
+          throwsStateError,
+        );
+      });
+      expect(spEmpty.semesterStartDate, isNull);
+      expect(prefs.containsKey('xaut_semester_start_date'), isFalse);
+
+      // 重启检查磁盘状态
+      StorageService.debugPrefsStringWriter = null;
+      final rSpEmpty = ScheduleProvider(nowProvider: () => now);
+      await tester.runAsync(() => _waitForProviders(schedule: rSpEmpty));
+      expect(rSpEmpty.semesterStartDate, isNull);
+      expect(rSpEmpty.semesterName, isEmpty);
+
+      // 11b. syncSchedule 成功落盘新课表后，基准写入失败 -> 自动回滚原课表与原同步时间
+      final sp = ScheduleProvider(nowProvider: () => now);
+      final gp = GradesProvider(nowProvider: () => now);
+      final ep = ExamsProvider(nowProvider: () => now);
+      final oldMonday = DateTime(2026, 9, 7);
+      await tester.runAsync(() async {
+        await _waitForProviders(schedule: sp, grades: gp, exams: ep);
+        await sp.updateCourses([sampleCourseA]);
+        await sp.setSemesterStartDate(oldMonday, semester: '2026-2027-1');
+      });
+      final oldSyncTime = sp.lastSyncTime;
+
+      final adapter = WebViewPlatformAdapter();
+      adapter.markInitializedForTest();
+      adapter.debugRawJsExecutor = (_) async {};
+      late WebViewSyncCoordinator coordinator;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<ScheduleProvider>.value(value: sp),
+            ChangeNotifierProvider<GradesProvider>.value(value: gp),
+            ChangeNotifierProvider<ExamsProvider>.value(value: ep),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                coordinator = WebViewSyncCoordinator(
+                  getContext: () => context,
+                  adapter: adapter,
+                  onStateChanged: (_, _) {},
+                  confirmSemesterCalibrationOverride: (_) async => true,
+                );
+                return const Scaffold(body: Text('SyncScheduleAtomicHost'));
+              },
+            ),
+          ),
+        ),
+      );
+
+      // 新课表可写入，但确认后的新学期开始日落盘失败
+      StorageService.debugPrefsStringWriter = (p, key, value) async {
+        if (key == 'xaut_semester_start_date') return false;
+        return p.setString(key, value);
+      };
+
+      final syncFuture = coordinator.syncSchedule();
+      await tester.pump();
+      final reqId = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': reqId,
+        'type': 'sync_course_result',
+        'success': true,
+        'data': {
+          'courses': [sampleCourseB.toJson()],
+          'weekInfo': {
+            'currentWeek': 1,
+            'semester': '2026-2027-2',
+          },
+          'status': 'ok',
+        },
+      }));
+      await syncFuture;
+      await tester.pumpAndSettle();
+
+      // 内存、UI提示及磁盘重启状态均回滚至旧课表与旧基准
+      expect(find.text('课表同步已回滚'), findsOneWidget);
+      expect(find.textContaining('教学周基准保存失败，已回滚保留原课表与原学期基准'), findsOneWidget);
+      expect(find.text('课表同步成功'), findsNothing);
+      expect(sp.courses.map((c) => c.name), equals(['编译原理']));
+      expect(sp.lastSyncTime, equals(oldSyncTime));
+      expect(sp.semesterStartDate, equals(oldMonday));
+      expect(sp.semesterName, equals('2026-2027-1'));
+
+      Navigator.of(tester.element(find.text('课表同步已回滚'))).pop();
+      await tester.pumpAndSettle();
+
+      // 重启校验磁盘快照同样回滚到位
+      StorageService.debugPrefsStringWriter = null;
+      final rSp = ScheduleProvider(nowProvider: () => now);
+      await tester.runAsync(() => _waitForProviders(schedule: rSp));
+      expect(rSp.courses.map((c) => c.name), equals(['编译原理']));
+      expect(rSp.lastSyncTime, equals(oldSyncTime));
+      expect(rSp.semesterStartDate, equals(oldMonday));
+
+      // 11c. 当基准失败且课表快照回滚本身也失败时，给出明确部分不一致警告
+      coordinator.resetCooldownForTest();
+      StorageService.debugPrefsStringWriter = (p, key, value) async {
+        if (key == 'xaut_semester_start_date') return false;
+        return p.setString(key, value);
+      };
+      bool failNextCourseWrite = false;
+      AppCryptoService.debugPrefsStringWriter = (p, key, value) async {
+        if (key == 'xaut_cached_courses') {
+          if (failNextCourseWrite) return false;
+          // 首次更新成功，随后的快照回滚写入失败
+          failNextCourseWrite = true;
+        }
+        return p.setString(key, value);
+      };
+
+      final syncFuture2 = coordinator.syncSchedule();
+      await tester.pump();
+      final reqId2 = adapter.pendingRequestIdsForTest.last;
+      adapter.handleIncomingBridgeMessageForTest(jsonEncode({
+        'requestId': reqId2,
+        'type': 'sync_course_result',
+        'success': true,
+        'data': {
+          'courses': [sampleCourseB.toJson()],
+          'weekInfo': {
+            'currentWeek': 1,
+            'semester': '2026-2027-2',
+          },
+          'status': 'ok',
+        },
+      }));
+      await syncFuture2;
+      await tester.pumpAndSettle();
+
+      expect(find.text('课表与基准未完全一致'), findsOneWidget);
+      expect(find.textContaining('新课表已写入，但教学周基准保存失败且课表回滚未完成'), findsOneWidget);
+
+      coordinator.dispose();
+      adapter.dispose();
+    });
+
+    testWidgets('12. SemesterCalibrateDialog keeps dialog open and alerts error when calibrateFromStartDate fails or throws', (WidgetTester tester) async {
+      final now = DateTime(2026, 11, 14, 10, 0);
+      AppCryptoService.setMockMasterKey(enc.Key.fromBase64(fixedKeyBase64));
+
+      final sp = ScheduleProvider(nowProvider: () => now);
+      await tester.runAsync(() => _waitForProviders(schedule: sp));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => SemesterCalibrateDialog(provider: sp),
+                ),
+                child: const Text('OpenCalibrateDialog'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('OpenCalibrateDialog'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SemesterCalibrateDialog), findsOneWidget);
+
+      // 场景 1：返回 false
+      StorageService.debugPrefsStringWriter = (p, key, value) async {
+        if (key == 'xaut_semester_start_date') return false;
+        return p.setString(key, value);
+      };
+      await tester.tap(find.text('保存并对齐'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SemesterCalibrateDialog), findsOneWidget);
+      expect(find.text('开学基准日保存失败，已保留原设置'), findsOneWidget);
+      expect(find.textContaining('已保存开学基准日'), findsNothing);
+
+      // 场景 2：抛出异常
+      StorageService.debugPrefsStringWriter = (p, key, value) async {
+        if (key == 'xaut_semester_start_date') {
+          throw StateError('Disk I/O error');
+        }
+        return p.setString(key, value);
+      };
+      await tester.tap(find.text('保存并对齐'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SemesterCalibrateDialog), findsOneWidget);
+      expect(find.text('开学基准日保存失败，已保留原设置'), findsOneWidget);
+      expect(find.textContaining('已保存开学基准日'), findsNothing);
+    });
+
+    testWidgets('13. Three providers expose hasMigrationFailure during failed legacy upgrade and auto-clear via next save', (WidgetTester tester) async {
+      final now = DateTime(2026, 11, 14, 10, 30);
+      AppCryptoService.setMockMasterKey(enc.Key.fromBase64(fixedKeyBase64));
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('xaut_cached_courses', jsonEncode([sampleCourseA.toJson()]));
+      await prefs.setString('xaut_cached_grades', jsonEncode([sampleGradeA.toJson()]));
+      await prefs.setString('xaut_cached_exams', jsonEncode([sampleExamA.toJson()]));
+
+      AppCryptoService.debugPrefsStringWriter = (_, _, _) async => false;
+
+      final sp = ScheduleProvider(nowProvider: () => now);
+      final gp = GradesProvider(nowProvider: () => now);
+      final ep = ExamsProvider(nowProvider: () => now);
+      await tester.runAsync(() => _waitForProviders(schedule: sp, grades: gp, exams: ep));
+
+      expect(sp.hasMigrationFailure, isTrue);
+      expect(gp.hasMigrationFailure, isTrue);
+      expect(ep.hasMigrationFailure, isTrue);
+      expect(
+        AppCryptoService.pendingMigrationKeys,
+        containsAll([
+          'xaut_cached_courses',
+          'xaut_cached_grades',
+          'xaut_cached_exams',
+        ]),
+      );
+
+      // 恢复写盘能力后，保存任一模块触发自动补偿重试并清空全部待迁移标记
+      AppCryptoService.debugPrefsStringWriter = null;
+      await tester.runAsync(() => sp.updateCourses([sampleCourseB]));
+
+      expect(sp.hasMigrationFailure, isFalse);
+      expect(gp.hasMigrationFailure, isFalse);
+      expect(ep.hasMigrationFailure, isFalse);
+      expect(AppCryptoService.pendingMigrationKeys, isEmpty);
+    });
+
+    testWidgets('14. DecryptionErrorView keeps error screen when resetCorruptedData fails, and resets memory & invokes onReset when healthy', (WidgetTester tester) async {
+      final now = DateTime(2026, 11, 14, 11, 0);
+      AppCryptoService.setMockMasterKey(enc.Key.fromBase64(fixedKeyBase64));
+
+      final sp = ScheduleProvider(nowProvider: () => now);
+      final gp = GradesProvider(nowProvider: () => now);
+      final ep = ExamsProvider(nowProvider: () => now);
+      await tester.runAsync(() async {
+        await _waitForProviders(schedule: sp, grades: gp, exams: ep);
+        await sp.updateCourses([sampleCourseA]);
+        await gp.updateGrades([sampleGradeA]);
+        await ep.updateExams([sampleExamA]);
+      });
+
+      bool resetCallbackInvoked = false;
+      bool masterKeyDeleted = false;
+      AppCryptoService.debugStorageDeleter = (_) async {
+        masterKeyDeleted = true;
+      };
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<ScheduleProvider>.value(value: sp),
+            ChangeNotifierProvider<GradesProvider>.value(value: gp),
+            ChangeNotifierProvider<ExamsProvider>.value(value: ep),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: DecryptionErrorView(
+                moduleName: '课表',
+                onReset: () {
+                  resetCallbackInvoked = true;
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 14a. 删除考试键失败时：不得销毁主密钥、不得清空内存态、不得触发 onReset()
+      StorageService.debugPrefsRemover = (p, key) async {
+        if (key == 'xaut_cached_exams') return false;
+        return p.remove(key);
+      };
+
+      await tester.tap(find.text('重置并清空损坏数据'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('确定重置'));
+      await tester.pumpAndSettle();
+
+      expect(resetCallbackInvoked, isFalse);
+      expect(masterKeyDeleted, isFalse);
+      expect(sp.courses.map((c) => c.name), equals(['编译原理']));
+      expect(find.text('清空本地损坏缓存失败，请重试或检查存储状态'), findsOneWidget);
+
+      // 14b. 恢复删除能力后重试确认：磁盘 9 键 + 主密钥销毁 + 三端内存清零 + onReset 回调全部执行
+      StorageService.debugPrefsRemover = null;
+      await tester.tap(find.text('重置并清空损坏数据'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('确定重置'));
+      await tester.pumpAndSettle();
+
+      expect(resetCallbackInvoked, isTrue);
+      expect(masterKeyDeleted, isTrue);
+      expect(sp.courses, isEmpty);
+      expect(gp.grades, isEmpty);
+      expect(ep.exams, isEmpty);
     });
   });
 }

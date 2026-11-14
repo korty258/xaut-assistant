@@ -454,7 +454,23 @@ class _SemesterCalibrateDialogState extends State<SemesterCalibrateDialog> {
           onPressed: () async {
             final navigator = Navigator.of(context);
             final messenger = ScaffoldMessenger.of(context);
-            await widget.provider.calibrateFromStartDate(_mondayDate);
+            bool ok = false;
+            try {
+              ok = await widget.provider.calibrateFromStartDate(_mondayDate);
+            } catch (_) {
+              ok = false;
+            }
+            if (!context.mounted) return;
+            if (!ok) {
+              messenger.hideCurrentSnackBar();
+              messenger.showSnackBar(
+                const SnackBar(
+                  content: Text('开学基准日保存失败，已保留原设置'),
+                  backgroundColor: Colors.redAccent,
+                ),
+              );
+              return;
+            }
             navigator.pop();
             messenger.showSnackBar(
               SnackBar(

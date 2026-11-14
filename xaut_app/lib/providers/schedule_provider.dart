@@ -12,6 +12,7 @@ class ScheduleProvider extends ChangeNotifier {
   bool _onlyCurrentWeek = true; // 默认仅展示本周课程，避免重叠
   bool _isLoading = true;
   bool _hasDecryptionError = false;
+  bool _hasMigrationFailure = false;
   DateTime? _lastSyncTime;
   DateTime? _semesterStartDate; // 本学期第 1 周周一基准日期 (本地零点)
   String _semesterName = '';
@@ -23,6 +24,9 @@ class ScheduleProvider extends ChangeNotifier {
   bool get onlyCurrentWeek => _onlyCurrentWeek;
   bool get isLoading => _isLoading;
   bool get hasDecryptionError => _hasDecryptionError;
+  bool get hasMigrationFailure =>
+      _hasMigrationFailure &&
+      AppCryptoService.pendingMigrationKeys.contains('xaut_cached_courses');
   DateTime? get lastSyncTime => _lastSyncTime;
   DateTime? get semesterStartDate => _semesterStartDate;
   String get semesterName => _semesterName;
@@ -123,15 +127,21 @@ class ScheduleProvider extends ChangeNotifier {
     _semesterName = await StorageService.loadSemesterName();
 
     try {
-      final loaded = await StorageService.loadCourses();
+      final loadedRes = await StorageService.loadCoursesWithStatus();
+      final loaded = loadedRes.courses;
+      _hasMigrationFailure = loadedRes.migrationFailed;
       _courses = _deduplicateCourses(loaded);
       _hasDecryptionError = false;
       // 仅当正常加载去重后数量/内容有变动时，静默回写存储自愈（不改写上次同步时间）
       if (_courses.isNotEmpty && !_isSameCourseList(loaded, _courses)) {
-        await StorageService.saveCourses(_courses, updateSyncTime: false);
+        final upgradedOk = await StorageService.saveCourses(_courses, updateSyncTime: false);
+        if (upgradedOk) {
+          _hasMigrationFailure = false;
+        }
       }
     } on CryptoException {
       _hasDecryptionError = true;
+      _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
       _courses = [];
     } catch (_) {
       _courses = [];
@@ -323,44 +333,98 @@ class ScheduleProvider extends ChangeNotifier {
     await setCurrentWeek(actualCurrentWeek);
   }
 
-  /// 根据已知「当前教学周」反推并保存本学期第 1 周周一基准日期（教务同步或手动选周校准）
-  Future<bool> calibrateFromCurrentWeek(
-    int week, {
-    String? semester,
-    DateTime? referenceDate,
+  /// 统一持久化校准基准与当前周：任意中间写入失败或异常时完整回滚磁盘与内存（包括 prevStart == null 清理新建键）
+  Future<bool> _persistCalibrationState({
+    required int nextMaxWeeks,
+    required DateTime startMonday,
+    required String? semester,
   }) async {
-    if (week < 1 || week > 30) return false;
     final prevMaxWeeks = _maxWeeks;
     final prevStart = _semesterStartDate;
     final prevSemester = _semesterName;
+    final prevCurrentWeek = _currentWeek;
+    final prevLastEvaluatedDay = _lastEvaluatedDay;
 
-    _recalculateMaxWeeks(week);
-    final ref = referenceDate ?? todayDate;
-    final startMonday = calculateSemesterStartMonday(ref, week);
+    _maxWeeks = nextMaxWeeks;
     _semesterStartDate = startMonday;
     final bool hasNewSemester = semester != null && semester.trim().isNotEmpty;
     final nextSemester = hasNewSemester ? semester.trim() : _semesterName;
     final nextCurrentWeek = actualCurrentWeek;
 
+    bool startWritten = false;
+    bool nameWritten = false;
+    bool weekWritten = false;
+
+    Future<void> rollbackDisk() async {
+      bool rollbackOk = true;
+      if (startWritten) {
+        try {
+          final ok = prevStart != null
+              ? await StorageService.saveSemesterStartDate(prevStart)
+              : await StorageService.removeSemesterStartDate();
+          if (!ok) rollbackOk = false;
+        } catch (_) {
+          rollbackOk = false;
+        }
+      }
+      if (nameWritten) {
+        try {
+          final ok = prevSemester.isNotEmpty
+              ? await StorageService.saveSemesterName(prevSemester)
+              : await StorageService.removeSemesterName();
+          if (!ok) rollbackOk = false;
+        } catch (_) {
+          rollbackOk = false;
+        }
+      }
+      if (weekWritten) {
+        try {
+          final ok = await StorageService.saveCurrentWeek(prevCurrentWeek);
+          if (!ok) rollbackOk = false;
+        } catch (_) {
+          rollbackOk = false;
+        }
+      }
+      if (!rollbackOk) {
+        throw const StorageWriteException('教学周基准保存失败且磁盘回滚未完成，请手动重新校准');
+      }
+    }
+
     try {
       final bool startOk = await StorageService.saveSemesterStartDate(startMonday);
-      final bool nameOk =
-          !hasNewSemester || await StorageService.saveSemesterName(nextSemester);
-      final bool weekOk = await StorageService.saveCurrentWeek(nextCurrentWeek);
-      if (!startOk || !nameOk || !weekOk) {
+      if (!startOk) {
         _maxWeeks = prevMaxWeeks;
         _semesterStartDate = prevStart;
-        if (startOk && prevStart != null) {
-          await StorageService.saveSemesterStartDate(prevStart);
-        }
-        if (nameOk && hasNewSemester) {
-          await StorageService.saveSemesterName(prevSemester);
-        }
         return false;
       }
-    } catch (_) {
+      startWritten = true;
+
+      if (hasNewSemester) {
+        final bool nameOk = await StorageService.saveSemesterName(nextSemester);
+        if (!nameOk) {
+          _maxWeeks = prevMaxWeeks;
+          _semesterStartDate = prevStart;
+          await rollbackDisk();
+          return false;
+        }
+        nameWritten = true;
+      }
+
+      final bool weekOk = await StorageService.saveCurrentWeek(nextCurrentWeek);
+      if (!weekOk) {
+        _maxWeeks = prevMaxWeeks;
+        _semesterStartDate = prevStart;
+        await rollbackDisk();
+        return false;
+      }
+      weekWritten = true;
+    } catch (e) {
       _maxWeeks = prevMaxWeeks;
       _semesterStartDate = prevStart;
+      _semesterName = prevSemester;
+      _currentWeek = prevCurrentWeek;
+      _lastEvaluatedDay = prevLastEvaluatedDay;
+      await rollbackDisk();
       rethrow;
     }
 
@@ -371,49 +435,43 @@ class ScheduleProvider extends ChangeNotifier {
     return true;
   }
 
+  /// 根据已知「当前教学周」反推并保存本学期第 1 周周一基准日期（教务同步或手动选周校准）
+  Future<bool> calibrateFromCurrentWeek(
+    int week, {
+    String? semester,
+    DateTime? referenceDate,
+  }) async {
+    if (week < 1 || week > 30) return false;
+    final prevMaxWeeks = _maxWeeks;
+    _recalculateMaxWeeks(week);
+    final nextMaxWeeks = _maxWeeks;
+    _maxWeeks = prevMaxWeeks;
+
+    final ref = referenceDate ?? todayDate;
+    final startMonday = calculateSemesterStartMonday(ref, week);
+    return _persistCalibrationState(
+      nextMaxWeeks: nextMaxWeeks,
+      startMonday: startMonday,
+      semester: semester,
+    );
+  }
+
   /// 根据手动选定的开学第 1 周任意日期（自动对齐至该周周一）校准开学基准日
   Future<bool> calibrateFromStartDate(
     DateTime pickedDate, {
     String? semester,
   }) async {
     final prevMaxWeeks = _maxWeeks;
-    final prevStart = _semesterStartDate;
-    final prevSemester = _semesterName;
+    _recalculateMaxWeeks();
+    final nextMaxWeeks = _maxWeeks;
+    _maxWeeks = prevMaxWeeks;
 
     final startMonday = mondayOf(pickedDate);
-    _semesterStartDate = startMonday;
-    final bool hasNewSemester = semester != null && semester.trim().isNotEmpty;
-    final nextSemester = hasNewSemester ? semester.trim() : _semesterName;
-    _recalculateMaxWeeks();
-    final nextCurrentWeek = actualCurrentWeek;
-
-    try {
-      final bool startOk = await StorageService.saveSemesterStartDate(startMonday);
-      final bool nameOk =
-          !hasNewSemester || await StorageService.saveSemesterName(nextSemester);
-      final bool weekOk = await StorageService.saveCurrentWeek(nextCurrentWeek);
-      if (!startOk || !nameOk || !weekOk) {
-        _maxWeeks = prevMaxWeeks;
-        _semesterStartDate = prevStart;
-        if (startOk && prevStart != null) {
-          await StorageService.saveSemesterStartDate(prevStart);
-        }
-        if (nameOk && hasNewSemester) {
-          await StorageService.saveSemesterName(prevSemester);
-        }
-        return false;
-      }
-    } catch (_) {
-      _maxWeeks = prevMaxWeeks;
-      _semesterStartDate = prevStart;
-      rethrow;
-    }
-
-    _semesterName = nextSemester;
-    _currentWeek = nextCurrentWeek;
-    _lastEvaluatedDay = todayDate;
-    notifyListeners();
-    return true;
+    return _persistCalibrationState(
+      nextMaxWeeks: nextMaxWeeks,
+      startMonday: startMonday,
+      semester: semester,
+    );
   }
 
   /// 手动或自动设置开学第 1 周周一基准日期
@@ -570,7 +628,12 @@ class ScheduleProvider extends ChangeNotifier {
 
     _courses = deduped;
     _hasDecryptionError = false;
+    _hasMigrationFailure = false;
     _recalculateMaxWeeks(_currentWeek);
+
+    if (AppCryptoService.hasPendingMigrationFailure) {
+      await StorageService.retryPendingCryptoMigrations();
+    }
 
     final syncTime = _nowProvider();
     final timeOk = await StorageService.saveCoursesSyncTime(syncTime);
@@ -611,19 +674,58 @@ class ScheduleProvider extends ChangeNotifier {
     }).toList();
   }
 
-  /// 清空本地课表（先校验持久化删除成功，再提交内存清空）
-  Future<void> clearAll() async {
-    final ok = await StorageService.clearCourses();
-    if (!ok) {
-      throw const StorageWriteException('清空本地课表存储失败，已保留原数据');
+  /// 当新课表已写入但随后的学期/周次基准写入失败时，尽力回滚磁盘与内存至同步前快照
+  Future<bool> restoreCoursesSnapshot(
+    List<Course> prevCourses, {
+    DateTime? prevSyncTime,
+  }) async {
+    try {
+      final restored = List<Course>.from(prevCourses);
+      final dataOk = await StorageService.saveCourses(restored, updateSyncTime: false);
+      if (!dataOk) return false;
+
+      final timeOk = prevSyncTime != null
+          ? await StorageService.saveCoursesSyncTime(prevSyncTime)
+          : await StorageService.removeCoursesSyncTime();
+      if (!timeOk) return false;
+
+      _courses = restored;
+      _lastSyncTime = prevSyncTime;
+      _hasDecryptionError = false;
+      _recalculateMaxWeeks(_currentWeek);
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
     }
+  }
+
+  /// 仅清空内存态（用于损坏重置链路已完成全盘物理清理后的收口，避免重复写盘/删盘产生状态分叉）
+  void resetInMemoryAfterCorruptReset() {
     _courses = [];
     _hasDecryptionError = false;
+    _hasMigrationFailure = AppCryptoService.hasPendingMigrationFailure;
     _lastSyncTime = null;
     _semesterStartDate = null;
     _semesterName = '';
     _maxWeeks = 20;
     notifyListeners();
+  }
+
+  /// 清空本地课表（先删同步时间戳与学期元数据，最后删主课表键；失败时回滚元数据，保证主数据完整保留）
+  Future<void> clearAll() async {
+    final res = await StorageService.clearCoursesWithReport();
+    if (!res.allCleared) {
+      if (!res.primaryRemoved) {
+        throw StorageWriteException(
+          res.rollbackComplete
+              ? '清空本地课表存储失败，已保留原数据'
+              : '清空本地课表失败：部分同步或学期元数据未回滚，原有课表数据仍保留',
+        );
+      }
+      throw const StorageWriteException('清空本地课表部分完成，请重试清空');
+    }
+    resetInMemoryAfterCorruptReset();
   }
 }
 

@@ -277,7 +277,8 @@ class AppCryptoService {
       _pendingMigrationFailures.remove(key);
       return true;
     } on CryptoKeyException {
-      // 主密钥不可用或未通过 Fail-Closed 校验时严禁继续放行明文或降级态
+      // 主密钥不可用或未通过 Fail-Closed 校验时记录待迁移键并严格阻断明文/降级访问
+      _pendingMigrationFailures[key] = 'key_unavailable';
       rethrow;
     } catch (e) {
       _pendingMigrationFailures[key] = e.runtimeType.toString();
@@ -339,17 +340,46 @@ class AppCryptoService {
     return res.value;
   }
 
-  /// 重试所有待迁移的存储键，全部成功升级至 `ENC:v2:` 后返回 true
-  static Future<bool> retryPendingMigrations(SharedPreferences prefs) async {
+  /// 按失败原因分类暴露当前待迁移项是否包含密钥阻塞故障
+  static bool get hasKeyBlockedMigrationFailure =>
+      _pendingMigrationFailures.values.any((reason) => reason == 'key_unavailable');
+
+  /// 逐键隔离异常重试所有待迁移的存储键，并返回结构化迁移报告
+  static Future<({int total, int succeeded, int failed, bool hadKeyError})>
+      retryPendingMigrationsWithReport(SharedPreferences prefs) async {
     final keys = _pendingMigrationFailures.keys.toList();
-    bool allSucceeded = true;
+    int succeeded = 0;
+    int failed = 0;
+    bool hadKeyError = false;
     for (final key in keys) {
-      final res = await loadEncryptedStringWithStatus(prefs, key);
-      if (res.migrationFailed) {
-        allSucceeded = false;
+      try {
+        final res = await loadEncryptedStringWithStatus(prefs, key);
+        if (!res.migrationFailed) {
+          succeeded++;
+        } else {
+          failed++;
+        }
+      } on CryptoKeyException {
+        _pendingMigrationFailures[key] = 'key_unavailable';
+        hadKeyError = true;
+        failed++;
+      } catch (e) {
+        _pendingMigrationFailures[key] = e.runtimeType.toString();
+        failed++;
       }
     }
-    return allSucceeded;
+    return (
+      total: keys.length,
+      succeeded: succeeded,
+      failed: failed,
+      hadKeyError: hadKeyError,
+    );
+  }
+
+  /// 重试所有待迁移的存储键，全部成功升级至 `ENC:v2:` 后返回 true
+  static Future<bool> retryPendingMigrations(SharedPreferences prefs) async {
+    final report = await retryPendingMigrationsWithReport(prefs);
+    return report.failed == 0;
   }
 
   /// 物理销毁主密钥（密码学粉碎 Crypto-Shredding）

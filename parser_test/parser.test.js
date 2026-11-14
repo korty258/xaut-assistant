@@ -154,6 +154,40 @@ test('2. 成绩解析回归测试 (parseQiangZhiGrades)', async (t) => {
     assert.deepEqual(result.grades, []);
     assert.deepEqual(result.summary, {});
   });
+
+  await t.test('含 >= 3 单元格的短行/colspan 提示行与缺尾列课程行不崩溃且正确提取', () => {
+    const html = `
+      <!DOCTYPE html><html><body>
+        <table id="dataList">
+          <tr>
+            <th>序号</th><th>开课学期</th><th>课程名称</th>
+            <th>成绩</th><th>学分</th><th>绩点</th><th>考核方式</th>
+          </tr>
+          <tr>
+            <td>注：</td><td>本行仅含三个单元格</td><td colspan="5">统计说明占位</td>
+          </tr>
+          <tr>
+            <td>1</td><td>2026-2027-1</td><td>大学物理(上)</td>
+            <td>88</td><td>4.0</td>
+          </tr>
+          <tr>
+            <td>2</td><td>2026-2027-1</td><td>高等数学(上)</td>
+            <td>92</td><td>5.0</td><td>4.2</td><td>考试</td>
+          </tr>
+        </table>
+      </body></html>
+    `;
+    const dom = new JSDOM(html, { url: 'https://jwgl.xaut.edu.cn/jsxsd/kscj/cjcx_list' });
+    const result = parser.parseQiangZhiGrades(dom.window.document);
+
+    assert.equal(result.grades.length, 2);
+    assert.equal(result.grades[0].courseName, '大学物理(上)');
+    assert.equal(result.grades[0].score, '88');
+    assert.equal(result.grades[0].gpa, -1);
+    assert.equal(result.grades[0].examType, '');
+    assert.equal(result.grades[1].courseName, '高等数学(上)');
+    assert.equal(result.grades[1].gpa, 4.2);
+  });
 });
 
 test('3. 考试安排解析回归测试 (parseQiangZhiExams)', async (t) => {
@@ -208,6 +242,31 @@ test('3. 考试安排解析回归测试 (parseQiangZhiExams)', async (t) => {
     assert.equal(exams[0].courseName, '数据结构');
     assert.equal(exams[0].teacher, '王老师');
     assert.equal(exams[0].room, '教2-305');
+  });
+
+  await t.test('考试表格含少于表头列数的短行时不越界崩溃且正确解析后续行', () => {
+    const html = `
+      <!DOCTYPE html><html><body>
+        <table id="dataList">
+          <tr>
+            <th>序号</th><th>校区</th><th>考试场次</th><th>课程代码</th>
+            <th>考试课程</th><th>授课教师</th><th>考试时间</th><th>教室</th>
+          </tr>
+          <tr>
+            <td>说明</td><td>短行只有三格</td><td colspan="6">请提前15分钟候考</td>
+          </tr>
+          <tr>
+            <td>1</td><td>曲江校区</td><td>期末第2场</td><td>MATH102</td>
+            <td>线性代数</td><td>李老师</td><td>2027-01-08 14:30-16:30</td><td>教3-102</td>
+          </tr>
+        </table>
+      </body></html>
+    `;
+    const dom = new JSDOM(html, { url: 'https://jwgl.xaut.edu.cn/jsxsd/xsks/xsksap_list' });
+    const exams = parser.parseQiangZhiExams(dom.window.document);
+    assert.equal(exams.length, 1);
+    assert.equal(exams[0].courseName, '线性代数');
+    assert.equal(exams[0].room, '教3-102');
   });
 });
 

@@ -6,6 +6,34 @@
 
 ## [Unreleased]
 
+## [2.3.9-rc4] - 2026-11-14
+
+金花助手 `v2.3.9-rc4`（候选发布版 · 多键清空原子反转保护、学期校准与课表提交全链路回滚、`WeekSelectorSheet` 保存结果诚实校验、`AppCryptoService` 迁移补偿闭环、损坏数据安全销毁序反转与强智解析短行越界防护）！本候选版本全面修复 `v2.3.9-rc3` 静态与运行时交叉评审发现的 6 项问题并补齐回归测试。
+
+### Fixed
+- **多键清空顺序反转与事务回滚保护 (`StorageService` & 三端 `Providers`)**：
+  - 新增 `StorageService.deleteKeysSafely()`：先快照并删除同步时间/汇总/基准等附属键，任一步失败即立即回滚已删附属键并返回失败，确认全部附属键删除成功后再最后删除核心数据主密文键（`xaut_cached_courses` / `xaut_cached_grades_v1` / `xaut_cached_exams_v1`），彻底消除“主数据已被删而系统却抛异常宣称已保留原数据”的数据丢失隐患。
+- **学期基准与课表同步双阶段全链路回滚 (`ScheduleProvider` & `WebViewSyncCoordinator`)**：
+  - `ScheduleProvider` 新增 `removeSemesterStartDate()` / `removeSemesterName()` 与 `restoreCoursesSnapshot()`：当初始无学期基准（`prevStart == null`）或无学期名称且回写持久化失败/抛异常时，精准删除本轮新落盘键，确保重启后状态严格还原；
+  - `WebViewSyncCoordinator` 新增 `_persistCoursesAndCalibrationAtomic()`：当 `updateCourses` 成功但随后 `_commitPendingWeekCalibration` 保存失败时，自动回滚恢复原课表与同步时间快照并诚实向用户提示回滚结果或部分不一致警告。
+- **手动选择开学日弹窗诚实反馈 (`WeekSelectorSheet`)**：
+  - `WeekSelectorSheet` 在提交 `calibrateFromStartDate` 前严格捕获异常并校验 `bool` 返回值；仅当持久化确认成功后才关闭弹窗并提示成功，保存失败时保持弹窗开启并弹出红色错误提示条。
+- **本地密文升级失败观测与重试闭环 (`AppCryptoService`、`StorageService`、`DiagnosticsService` & `DiagnosticsDialog`)**：
+  - `_upgradeToV2()` 在 `CryptoKeyException` 时同步登记 `key_unavailable`，`retryPendingMigrationsWithReport()` 按单键隔离异常处理避免首个密钥失败阻塞后续可升级键；
+  - 课表/成绩/考试 `Provider` 加载与写入链路透传 `hasMigrationFailure` 并自动补偿重试，`DiagnosticsSnapshot` 与 `DiagnosticsDialog` 新增 `密文升级状态` 展示与一键 `重试密文升级` 入口。
+- **损坏缓存销毁顺序与 UI 恢复门禁 (`StorageService` & `DecryptionErrorView`)**：
+  - 新增 `StorageService.resetCorruptedDataWithReport()`：先清空全部 9 个本地缓存与元数据键，确认全部删除成功后再调用 `AppCryptoService.destroyMasterKey()`，任一本地键删除失败即中止并保留主密钥，避免误伤未损坏模块；
+  - `DecryptionErrorView` 严格检查销毁结果：失败时弹出错误提示并停留在异常修复视图，成功后同步执行三端 `resetInMemoryAfterCorruptReset()` 并回调 `onReset()`。
+- **强智成绩与考试解析短行边界防护 (`qiangzhi_parser.js`)**：
+  - `parseQiangZhiGrades` 与 `parseQiangZhiExams` 统一通过索引边界检查 helper（`readCellText` / `readExamCell`）安全读取单元格文本，当表格行单元格总数 `>= 3` 但少于表头列数（如 `colspan` 提示行或残缺行）时安全返回空串，避免 `TypeError: Cannot read properties of undefined (reading 'trim')`。
+
+### Tests
+- **补齐 `v2.3.9-rc4` 6 项修复全维度回归测试**：
+  - `parser_test/parser.test.js`：成绩表含 `>= 3` 单元格的短行/合并单元格提示行不崩溃且不漏提后续有效成绩；考试表短行边界容错；
+  - `app_crypto_service_test.dart`：`retryPendingMigrationsWithReport` 单键密钥异常隔离与后续可升级键成功恢复、主密钥阻塞标志校验；`resetCorruptedDataWithReport` 先删 9 键再销毁主密钥顺序验证及失败保留主密钥；
+  - `diagnostics_service_test.dart`：`DiagnosticsSnapshot` 暴露待迁移计数/密钥阻塞标记，及 `DiagnosticsDialog`「重试密文升级」按钮交互验证；
+  - `storage_lifecycle_smoke_test.dart`：三端 `clearAll()` 附属键/主键失败均完整保留磁盘与重启恢复数据；`ScheduleProvider` 初次无基准/有基准校准失败及异常后重启磁盘一致；`WebViewSyncCoordinator` 基准保存失败自动回滚新课表（及回滚再失败警告）；`WeekSelectorSheet` 返回 `false` 与抛异常时不关窗不误报；`DecryptionErrorView` 清空失败时停留在错误页、成功时重置内存态并回调退出；三端 `Provider` 迁移失败标记与下一次保存自动补偿清理验证。
+
 ## [2.3.9-rc3] - 2026-11-13
 
 金花助手 `v2.3.9-rc3`（候选发布版 · 密钥/加密迁移 Fail-Closed 收口、双端授权撤回清理诚实汇报、学期基准原子提交、清空确认防假成功、成绩统计/跨夜考试与 Windows 桥接细节修复）！本候选版本逐项落地 `v2.3.9-rc2` 全量深度缺陷排查清单，并补齐完整单元与生命周期回归测试。

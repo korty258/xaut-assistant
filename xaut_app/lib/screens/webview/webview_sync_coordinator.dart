@@ -13,19 +13,24 @@ class _PersistOutcome {
   final String? errorCategory;
   final bool dataSavedOnly;
   final DateTime? pendingSyncTime;
+  final String? overrideMessage;
 
   const _PersistOutcome.success()
       : errorCategory = null,
         dataSavedOnly = false,
-        pendingSyncTime = null;
+        pendingSyncTime = null,
+        overrideMessage = null;
 
   const _PersistOutcome.partialSyncTime({
     required String this.errorCategory,
     this.pendingSyncTime,
-  }) : dataSavedOnly = true;
+  })  : dataSavedOnly = true,
+        overrideMessage = null;
 
-  const _PersistOutcome.failed(String this.errorCategory)
-      : dataSavedOnly = false,
+  const _PersistOutcome.failed(
+    String this.errorCategory, {
+    this.overrideMessage,
+  })  : dataSavedOnly = false,
         pendingSyncTime = null;
 
   bool get isOk => errorCategory == null;
@@ -155,11 +160,26 @@ class WebViewSyncCoordinator {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        icon: const Icon(Icons.error_outline_rounded, color: Colors.red, size: 36),
-        title: Text('$moduleTitle本地保存失败'),
+        icon: Icon(
+          outcome.errorCategory == 'calibration_rollback_failed'
+              ? Icons.warning_amber_rounded
+              : Icons.error_outline_rounded,
+          color: outcome.errorCategory == 'calibration_rollback_failed'
+              ? Colors.orange
+              : Colors.red,
+          size: 36,
+        ),
+        title: Text(
+          outcome.errorCategory == 'calibration_rollback_failed'
+              ? '$moduleTitle与基准未完全一致'
+              : (outcome.overrideMessage != null
+                  ? '$moduleTitle同步已回滚'
+                  : '$moduleTitle本地保存失败'),
+        ),
         content: Text(
-          '已成功抓取教务数据，但在加密写入本地存储时发生异常（${outcome.errorCategory}）。\n\n'
-          '为保障数据安全，本次未覆盖界面展示，已保留您原有的本地数据与同步时间。请重启应用或检查设备存储权限后重试。',
+          outcome.overrideMessage ??
+              '已成功抓取教务数据，但在加密写入本地存储时发生异常（${outcome.errorCategory}）。\n\n'
+                  '为保障数据安全，本次未覆盖界面展示，已保留您原有的本地数据与同步时间。请重启应用或检查设备存储权限后重试。',
         ),
         actions: [
           FilledButton(
@@ -181,6 +201,9 @@ class WebViewSyncCoordinator {
     required String errorDetail,
   }) {
     if (!outcome.isOk) {
+      if (outcome.overrideMessage != null) {
+        return outcome.overrideMessage!;
+      }
       if (outcome.dataSavedOnly) {
         final base = status.isOk ? okSummary : emptySummary;
         return '$base，但同步时间写入失败 (${outcome.errorCategory})（已保留原同步时间）';
@@ -355,7 +378,8 @@ class WebViewSyncCoordinator {
   }
 
   /// 阶段 2：仅在课表持久化成功后再提交学期与周次基准更新，保证两者原子一致
-  Future<({String? detailMessage, bool isSuccess})> _commitPendingWeekCalibration(
+  Future<({String? detailMessage, bool isSuccess, bool saveFailed})>
+      _commitPendingWeekCalibration(
     ScheduleProvider scheduleProvider, {
     required SemesterCalibrationDecision? pendingDecision,
     required String? preparedDetail,
@@ -364,13 +388,25 @@ class WebViewSyncCoordinator {
     required bool coursesPersisted,
   }) async {
     if (rejectedByUser) {
-      return (detailMessage: '已保持原学期基准不变', isSuccess: false);
+      return (
+        detailMessage: '已保持原学期基准不变',
+        isSuccess: false,
+        saveFailed: false,
+      );
     }
     if (pendingDecision == null) {
-      return (detailMessage: preparedDetail, isSuccess: preparedSuccess);
+      return (
+        detailMessage: preparedDetail,
+        isSuccess: preparedSuccess,
+        saveFailed: false,
+      );
     }
     if (!coursesPersisted) {
-      return (detailMessage: '由于课表保存失败，已保持原学期基准不变', isSuccess: false);
+      return (
+        detailMessage: '由于课表保存失败，已保持原学期基准不变',
+        isSuccess: false,
+        saveFailed: false,
+      );
     }
 
     try {
@@ -382,10 +418,18 @@ class WebViewSyncCoordinator {
               : null,
         );
         if (!ok) {
-          return (detailMessage: '教学周基准保存失败，已保持原学期基准不变', isSuccess: false);
+          return (
+            detailMessage: '教学周基准保存失败，已保持原学期基准不变',
+            isSuccess: false,
+            saveFailed: true,
+          );
         }
         if (pendingDecision.requiresConfirmation) {
-          return (detailMessage: '已按确认更新学期基准', isSuccess: true);
+          return (
+            detailMessage: '已按确认更新学期基准',
+            isSuccess: true,
+            saveFailed: false,
+          );
         }
         final week = scheduleProvider.actualCurrentWeek;
         final monday = scheduleProvider.semesterStartDate;
@@ -395,6 +439,7 @@ class WebViewSyncCoordinator {
         return (
           detailMessage: '已自动对齐第 $week 周${monStr.isNotEmpty ? " (第1周周一: $monStr)" : ""}',
           isSuccess: true,
+          saveFailed: false,
         );
       } else {
         // 关键修复：无基准日期（未识别到周次或开学日，仅识别到学期名称）
@@ -402,17 +447,81 @@ class WebViewSyncCoordinator {
           final ok = await scheduleProvider
               .setSemesterNameOnly(pendingDecision.candidateSemester);
           if (!ok) {
-            return (detailMessage: '学期名称保存失败，已保持原学期基准不变', isSuccess: false);
+            return (
+              detailMessage: '学期名称保存失败，已保持原学期基准不变',
+              isSuccess: false,
+              saveFailed: true,
+            );
           }
         }
         return (
           detailMessage: '已识别学期 ${pendingDecision.candidateSemester}，未检测到周次，请手动校准开学日',
           isSuccess: false,
+          saveFailed: false,
         );
       }
     } catch (_) {
-      return (detailMessage: '教学周基准保存失败，已保持原学期基准不变', isSuccess: false);
+      return (
+        detailMessage: '教学周基准保存失败，已保持原学期基准不变',
+        isSuccess: false,
+        saveFailed: true,
+      );
     }
+  }
+
+  /// 原子协调写入课表与教学周基准：当基准保存失败时主动回滚已写入的新课表及同步时间快照
+  Future<({
+    _PersistOutcome coursesOutcome,
+    ({String? detailMessage, bool isSuccess, bool saveFailed}) calibRes,
+  })> _persistCoursesAndCalibrationAtomic(
+    ScheduleProvider scheduleProvider, {
+    required Future<void> Function() writeCourses,
+    required SemesterCalibrationDecision? pendingDecision,
+    required String? preparedDetail,
+    required bool preparedSuccess,
+    required bool rejectedByUser,
+  }) async {
+    final prevCourses = scheduleProvider.courses.toList();
+    final prevSyncTime = scheduleProvider.lastSyncTime;
+    var coursesOutcome = await _persistSafely(writeCourses);
+    if (_isDisposed) {
+      return (
+        coursesOutcome: coursesOutcome,
+        calibRes: (detailMessage: null, isSuccess: false, saveFailed: false),
+      );
+    }
+
+    var calibRes = await _commitPendingWeekCalibration(
+      scheduleProvider,
+      pendingDecision: pendingDecision,
+      preparedDetail: preparedDetail,
+      preparedSuccess: preparedSuccess,
+      rejectedByUser: rejectedByUser,
+      coursesPersisted: coursesOutcome.isOk || coursesOutcome.dataSavedOnly,
+    );
+
+    if (pendingDecision != null &&
+        calibRes.saveFailed &&
+        (coursesOutcome.isOk || coursesOutcome.dataSavedOnly)) {
+      final restored = await scheduleProvider.restoreCoursesSnapshot(
+        prevCourses,
+        prevSyncTime: prevSyncTime,
+      );
+      final msg = restored
+          ? '教学周基准保存失败，已回滚保留原课表与原学期基准'
+          : '新课表已写入，但教学周基准保存失败且课表回滚未完成，请手动校准或重新同步';
+      coursesOutcome = _PersistOutcome.failed(
+        restored ? 'calibration_rollback' : 'calibration_rollback_failed',
+        overrideMessage: msg,
+      );
+      calibRes = (
+        detailMessage: msg,
+        isSuccess: false,
+        saveFailed: true,
+      );
+    }
+
+    return (coursesOutcome: coursesOutcome, calibRes: calibRes);
   }
 
   /// 执行一键全量同步（同时同步 课表 + 成绩 + 考试 3大模块，消除 UI 冻结）
@@ -520,29 +629,38 @@ class WebViewSyncCoordinator {
       }
       final bool rejectedByUser = prepCalib.rejectedByUser;
 
-      // 1. 课表：仅当用户未拒绝更新基准时，才写入新课表或空课表（单轮执行，避免全量空数据分支重复清空）
+      // 1. 课表与教学周基准原子提交：若基准保存失败，主动回滚已写入的新课表与同步时间快照
       var coursesOutcome = const _PersistOutcome.success();
-      if (!rejectedByUser) {
-        if (result.statusCourses.isOk) {
-          coursesOutcome =
-              await _persistSafely(() => scheduleProvider.updateCourses(result.courses));
-        } else if (result.statusCourses.isEmpty) {
-          coursesOutcome =
-              await _persistSafely(() => scheduleProvider.updateCourses(const []));
-        }
-      }
-      if (_isDisposed) return;
-
-      // 1b. 仅当课表数据实际持久化成功时，才提交已确认的学期与周次基准变更
-      final calibRes = await _commitPendingWeekCalibration(
-        scheduleProvider,
-        pendingDecision: prepCalib.pendingDecision,
-        preparedDetail: prepCalib.detailMessage,
-        preparedSuccess: prepCalib.isSuccess,
-        rejectedByUser: rejectedByUser,
-        coursesPersisted:
-            coursesOutcome.isOk || coursesOutcome.dataSavedOnly,
+      ({String? detailMessage, bool isSuccess, bool saveFailed}) calibRes = (
+        detailMessage: rejectedByUser ? '已保持原学期基准不变' : prepCalib.detailMessage,
+        isSuccess: !rejectedByUser && prepCalib.isSuccess,
+        saveFailed: false,
       );
+      if (!rejectedByUser &&
+          (result.statusCourses.isOk || result.statusCourses.isEmpty)) {
+        final atomic = await _persistCoursesAndCalibrationAtomic(
+          scheduleProvider,
+          writeCourses: () => scheduleProvider.updateCourses(
+            result.statusCourses.isOk ? result.courses : const [],
+          ),
+          pendingDecision: prepCalib.pendingDecision,
+          preparedDetail: prepCalib.detailMessage,
+          preparedSuccess: prepCalib.isSuccess,
+          rejectedByUser: false,
+        );
+        if (_isDisposed) return;
+        coursesOutcome = atomic.coursesOutcome;
+        calibRes = atomic.calibRes;
+      } else if (!rejectedByUser) {
+        calibRes = await _commitPendingWeekCalibration(
+          scheduleProvider,
+          pendingDecision: prepCalib.pendingDecision,
+          preparedDetail: prepCalib.detailMessage,
+          preparedSuccess: prepCalib.isSuccess,
+          rejectedByUser: false,
+          coursesPersisted: true,
+        );
+      }
       if (_isDisposed || !context.mounted) return;
       // notLoggedIn 或 error 严格保留原有课表缓存
 
@@ -643,8 +761,10 @@ class WebViewSyncCoordinator {
                   '考试解析失败${result.errorExams != null ? " (${result.errorExams})" : " (页面可能已改版)"}（已保留本地历史缓存）',
             );
 
-            final bool allPersistOk =
-                coursesOutcome.isOk && gradesOutcome.isOk && examsOutcome.isOk;
+            final bool allPersistOk = coursesOutcome.isOk &&
+                gradesOutcome.isOk &&
+                examsOutcome.isOk &&
+                !calibRes.saveFailed;
             final bool hasRetryableSyncTime = coursesOutcome.dataSavedOnly ||
                 gradesOutcome.dataSavedOnly ||
                 examsOutcome.dataSavedOnly;
@@ -928,20 +1048,17 @@ class WebViewSyncCoordinator {
           return;
         }
 
-        final persistOutcome =
-            await _persistSafely(() => scheduleProvider.updateCourses(syncRes.courses));
-        if (_isDisposed) return;
-
-        final calibRes = await _commitPendingWeekCalibration(
+        final atomic = await _persistCoursesAndCalibrationAtomic(
           scheduleProvider,
+          writeCourses: () => scheduleProvider.updateCourses(syncRes.courses),
           pendingDecision: prepCalib.pendingDecision,
           preparedDetail: prepCalib.detailMessage,
           preparedSuccess: prepCalib.isSuccess,
           rejectedByUser: false,
-          coursesPersisted:
-              persistOutcome.isOk || persistOutcome.dataSavedOnly,
         );
         if (_isDisposed || !context.mounted) return;
+        final persistOutcome = atomic.coursesOutcome;
+        final calibRes = atomic.calibRes;
 
         if (!persistOutcome.isOk) {
           _showPersistErrorDialog(
@@ -1003,20 +1120,16 @@ class WebViewSyncCoordinator {
           );
           return;
         }
-        final persistOutcome =
-            await _persistSafely(() => scheduleProvider.updateCourses(const []));
-        if (_isDisposed) return;
-
-        await _commitPendingWeekCalibration(
+        final atomic = await _persistCoursesAndCalibrationAtomic(
           scheduleProvider,
+          writeCourses: () => scheduleProvider.updateCourses(const []),
           pendingDecision: prepCalib.pendingDecision,
           preparedDetail: prepCalib.detailMessage,
           preparedSuccess: prepCalib.isSuccess,
           rejectedByUser: false,
-          coursesPersisted:
-              persistOutcome.isOk || persistOutcome.dataSavedOnly,
         );
         if (_isDisposed || !context.mounted) return;
+        final persistOutcome = atomic.coursesOutcome;
 
         if (!persistOutcome.isOk) {
           _showPersistErrorDialog(

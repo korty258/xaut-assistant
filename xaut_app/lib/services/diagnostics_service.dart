@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:webview_windows/webview_windows.dart' as win;
+import 'app_crypto_service.dart';
 import 'legal_service.dart';
 import 'parser_service.dart';
 import 'storage_service.dart';
@@ -23,6 +24,8 @@ class DiagnosticSnapshot {
   final String coursesErrorCategory;
   final String gradesErrorCategory;
   final String examsErrorCategory;
+  final int pendingMigrationCount;
+  final bool hasKeyBlockedMigration;
 
   const DiagnosticSnapshot({
     required this.appVersion,
@@ -41,6 +44,8 @@ class DiagnosticSnapshot {
     this.coursesErrorCategory = 'none',
     this.gradesErrorCategory = 'none',
     this.examsErrorCategory = 'none',
+    this.pendingMigrationCount = 0,
+    this.hasKeyBlockedMigration = false,
   });
 
   /// 导出适用于 GitHub Issue 反馈的纯文本/Markdown 脱敏报告
@@ -51,6 +56,9 @@ class DiagnosticSnapshot {
     buffer.writeln('- **合规条款版本 (Legal Version)**: $legalVersion');
     buffer.writeln('- **运行平台 (Platform)**: $platform');
     buffer.writeln('- **WebView2 运行时 (Windows)**: $webView2Info');
+    buffer.writeln(
+      '- **本地密文升级状态**: ${pendingMigrationCount == 0 ? "已完成或无需升级" : "待重试 $pendingMigrationCount 项${hasKeyBlockedMigration ? "（受密钥访问异常阻塞）" : ""}"}',
+    );
     buffer.writeln();
     buffer.writeln('#### 模块本地同步时间');
     buffer.writeln('- 课表模块: ${DiagnosticsService.formatDateTime(coursesSyncTime)}');
@@ -189,6 +197,8 @@ class DiagnosticsService {
       coursesErrorCategory: _coursesErrorCategory ?? 'none',
       gradesErrorCategory: _gradesErrorCategory ?? 'none',
       examsErrorCategory: _examsErrorCategory ?? 'none',
+      pendingMigrationCount: AppCryptoService.pendingMigrationKeys.length,
+      hasKeyBlockedMigration: AppCryptoService.hasKeyBlockedMigrationFailure,
     );
   }
 
