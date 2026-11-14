@@ -17,6 +17,7 @@ class ScheduleProvider extends ChangeNotifier {
   DateTime? _semesterStartDate; // 本学期第 1 周周一基准日期 (本地零点)
   String _semesterName = '';
   DateTime? _lastEvaluatedDay;
+  bool _lastCalibrationRollbackFailed = false;
 
   List<Course> get courses => _courses;
   int get currentWeek => _currentWeek;
@@ -31,6 +32,7 @@ class ScheduleProvider extends ChangeNotifier {
   DateTime? get semesterStartDate => _semesterStartDate;
   String get semesterName => _semesterName;
   bool get hasSemesterStart => _semesterStartDate != null;
+  bool get lastCalibrationRollbackFailed => _lastCalibrationRollbackFailed;
 
   /// 当天零点日期
   DateTime get todayDate {
@@ -334,11 +336,13 @@ class ScheduleProvider extends ChangeNotifier {
   }
 
   /// 统一持久化校准基准与当前周：任意中间写入失败或异常时完整回滚磁盘与内存（包括 prevStart == null 清理新建键）
+  /// 严格区分“回滚完全成功”与“回滚未完成”并透传 `lastCalibrationRollbackFailed` 状态，防止误报已回滚
   Future<bool> _persistCalibrationState({
     required int nextMaxWeeks,
     required DateTime startMonday,
     required String? semester,
   }) async {
+    _lastCalibrationRollbackFailed = false;
     final prevMaxWeeks = _maxWeeks;
     final prevStart = _semesterStartDate;
     final prevSemester = _semesterName;
@@ -354,8 +358,11 @@ class ScheduleProvider extends ChangeNotifier {
     bool startWritten = false;
     bool nameWritten = false;
     bool weekWritten = false;
+    bool rollbackAttempted = false;
 
     Future<void> rollbackDisk() async {
+      if (rollbackAttempted) return;
+      rollbackAttempted = true;
       bool rollbackOk = true;
       if (startWritten) {
         try {
@@ -386,6 +393,7 @@ class ScheduleProvider extends ChangeNotifier {
         }
       }
       if (!rollbackOk) {
+        _lastCalibrationRollbackFailed = true;
         throw const StorageWriteException('教学周基准保存失败且磁盘回滚未完成，请手动重新校准');
       }
     }
@@ -484,6 +492,7 @@ class ScheduleProvider extends ChangeNotifier {
 
   /// 仅更新学期名称（当未检测到周次但识别到新学期名称时使用）
   Future<bool> setSemesterNameOnly(String semester) async {
+    _lastCalibrationRollbackFailed = false;
     final trimmed = semester.trim();
     if (trimmed.isEmpty || trimmed == _semesterName) return true;
     final ok = await StorageService.saveSemesterName(trimmed);

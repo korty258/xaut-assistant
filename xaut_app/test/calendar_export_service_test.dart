@@ -248,5 +248,95 @@ void main() {
       expect(ics, contains('DTSTART;TZID=Asia/Shanghai:20261120T220000\r\n'));
       expect(ics, contains('DTEND;TZID=Asia/Shanghai:20261121T010000\r\n'));
     });
+
+    test('generateIcs produces globally unique UIDs across same-slot courses and same-time exams without seat numbers', () {
+      final fixedNow = DateTime(2026, 11, 2, 10, 0, 0);
+      final semesterStartMon = DateTime(2026, 9, 7);
+
+      // 同名、同星期、同起始节次、同周次，但跨度不同（1-2节 vs 1-4节）或教室不同
+      const courseShort = Course(
+        name: '大学物理实验',
+        teacher: '陈老师',
+        room: '实验楼201',
+        day: 2,
+        startSection: 1,
+        stepCount: 2,
+        weeks: [1],
+        rawWeekStr: '1(周)[01-02节]',
+      );
+      const courseLong = Course(
+        name: '大学物理实验',
+        teacher: '陈老师',
+        room: '实验楼201',
+        day: 2,
+        startSection: 1,
+        stepCount: 4,
+        weeks: [1],
+        rawWeekStr: '1(周)[01-04节]',
+      );
+      const courseOtherRoom = Course(
+        name: '大学物理实验',
+        teacher: '王老师',
+        room: '实验楼305',
+        day: 2,
+        startSection: 1,
+        stepCount: 2,
+        weeks: [1],
+        rawWeekStr: '1(周)[01-02节]',
+      );
+
+      // 同名课程、同一时间文本，但校区/考场/课程代码/批次不同
+      const examA = ExamItem(
+        campus: '金花校区',
+        batch: '2026-2027-1期末',
+        courseCode: 'CS101-A',
+        courseName: '程序设计基础',
+        teacher: '张老师',
+        examTime: '2027-01-08 09:00~11:00',
+        room: '教1-201',
+      );
+      const examB = ExamItem(
+        campus: '曲江校区',
+        batch: '2026-2027-1期末',
+        courseCode: 'CS101-B',
+        courseName: '程序设计基础',
+        teacher: '李老师',
+        examTime: '2027-01-08 09:00~11:00',
+        room: '教10-302',
+      );
+      // 即使输入存在完全重复事件，单次导出内仍须保证 UID 100% 唯一
+      const examDuplicate = examA;
+
+      final ics1 = CalendarExportService.generateIcs(
+        courses: [courseShort, courseLong, courseOtherRoom],
+        semesterStartMonday: semesterStartMon,
+        exams: [examA, examB, examDuplicate],
+        now: fixedNow,
+      );
+      final ics2 = CalendarExportService.generateIcs(
+        courses: [courseShort, courseLong, courseOtherRoom],
+        semesterStartMonday: semesterStartMon,
+        exams: [examA, examB, examDuplicate],
+        now: fixedNow,
+      );
+
+      // 先还原 RFC 5545 折行再提取全部 UID
+      final unfolded1 = ics1.replaceAll('\r\n ', '');
+      final unfolded2 = ics2.replaceAll('\r\n ', '');
+      final allUids1 = RegExp(r'^UID:(.+)$', multiLine: true)
+          .allMatches(unfolded1)
+          .map((m) => m.group(1)!.trim())
+          .toList();
+      final allUids2 = RegExp(r'^UID:(.+)$', multiLine: true)
+          .allMatches(unfolded2)
+          .map((m) => m.group(1)!.trim())
+          .toList();
+
+      expect(allUids1.length, equals(6));
+      expect(allUids1.toSet().length, equals(6));
+      expect(allUids1, equals(allUids2));
+      expect(ics1, isNot(contains('座位号')));
+      expect(ics1, isNot(contains('seat')));
+    });
   });
 }

@@ -728,7 +728,7 @@ void main() {
       expect(AppCryptoService.pendingMigrationKeys, isEmpty);
     });
 
-    test('StorageService.resetCorruptedDataWithReport deletes all 9 prefs keys BEFORE calling destroyMasterKey and skips key destruction on failure', () async {
+    test('StorageService.resetCorruptedDataWithReport stops at first failed module, protects subsequent healthy modules and master key', () async {
       AppCryptoService.resetForTesting();
       StorageService.resetForTesting();
       final mockKey = enc.Key.fromBase64('MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=');
@@ -743,8 +743,8 @@ void main() {
         'xaut_semester_name',
         'xaut_cached_grades',
         'xaut_cached_grade_summary',
-        'xaut_cached_exams',
         'xaut_last_grades_sync',
+        'xaut_cached_exams',
         'xaut_last_exams_sync',
       ]) {
         await prefs.setString(k, 'payload_$k');
@@ -755,7 +755,10 @@ void main() {
         ops.add('destroy_master_key:$key');
       };
 
-      // 先注入第 5 个键（成绩密文）删除失败：必须中止，绝不调用 destroyMasterKey
+      // 注入成绩模块主密文键删除失败：
+      // 1) 必须中止后续考试模块清理（xaut_cached_exams / xaut_last_exams_sync 绝不可被触碰）
+      // 2) 成绩模块已删的附属元数据（summary / last_grades_sync）必须回滚恢复
+      // 3) 绝不调用 destroyMasterKey
       StorageService.debugPrefsRemover = (p, key) async {
         ops.add('remove_pref:$key');
         if (key == 'xaut_cached_grades') return false;
@@ -766,10 +769,17 @@ void main() {
       expect(failReport.success, isFalse);
       expect(failReport.prefsCleared, isFalse);
       expect(failReport.keyDestroyed, isFalse);
+      expect(failReport.clearedModules, equals(['课表']));
+      expect(failReport.failedModule, equals('成绩'));
       expect(ops.any((e) => e.startsWith('destroy_master_key:')), isFalse);
+      expect(ops.any((e) => e.contains('exams')), isFalse);
       expect(prefs.getString('xaut_cached_grades'), isNotNull);
+      expect(prefs.getString('xaut_cached_grade_summary'), isNotNull);
+      expect(prefs.getString('xaut_last_grades_sync'), isNotNull);
+      expect(prefs.getString('xaut_cached_exams'), equals('payload_xaut_cached_exams'));
+      expect(prefs.getString('xaut_last_exams_sync'), equals('payload_xaut_last_exams_sync'));
 
-      // 解除删除失败后再次执行：全部 9 个 remove_pref 操作必须排在 destroy_master_key 之前
+      // 解除删除失败后再次执行：剩余键全部在 destroy_master_key 之前清除且主密钥随后销毁
       ops.clear();
       StorageService.debugPrefsRemover = (p, key) async {
         ops.add('remove_pref:$key');
@@ -779,6 +789,8 @@ void main() {
       expect(okReport.success, isTrue);
       expect(okReport.prefsCleared, isTrue);
       expect(okReport.keyDestroyed, isTrue);
+      expect(okReport.clearedModules, equals(['课表', '成绩', '考试']));
+      expect(okReport.failedModule, isNull);
 
       final destroyIdx = ops.indexWhere((e) => e.startsWith('destroy_master_key:'));
       expect(destroyIdx, equals(9));
