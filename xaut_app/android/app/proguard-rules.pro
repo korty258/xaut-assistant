@@ -26,6 +26,9 @@
 -keep class dev.fluttercommunity.plus.share.** { *; }
 -keep class kotlin.Metadata { *; }
 
+# Suppress optional Flutter deferred-components Play Core references (not used)
+-dontwarn com.google.android.play.core.**
+
 # Suppress optional JVM-only annotation / Conscrypt warnings in Tink & plugins
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**
