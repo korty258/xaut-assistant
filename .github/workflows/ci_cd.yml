@@ -20,6 +20,7 @@ jobs:
   quality_check:
     name: Lint & Unit Tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Checkout Code
         uses: actions/checkout@v7
@@ -126,6 +127,7 @@ jobs:
     needs: quality_check
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - name: Checkout Code
         uses: actions/checkout@v7
@@ -239,6 +241,7 @@ jobs:
     needs: quality_check
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: windows-2022
+    timeout-minutes: 25
     steps:
       - name: Checkout Code
         uses: actions/checkout@v7
@@ -279,6 +282,7 @@ jobs:
     needs: [build_android, build_windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Checkout Code
         uses: actions/checkout@v7

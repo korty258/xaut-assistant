@@ -711,6 +711,13 @@ class SyncScriptBuilder {
             };
 
             var currentUrl = window.location.href;
+            if (checkAuth(document, null, currentUrl)) {
+              result.status.courses = 'not_logged_in';
+              result.status.grades = 'not_logged_in';
+              result.status.exams = 'not_logged_in';
+              postToFlutter({ type: 'sync_all_result', success: true, data: result });
+              return JSON.stringify(result);
+            }
 
             // 0. 提取当前教学周与学年学期
             try {

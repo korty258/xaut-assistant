@@ -94,6 +94,12 @@ void main() {
       // 严禁因为 currentUrl 包含 /jsxsd/xskb/ 或 /jsxsd/kscj/ 就直接读 document
       expect(script.contains("if (currentUrl.indexOf('/jsxsd/xskb/') !== -1)"), isFalse);
       expect(script.contains("if (currentUrl.indexOf('/jsxsd/kscj/') !== -1)"), isFalse);
+
+      // 一键同步必须在任何教务抓取前检测当前页面是否处于 CAS 登录页，避免全员误报 error
+      final authPos = script.indexOf('if (checkAuth(document, null, currentUrl))');
+      final timetableFetchPos = script.indexOf("fetchHtmlAsync('/jsxsd/xskb/xskb_list.do', 15000)");
+      expect(authPos, greaterThan(0));
+      expect(authPos, lessThan(timetableFetchPos));
     });
 
     test('buildExamsInjectionScript and buildSyncAllInjectionScript reflect robust exam state machine without erroneous empty forced conversion', () async {
