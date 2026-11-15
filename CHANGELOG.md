@@ -6,6 +6,33 @@
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-11-15
+
+金花助手 `v2.4.0` 正式版发布！本版本围绕 **Fail-Closed 安全纵深防御、模型强契约解析隔离、WebView 异步销毁/登录态闭环、小屏与系统大字号全界面防溢出、Windows 单实例保护与工程防卡死体系** 完成全面升级与 4 轮预览/候选回归收敛。
+
+### Security & Reliability (Fail-Closed)
+- **AES-256-GCM 主密钥 Fail-Closed 一致性加固 (`AppCryptoService`)**：
+  - 将安全存储读写异常与密钥格式异常统一收敛为 `CryptoKeyException`，确保透明明文迁移与密文读取路径均严格阻断故障降级。
+- **JSON 结构损坏显式隔离 (`StorageService`、`ScheduleProvider`、`GradesProvider`、`ExamsProvider` & `DecryptionErrorView`)**：
+  - 新增 `StorageFormatException` 与 `decodeJsonList()`，区分密钥/AEAD 鉴权失败（`hasDecryptionError`）与结构损坏（`hasDataFormatError`）；损坏重置改为按模块原子保护，消除界面冗余回调与未捕获异常。
+- **Android 原生 Cookie 清理异步回调等待与 WebView 销毁守卫 (`MainActivity.kt`、`WebViewPlatformAdapter`、`WebViewLoginScreen` & `WebViewNavBar`)**：
+  - 引入 `_isDisposed` 生命周期守卫与 `isInitialized` 交互拦截，全面阻止未就绪或已销毁期间的控制器写入与 `ValueNotifier` 异常；撤回清理严格等待 `removeAllCookies` 异步完成并核验目录删除结果。
+- **一键全量同步 CAS 登录态前置识别 (`SyncScriptBuilder`)**：
+  - `buildSyncAllInjectionScript()` 在发起异步请求前先执行 `checkAuth(document, null, currentUrl)`，停留在 CAS 登录页时立即返回 `not_logged_in` 并弹出未登录引导，同时完整清理任务注册表。
+- **Windows 桌面端单实例互斥锁 (`windows/runner/main.cpp`)**：
+  - 通过命名内核互斥体阻止多实例并发竞争配置与 WebView2 目录，二次启动自动唤醒并前置已有窗口。
+
+### Fixed & UX
+- **全场景窄屏/系统大字号防溢出收口**：
+  - 修复 `DiagnosticsDialog` 报错遥测行、`WeekSelectorSheet` 头部按钮、`CalendarExportDialog` 标题与课前/考前提醒行（`300dp` + `1.5x` 字体缩放）、`LegalGateScreen` / `ScheduleScreen` / `GradesScreen` / `ExamsScreen` / `CourseDetailDialog` / `WebViewSyncDialogs` 等多处横向/纵向溢出与根导航误弹窗问题。
+- **核心模型契约校验与解析隔离 (`Course`、`GradeItem`、`ExamItem` & `CourseScheduleParser`)**：
+  - 修复 `GradeItem.fromJson` `'grade'` 别名读取丢失问题并移除不安全 `as` 强转；`Course.fromJson` 与 `deduplicateCourses()` 统一校验 `day`（`1..7`）、`startSection`（`1..13`）与 `stepCount`（`>= 1`）合法边界；`.ics` 日历导出补充 UID 确定性去重。
+
+### Architecture, Build & Quality Gates
+- **模块化拆分与实例级依赖注入**：拆分 `WebViewSyncDialogs` / `WebViewSyncCalibration`、`LegalMarkdownReader` / `LegalRevokeDialogs`、`CourseScheduleParser` 与 `DateTimeUtils`，核心服务与 `Provider` 均支持依赖注入隔离测试。
+- **构建优化与防卡死质量门禁**：Android Release 启用 R8 代码混淆与资源收缩（`proguard-rules.pro`）；`analysis_options.yaml` 启用严格异步 lint 并实现 `dart analyze --fatal-infos` 零告警；配置 `dart_test.yaml`（`45s` 单用例超时）与 CI `timeout-minutes` 及 `>= 65%` 覆盖率门禁。
+- **全量自动化验证**：Flutter 单元与组件测试扩充至 **190 项**（行覆盖率 **78.51%**），Node 24 JSDOM 解析器回归测试扩充至 **31 项**，全部通过。
+
 ## [2.4.0-rc1] - 2026-11-14
 
 金花助手 `v2.4.0-rc1`（候选发布版 · 诊断弹窗报错遥测行手机端自适应换行、次级弹窗与页头窄屏/大字号防溢出收口、WebView 清理 Cookie 异步退页状态守卫）！
@@ -732,7 +759,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-rc1...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/korty258/xaut-assistant/compare/v2.3.8...v2.4.0
 [2.4.0-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre3...v2.4.0-rc1
 [2.4.0-pre3]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre2...v2.4.0-pre3
 [2.4.0-pre2]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre1...v2.4.0-pre2
