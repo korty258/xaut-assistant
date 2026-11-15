@@ -134,6 +134,51 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
     }
   }
 
+  Widget _buildReminderSelectorRow({
+    required ThemeData theme,
+    required IconData icon,
+    required String label,
+    required CalendarReminderOption value,
+    required List<DropdownMenuItem<CalendarReminderOption>> items,
+    required ValueChanged<CalendarReminderOption> onChanged,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(label, style: const TextStyle(fontSize: 13)),
+              ),
+            ],
+          ),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerRight,
+            child: DropdownButton<CalendarReminderOption>(
+              value: value,
+              isDense: true,
+              style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
+              underline: const SizedBox(),
+              items: items,
+              onChanged: (val) {
+                if (val != null) onChanged(val);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -262,27 +307,18 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
                       ],
                       if (_exportCourses) ...[
                         const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(Icons.notifications_active_outlined, size: 16, color: theme.colorScheme.primary),
-                            const SizedBox(width: 6),
-                            const Text('课前提醒: ', style: TextStyle(fontSize: 13)),
-                            const Spacer(),
-                            DropdownButton<CalendarReminderOption>(
-                              value: _courseReminder,
-                              isDense: true,
-                              underline: const SizedBox(),
-                              items: const [
-                                DropdownMenuItem(value: CalendarReminderOption.none, child: Text('不提醒')),
-                                DropdownMenuItem(value: CalendarReminderOption.m15, child: Text('提前 15 分钟')),
-                                DropdownMenuItem(value: CalendarReminderOption.m30, child: Text('提前 30 分钟')),
-                                DropdownMenuItem(value: CalendarReminderOption.h1, child: Text('提前 1 小时')),
-                              ],
-                              onChanged: (val) {
-                                if (val != null) setState(() => _courseReminder = val);
-                              },
-                            ),
+                        _buildReminderSelectorRow(
+                          theme: theme,
+                          icon: Icons.notifications_active_outlined,
+                          label: '课前提醒: ',
+                          value: _courseReminder,
+                          items: const [
+                            DropdownMenuItem(value: CalendarReminderOption.none, child: Text('不提醒')),
+                            DropdownMenuItem(value: CalendarReminderOption.m15, child: Text('提前 15 分钟')),
+                            DropdownMenuItem(value: CalendarReminderOption.m30, child: Text('提前 30 分钟')),
+                            DropdownMenuItem(value: CalendarReminderOption.h1, child: Text('提前 1 小时')),
                           ],
+                          onChanged: (val) => setState(() => _courseReminder = val),
                         ),
                       ],
                     ],
@@ -331,26 +367,17 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
                       ),
                       if (_exportExams) ...[
                         const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(Icons.alarm_rounded, size: 16, color: theme.colorScheme.primary),
-                            const SizedBox(width: 6),
-                            const Text('考前提醒: ', style: TextStyle(fontSize: 13)),
-                            const Spacer(),
-                            DropdownButton<CalendarReminderOption>(
-                              value: _examReminder,
-                              isDense: true,
-                              underline: const SizedBox(),
-                              items: const [
-                                DropdownMenuItem(value: CalendarReminderOption.none, child: Text('不提醒')),
-                                DropdownMenuItem(value: CalendarReminderOption.h2, child: Text('提前 2 小时')),
-                                DropdownMenuItem(value: CalendarReminderOption.d1, child: Text('提前 1 天')),
-                              ],
-                              onChanged: (val) {
-                                if (val != null) setState(() => _examReminder = val);
-                              },
-                            ),
+                        _buildReminderSelectorRow(
+                          theme: theme,
+                          icon: Icons.alarm_rounded,
+                          label: '考前提醒: ',
+                          value: _examReminder,
+                          items: const [
+                            DropdownMenuItem(value: CalendarReminderOption.none, child: Text('不提醒')),
+                            DropdownMenuItem(value: CalendarReminderOption.h2, child: Text('提前 2 小时')),
+                            DropdownMenuItem(value: CalendarReminderOption.d1, child: Text('提前 1 天')),
                           ],
+                          onChanged: (val) => setState(() => _examReminder = val),
                         ),
                       ],
                     ],

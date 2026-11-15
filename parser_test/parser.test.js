@@ -533,3 +533,69 @@ test('6. 考试异步拉取状态机回归测试 (fetchExamScheduleAsync)', asyn
     assert.equal(res.error, null);
   });
 });
+
+test('7. 一键全量同步脚本登录态前置检测回归测试 (buildSyncAllInjectionScript)', async () => {
+  const dartFilePath = path.join(__dirname, '../xaut_app/lib/services/parser/sync_script_builder.dart');
+  const dartCode = fs.readFileSync(dartFilePath, 'utf8');
+  const originMatch = dartCode.match(/static const String originGuardJs = '''([\s\S]*?)''';/);
+  const checkAuthMatch = dartCode.match(/static const String checkAuthJs = '''([\s\S]*?)''';/);
+  const helperMatch = dartCode.match(/static String buildAsyncBridgeHelperJs[\s\S]*?return '''([\s\S]*?)''';/);
+  const syncAllMatch = dartCode.match(/static Future<String> buildSyncAllInjectionScript[\s\S]*?return '''([\s\S]*?)''';/);
+
+  assert.ok(originMatch && checkAuthMatch && helperMatch && syncAllMatch, '未能完整提取 sync_script_builder.dart 模板');
+
+  const parserJsPath = path.join(__dirname, '../xaut_app/assets/js/qiangzhi_parser.js');
+  const parserJsCode = fs.readFileSync(parserJsPath, 'utf8');
+  const loginHtml = fs.readFileSync(path.join(__dirname, 'fixtures/login_page.html'), 'utf8');
+
+  const dom = new JSDOM(loginHtml, {
+    url: 'https://ids.xaut.edu.cn/authserver/login',
+    runScripts: 'dangerously',
+  });
+  const win = dom.window;
+
+  let fetchCallCount = 0;
+  win.fetch = async () => {
+    fetchCallCount++;
+    return { ok: false, status: 500, text: async () => '' };
+  };
+
+  const bridgedMessages = [];
+  win.JinhuaBridge = {
+    postMessage(raw) {
+      bridgedMessages.push(JSON.parse(raw));
+    },
+  };
+
+  const helperJs = helperMatch[1]
+    .replace(/\$safeRequestId/g, '"test_req_sync_all"')
+    .replace(/\$timeoutMs/g, '30000')
+    .replace(/\$checkAuthJs/g, checkAuthMatch[1])
+    .replace(/\\\$/g, '$');
+
+  const script = syncAllMatch[1]
+    .replace(/\$originGuardJs/g, originMatch[1])
+    .replace(/\$jsCode/g, parserJsCode)
+    .replace(/\$helperJs/g, helperJs)
+    .replace(/\\\$/g, '$');
+
+  const rawResult = await win.eval(script);
+  const parsed = JSON.parse(rawResult);
+
+  assert.equal(fetchCallCount, 0, 'CAS 登录页触发一键同步时不应发起教务网络请求');
+  assert.deepEqual(parsed.status, {
+    courses: 'not_logged_in',
+    grades: 'not_logged_in',
+    exams: 'not_logged_in',
+  });
+  assert.equal(win.__jinhuaActiveTasks.test_req_sync_all, undefined, '提前返回时也必须清理活动任务注册表');
+
+  const syncAllPacket = bridgedMessages.find((m) => m.type === 'sync_all_result');
+  assert.ok(syncAllPacket, '必须通过 JinhuaBridge 发送 sync_all_result 数据包');
+  assert.equal(syncAllPacket.success, true);
+  assert.deepEqual(syncAllPacket.data.status, {
+    courses: 'not_logged_in',
+    grades: 'not_logged_in',
+    exams: 'not_logged_in',
+  });
+});

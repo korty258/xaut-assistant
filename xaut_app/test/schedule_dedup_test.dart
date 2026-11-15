@@ -10,6 +10,7 @@ import 'package:xaut_app/services/app_crypto_service.dart';
 import 'package:xaut_app/services/parser_service.dart';
 import 'package:xaut_app/services/legal_service.dart';
 import 'package:xaut_app/services/storage_service.dart';
+import 'package:xaut_app/utils/course_schedule_parser.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -585,5 +586,77 @@ void main() {
 
     final c2 = provider.courses.firstWhere((c) => c.name == '数字信号处理');
     expect(c2.weeks, [1, 3, 5, 7]);
+  });
+
+  test('Course.fromJson rejects out-of-range day, startSection, and stepCount', () {
+    Map<String, dynamic> validPayload({int day = 1, int start = 1, int step = 2}) => {
+          'name': '数据结构',
+          'day': day,
+          'startSection': start,
+          'stepCount': step,
+          'weeks': [1],
+          'rawWeekStr': '1周',
+        };
+
+    expect(() => Course.fromJson(validPayload(day: 0)), throwsFormatException);
+    expect(() => Course.fromJson(validPayload(day: 8)), throwsFormatException);
+    expect(() => Course.fromJson(validPayload(start: 0)), throwsFormatException);
+    expect(() => Course.fromJson(validPayload(start: 14)), throwsFormatException);
+    expect(() => Course.fromJson(validPayload(step: 0)), throwsFormatException);
+    expect(() => Course.fromJson(validPayload(step: -2)), throwsFormatException);
+
+    final boundary = Course.fromJson(validPayload(day: 7, start: 13, step: 1));
+    expect(boundary.day, 7);
+    expect(boundary.startSection, 13);
+    expect(boundary.stepCount, 1);
+  });
+
+  test('CourseScheduleParser.deduplicateCourses filters non-positive startSection and stepCount', () {
+    final raw = [
+      const Course(
+        name: '零节次脏数据',
+        teacher: '',
+        room: '',
+        day: 1,
+        startSection: 0,
+        stepCount: 2,
+        weeks: [1],
+        rawWeekStr: '1周',
+      ),
+      const Course(
+        name: '零跨度脏数据',
+        teacher: '',
+        room: '',
+        day: 2,
+        startSection: 3,
+        stepCount: 0,
+        weeks: [1],
+        rawWeekStr: '1周',
+      ),
+      const Course(
+        name: '负跨度脏数据',
+        teacher: '',
+        room: '',
+        day: 3,
+        startSection: 5,
+        stepCount: -1,
+        weeks: [1],
+        rawWeekStr: '1周',
+      ),
+      const Course(
+        name: '合法晚间课程',
+        teacher: '周老师',
+        room: '教6-101',
+        day: 7,
+        startSection: 11,
+        stepCount: 3,
+        weeks: [1, 2],
+        rawWeekStr: '1-2周',
+      ),
+    ];
+
+    final deduped = CourseScheduleParser.deduplicateCourses(raw);
+    expect(deduped.length, 1);
+    expect(deduped.first.name, '合法晚间课程');
   });
 }

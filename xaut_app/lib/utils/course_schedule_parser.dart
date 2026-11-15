@@ -141,7 +141,11 @@ abstract final class CourseScheduleParser {
         continue;
       }
 
-      if (c.startSection > Course.totalSections || c.day < 1 || c.day > 7) {
+      if (c.day < 1 ||
+          c.day > 7 ||
+          c.startSection < 1 ||
+          c.startSection > Course.totalSections ||
+          c.stepCount < 1) {
         continue;
       }
       if (c.weeks.isEmpty && c.rawWeekStr.isEmpty) {

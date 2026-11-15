@@ -136,6 +136,16 @@ class Course {
     if (rawDay is! num || rawStartSection is! num || rawStepCount is! num) {
       throw const FormatException('Course JSON 缺少有效的星期或节次字段');
     }
+    final day = rawDay.toInt();
+    final startSection = rawStartSection.toInt();
+    final stepCount = rawStepCount.toInt();
+    if (day < 1 ||
+        day > 7 ||
+        startSection < 1 ||
+        startSection > totalSections ||
+        stepCount < 1) {
+      throw const FormatException('Course JSON 星期或节次数值越界');
+    }
 
     final rawWeeks = json['weeks'];
     final List<int> parsedWeeks = [];
@@ -163,9 +173,9 @@ class Course {
       name: rawName,
       teacher: rawTeacher is String ? rawTeacher : '',
       room: rawRoom is String ? rawRoom : '',
-      day: rawDay.toInt(),
-      startSection: rawStartSection.toInt(),
-      stepCount: rawStepCount.toInt(),
+      day: day,
+      startSection: startSection,
+      stepCount: stepCount,
       weeks: parsedWeeks,
       rawWeekStr: rawWeekStr,
     );
