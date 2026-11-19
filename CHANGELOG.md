@@ -6,6 +6,26 @@
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-11-19
+
+金花助手 `v2.4.1`（工程质量加固、解析脚本模块化瘦身与开源社区协作规范维护版）发布！本版本在不改变任何既有用户行为的前提下，完成强智注入脚本构建器职责拆分、补齐界面壳层与横幅组件自动化测试、升级 JS 解析测试依赖并完善开源社区协作指引。
+
+### Refactored
+- **强智教务注入脚本构建器模块化拆分 (`SyncScriptBuilder`)**：
+  - 将原 835 行 `sync_script_builder.dart` 拆分为 3 个职责单一的模块：`SyncScriptFragments`（Origin 安全守卫、CAS 登录检测与跨端异步 Bridge / Fetch / 教学周回退运行时）、`ExamSyncScriptFragment`（考试跨 iframe 穿透拉取状态机）与精简后的 `SyncScriptBuilder`（372 行高层管线编排）；
+  - 全面保留原有公共静态 API 与模板语义，同步精简 `parser_test/parser.test.js` 模板加载逻辑。
+
+### Tests & Dependencies
+- **核心 UI 壳层与组件测试补强 (`shell_and_banner_widgets_test.dart`)**：
+  - 新增 5 组 Widget 测试，覆盖 `WebViewBottomBar`（URL 联动按钮文案、未初始化/同步中禁用与进度状态条）、`HomeScreen`（三 Tab 切换与 `AppLifecycleState.resumed` 跨周自动刷新）、`WeekStatusBanner`（未校准引导弹窗、非本周一键回到本周与本周自动收缩）以及 `CourseCard`（深色模式、非本周/本周子列、多课程 `+N` 叠层角标与详情弹窗）；
+  - Flutter 单元与组件测试扩充至 **195 项** 全部通过，总行覆盖率由 `78.51%` 提升至 **81.12%**。
+- **测试依赖维护**：
+  - 升级 `parser_test` 的 `jsdom` 至 `31.0.1`（0 漏洞），Node 24 JSDOM 回归测试保持 **31 项** 全通。
+
+### Documentation & Community
+- **开源协作文档完善**：
+  - 新增根目录 `CONTRIBUTING.md`（明确西理工业务红线、开发环境、本地门禁命令与 Widget 测试防死锁规范）与 `.github/PULL_REQUEST_TEMPLATE.md`（内置业务/隐私合规与门禁自查清单）。
+
 ## [2.4.0] - 2026-11-15
 
 金花助手 `v2.4.0` 正式版发布！本版本围绕 **Fail-Closed 安全纵深防御、模型强契约解析隔离、WebView 异步销毁/登录态闭环、小屏与系统大字号全界面防溢出、Windows 单实例保护与工程防卡死体系** 完成全面升级与 4 轮预览/候选回归收敛。
@@ -759,7 +779,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/korty258/xaut-assistant/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/korty258/xaut-assistant/compare/v2.3.8...v2.4.0
 [2.4.0-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre3...v2.4.0-rc1
 [2.4.0-pre3]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre2...v2.4.0-pre3
