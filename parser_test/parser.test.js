@@ -321,16 +321,63 @@ test('5. 复杂周次解析回归测试 (parseWeeks)', async (t) => {
   });
 });
 
-test('6. 考试异步拉取状态机回归测试 (fetchExamScheduleAsync)', async (t) => {
-  const builderPath = path.join(__dirname, '../xaut_app/lib/services/parser/sync_script_builder.dart');
-  const legacyPath = path.join(__dirname, '../xaut_app/lib/services/parser_service.dart');
-  const dartFilePath = fs.existsSync(builderPath) ? builderPath : legacyPath;
-  const dartCode = fs.readFileSync(dartFilePath, 'utf8');
-  const checkAuthMatch = dartCode.match(/static const String checkAuthJs = '''([\s\S]*?)''';/);
-  const checkAuthJs = checkAuthMatch ? checkAuthMatch[1] : '';
-  const helperMatch = dartCode.match(/static String (?:_)?buildAsyncBridgeHelperJs[\s\S]*?return '''([\s\S]*?)''';/);
-  assert.ok(helperMatch, '未能提取 buildAsyncBridgeHelperJs');
+function loadSyncScriptTemplates() {
+  const parserDir = path.join(__dirname, '../xaut_app/lib/services/parser');
+  const fragmentsCode = fs.readFileSync(path.join(parserDir, 'sync_script_fragments.dart'), 'utf8');
+  const examFragmentCode = fs.readFileSync(path.join(parserDir, 'exam_sync_script_fragment.dart'), 'utf8');
+  const builderCode = fs.readFileSync(path.join(parserDir, 'sync_script_builder.dart'), 'utf8');
 
+  const extractTriple = (source, pattern, label) => {
+    const match = source.match(pattern);
+    assert.ok(match, `未能提取 ${label}`);
+    return match[1];
+  };
+
+  const originGuardJs = extractTriple(
+    fragmentsCode,
+    /static const String originGuardJs = r?'''([\s\S]*?)''';/,
+    'originGuardJs'
+  );
+  const checkAuthJs = extractTriple(
+    fragmentsCode,
+    /static const String checkAuthJs = r?'''([\s\S]*?)''';/,
+    'checkAuthJs'
+  );
+  const bridgeRuntimeJs = extractTriple(
+    fragmentsCode,
+    /static const String bridgeRuntimeJs = r?'''([\s\S]*?)''';/,
+    'bridgeRuntimeJs'
+  );
+  const examScheduleAsyncJs = extractTriple(
+    examFragmentCode,
+    /static const String examScheduleAsyncJs = r?'''([\s\S]*?)''';/,
+    'examScheduleAsyncJs'
+  );
+  const helperTemplate = extractTriple(
+    builderCode,
+    /static String buildAsyncBridgeHelperJs[\s\S]*?return '''([\s\S]*?)''';/,
+    'buildAsyncBridgeHelperJs'
+  );
+  const syncAllTemplate = extractTriple(
+    builderCode,
+    /static Future<String> buildSyncAllInjectionScript[\s\S]*?return '''([\s\S]*?)''';/,
+    'buildSyncAllInjectionScript'
+  );
+
+  function buildHelperJs(requestId, timeoutMs = 30000) {
+    return helperTemplate
+      .replace(/\$safeRequestId/g, JSON.stringify(requestId))
+      .replace(/\$timeoutMs/g, String(timeoutMs))
+      .replace(/\$\{SyncScriptFragments\.bridgeRuntimeJs\}/g, bridgeRuntimeJs)
+      .replace(/\$checkAuthJs/g, checkAuthJs)
+      .replace(/\$\{ExamSyncScriptFragment\.examScheduleAsyncJs\}/g, examScheduleAsyncJs);
+  }
+
+  return { originGuardJs, checkAuthJs, buildHelperJs, syncAllTemplate };
+}
+
+test('6. 考试异步拉取状态机回归测试 (fetchExamScheduleAsync)', async (t) => {
+  const { buildHelperJs } = loadSyncScriptTemplates();
   const parserJsPath = path.join(__dirname, '../xaut_app/assets/js/qiangzhi_parser.js');
   const parserJsCode = fs.readFileSync(parserJsPath, 'utf8');
 
@@ -350,12 +397,7 @@ test('6. 考试异步拉取状态机回归测试 (fetchExamScheduleAsync)', asyn
 
     win.eval(parserJsCode);
 
-    let helperJs = helperMatch[1]
-      .replace(/\$safeRequestId/g, '"test_req_exam"')
-      .replace(/\$timeoutMs/g, '30000')
-      .replace(/\$checkAuthJs/g, checkAuthJs)
-      .replace(/\\\$/g, '$');
-
+    let helperJs = buildHelperJs('test_req_exam', 30000);
     helperJs += '\nwindow.fetchExamScheduleAsync = fetchExamScheduleAsync;';
     win.eval(helperJs);
 
@@ -535,14 +577,7 @@ test('6. 考试异步拉取状态机回归测试 (fetchExamScheduleAsync)', asyn
 });
 
 test('7. 一键全量同步脚本登录态前置检测回归测试 (buildSyncAllInjectionScript)', async () => {
-  const dartFilePath = path.join(__dirname, '../xaut_app/lib/services/parser/sync_script_builder.dart');
-  const dartCode = fs.readFileSync(dartFilePath, 'utf8');
-  const originMatch = dartCode.match(/static const String originGuardJs = '''([\s\S]*?)''';/);
-  const checkAuthMatch = dartCode.match(/static const String checkAuthJs = '''([\s\S]*?)''';/);
-  const helperMatch = dartCode.match(/static String buildAsyncBridgeHelperJs[\s\S]*?return '''([\s\S]*?)''';/);
-  const syncAllMatch = dartCode.match(/static Future<String> buildSyncAllInjectionScript[\s\S]*?return '''([\s\S]*?)''';/);
-
-  assert.ok(originMatch && checkAuthMatch && helperMatch && syncAllMatch, '未能完整提取 sync_script_builder.dart 模板');
+  const { originGuardJs, buildHelperJs, syncAllTemplate } = loadSyncScriptTemplates();
 
   const parserJsPath = path.join(__dirname, '../xaut_app/assets/js/qiangzhi_parser.js');
   const parserJsCode = fs.readFileSync(parserJsPath, 'utf8');
@@ -567,14 +602,9 @@ test('7. 一键全量同步脚本登录态前置检测回归测试 (buildSyncAll
     },
   };
 
-  const helperJs = helperMatch[1]
-    .replace(/\$safeRequestId/g, '"test_req_sync_all"')
-    .replace(/\$timeoutMs/g, '30000')
-    .replace(/\$checkAuthJs/g, checkAuthMatch[1])
-    .replace(/\\\$/g, '$');
-
-  const script = syncAllMatch[1]
-    .replace(/\$originGuardJs/g, originMatch[1])
+  const helperJs = buildHelperJs('test_req_sync_all', 30000);
+  const script = syncAllTemplate
+    .replace(/\$originGuardJs/g, originGuardJs)
     .replace(/\$jsCode/g, parserJsCode)
     .replace(/\$helperJs/g, helperJs)
     .replace(/\\\$/g, '$');
