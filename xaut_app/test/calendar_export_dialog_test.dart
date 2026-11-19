@@ -1,12 +1,15 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/models/course.dart';
 import 'package:xaut_app/models/exam.dart';
 import 'package:xaut_app/providers/exams_provider.dart';
 import 'package:xaut_app/providers/schedule_provider.dart';
 import 'package:xaut_app/services/app_crypto_service.dart';
+import 'package:xaut_app/services/calendar_export_service.dart';
 import 'package:xaut_app/widgets/calendar_export_dialog.dart';
 
 void main() {
@@ -193,5 +196,77 @@ void main() {
     expect(find.text('考前提醒: '), findsOneWidget);
     expect(find.text('提前 15 分钟'), findsOneWidget);
     expect(find.text('提前 2 小时'), findsOneWidget);
+  });
+
+  testWidgets('CalendarExportDialog passes non-empty sharePositionOrigin on share tap', (tester) async {
+    final tempDir = await tester.runAsync(() => Directory.systemTemp.createTemp('xaut_dialog_share_'));
+    addTearDown(() async {
+      CalendarExportService.debugShareAction = null;
+      CalendarExportService.debugTempDirProvider = null;
+      if (tempDir != null && await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    ShareParams? capturedParams;
+    CalendarExportService.debugTempDirProvider = () async => tempDir!;
+    CalendarExportService.debugShareAction = (params) async {
+      capturedParams = params;
+      return const ShareResult('mock', ShareResultStatus.success);
+    };
+
+    final scheduleProvider = ScheduleProvider(nowProvider: () => DateTime(2026, 11, 2));
+    final examsProvider = ExamsProvider(nowProvider: () => DateTime(2026, 11, 2));
+
+    await tester.runAsync(() async {
+      await examsProvider.updateExams([
+        const ExamItem(
+          campus: '金花校区',
+          batch: '期末考',
+          courseCode: 'CS101',
+          courseName: '数据结构',
+          teacher: '刘老师',
+          examTime: '2026-12-18 09:00~11:00',
+          room: '教1-101',
+        ),
+      ]);
+    });
+
+    await tester.pumpWidget(buildTestApp(
+      scheduleProvider: scheduleProvider,
+      examsProvider: examsProvider,
+      preferExams: true,
+    ));
+
+    await tester.tap(find.text('Open Export'));
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 50),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 5),
+    );
+
+    await tester.runAsync(() async {
+      await tester.tap(find.text('系统分享 / 导入日历'));
+      await tester.pump();
+      for (int i = 0; i < 40; i++) {
+        await Future.delayed(const Duration(milliseconds: 25));
+        await tester.pump();
+        if (capturedParams != null && find.text('导出至系统日历').evaluate().isEmpty) {
+          break;
+        }
+      }
+    });
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 50),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 5),
+    );
+
+    expect(capturedParams, isNotNull);
+    final origin = capturedParams!.sharePositionOrigin;
+    expect(origin, isNotNull);
+    expect(origin!.width, greaterThan(0));
+    expect(origin.height, greaterThan(0));
+    expect(find.text('导出至系统日历'), findsNothing);
   });
 }

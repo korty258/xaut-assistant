@@ -40,6 +40,9 @@ class LegalService {
     Future<void> Function()? androidNativeWebViewClearAction,
     Future<bool> Function()? androidNativeWebViewClearBoolAction,
     Future<bool> Function()? androidCookieClearAction,
+    Future<bool> Function()? iosWebViewClearAction,
+    Future<bool> Function()? iosNativeWebViewClearBoolAction,
+    Future<bool> Function()? iosCookieClearAction,
     Future<bool> Function(SharedPreferences prefs)? prefsClearAction,
     Future<bool> Function(SharedPreferences prefs, String key, bool value)?
         prefsBoolWriter,
@@ -49,6 +52,9 @@ class LegalService {
         _debugAndroidNativeWebViewClearBoolAction =
             androidNativeWebViewClearBoolAction,
         _debugAndroidCookieClearAction = androidCookieClearAction,
+        _debugIosWebViewClearAction = iosWebViewClearAction,
+        _debugIosNativeWebViewClearBoolAction = iosNativeWebViewClearBoolAction,
+        _debugIosCookieClearAction = iosCookieClearAction,
         _debugPrefsClearAction = prefsClearAction,
         _debugPrefsBoolWriter = prefsBoolWriter;
 
@@ -60,6 +66,9 @@ class LegalService {
   Future<void> Function()? _debugAndroidNativeWebViewClearAction;
   Future<bool> Function()? _debugAndroidNativeWebViewClearBoolAction;
   Future<bool> Function()? _debugAndroidCookieClearAction;
+  Future<bool> Function()? _debugIosWebViewClearAction;
+  Future<bool> Function()? _debugIosNativeWebViewClearBoolAction;
+  Future<bool> Function()? _debugIosCookieClearAction;
   Future<bool> Function(SharedPreferences prefs)? _debugPrefsClearAction;
   Future<bool> Function(SharedPreferences prefs, String key, bool value)?
       _debugPrefsBoolWriter;
@@ -99,6 +108,28 @@ class LegalService {
   @visibleForTesting
   static set debugAndroidCookieClearAction(Future<bool> Function()? fn) =>
       _instance._debugAndroidCookieClearAction = fn;
+
+  @visibleForTesting
+  static Future<bool> Function()? get debugIosWebViewClearAction =>
+      _instance._debugIosWebViewClearAction;
+  @visibleForTesting
+  static set debugIosWebViewClearAction(Future<bool> Function()? fn) =>
+      _instance._debugIosWebViewClearAction = fn;
+
+  @visibleForTesting
+  static Future<bool> Function()? get debugIosNativeWebViewClearBoolAction =>
+      _instance._debugIosNativeWebViewClearBoolAction;
+  @visibleForTesting
+  static set debugIosNativeWebViewClearBoolAction(
+          Future<bool> Function()? fn) =>
+      _instance._debugIosNativeWebViewClearBoolAction = fn;
+
+  @visibleForTesting
+  static Future<bool> Function()? get debugIosCookieClearAction =>
+      _instance._debugIosCookieClearAction;
+  @visibleForTesting
+  static set debugIosCookieClearAction(Future<bool> Function()? fn) =>
+      _instance._debugIosCookieClearAction = fn;
 
   @visibleForTesting
   static Future<bool> Function(SharedPreferences prefs)?
@@ -386,6 +417,44 @@ class LegalService {
             }
           } on Object catch (cookieErr) {
             debugPrint('Android clearCookies fallback failed: $cookieErr');
+            webviewCookiesClearedOnly = false;
+          }
+        }
+      }
+    } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      if (_debugIosWebViewClearAction != null) {
+        try {
+          webviewCleaned = await _debugIosWebViewClearAction!();
+        } on Object catch (_) {
+          webviewCleaned = false;
+        }
+      } else {
+        try {
+          if (_debugIosNativeWebViewClearBoolAction != null) {
+            webviewCleaned = await _debugIosNativeWebViewClearBoolAction!();
+          } else {
+            const platformChannel =
+                MethodChannel('io.github.korty258.jinhua_assistant/platform');
+            final nativeResult =
+                await platformChannel.invokeMethod<bool>('clearWebViewData');
+            webviewCleaned = nativeResult == true;
+          }
+        } on Object catch (e) {
+          debugPrint('iOS native clearWebViewData failed: $e');
+          webviewCleaned = false;
+        }
+        if (!webviewCleaned) {
+          // 降级兜底：尝试清除 Cookie，严禁将仅清 Cookie 误报为彻底清除全部 WKWebView 数据
+          try {
+            if (_debugIosCookieClearAction != null) {
+              webviewCookiesClearedOnly = await _debugIosCookieClearAction!();
+            } else {
+              final cookieManager = WebViewCookieManager();
+              await cookieManager.clearCookies();
+              webviewCookiesClearedOnly = true;
+            }
+          } on Object catch (cookieErr) {
+            debugPrint('iOS clearCookies fallback failed: $cookieErr');
             webviewCookiesClearedOnly = false;
           }
         }

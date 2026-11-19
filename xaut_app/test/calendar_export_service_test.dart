@@ -1,5 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:ui' show Rect;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:xaut_app/models/course.dart';
 import 'package:xaut_app/models/exam.dart';
 import 'package:xaut_app/services/calendar_export_service.dart';
@@ -337,6 +340,49 @@ void main() {
       expect(allUids1, equals(allUids2));
       expect(ics1, isNot(contains('座位号')));
       expect(ics1, isNot(contains('seat')));
+    });
+
+    test('shareCalendar forwards sharePositionOrigin and writes valid .ics file', () async {
+      final tempDir = await Directory.systemTemp.createTemp('xaut_ics_share_test_');
+      addTearDown(() async {
+        CalendarExportService.debugShareAction = null;
+        CalendarExportService.debugTempDirProvider = null;
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      ShareParams? capturedParams;
+      CalendarExportService.debugTempDirProvider = () async => tempDir;
+      CalendarExportService.debugShareAction = (params) async {
+        capturedParams = params;
+        return const ShareResult('mock', ShareResultStatus.success);
+      };
+
+      const expectedOrigin = Rect.fromLTWH(24, 48, 160, 44);
+      final ics = CalendarExportService.generateIcs(
+        courses: const [],
+        exams: const [],
+        now: DateTime(2026, 11, 2, 10, 0, 0),
+      );
+
+      final result = await CalendarExportService.shareCalendar(
+        icsContent: ics,
+        fileName: 'ios_test.ics',
+        subject: '西安理工大学日程 (.ics)',
+        sharePositionOrigin: expectedOrigin,
+      );
+
+      expect(result.status, equals(ShareResultStatus.success));
+      expect(capturedParams, isNotNull);
+      expect(capturedParams!.sharePositionOrigin, equals(expectedOrigin));
+      expect(capturedParams!.subject, equals('西安理工大学日程 (.ics)'));
+      expect(capturedParams!.files, isNotNull);
+      expect(capturedParams!.files!.length, equals(1));
+      expect(capturedParams!.files!.first.mimeType, equals('text/calendar'));
+      final writtenFile = File(capturedParams!.files!.first.path);
+      expect(await writtenFile.exists(), isTrue);
+      expect(await writtenFile.readAsString(), equals(ics));
     });
   });
 }

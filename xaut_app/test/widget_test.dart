@@ -209,4 +209,40 @@ void main() {
     expect(WebViewLoginScreen.isAllowedUrl('https://www.baidu.com'), isFalse);
     expect(WebViewLoginScreen.isAllowedUrl('https://phishing-xaut.edu.cn.evil.com'), isFalse);
   });
+
+  testWidgets(
+    'LegalGateScreen disagree on iOS stays on gate and shows SnackBar instead of exiting',
+    (WidgetTester tester) async {
+      await tester.runAsync(() async {
+        await tester.pumpWidget(const MaterialApp(
+          home: LegalGateScreen(isGate: true),
+        ));
+        await tester.pump();
+        for (int i = 0; i < 20; i++) {
+          await Future.delayed(const Duration(milliseconds: 50));
+          await tester.pump();
+          if (find.byType(IndexedStack).evaluate().isNotEmpty) break;
+        }
+      });
+
+      await tester.tap(find.text('不同意，退出'));
+      await tester.pumpAndSettle(
+        const Duration(milliseconds: 50),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 5),
+      );
+
+      expect(find.text('确定退出'), findsOneWidget);
+      await tester.tap(find.text('确定退出'));
+      await tester.pumpAndSettle(
+        const Duration(milliseconds: 50),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 5),
+      );
+
+      expect(find.byType(LegalGateScreen), findsOneWidget);
+      expect(find.text('您未同意服务协议与隐私政策，无法继续使用，请手动上滑关闭应用'), findsOneWidget);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
 }

@@ -37,6 +37,9 @@ class AppCryptoService {
 
   static const FlutterSecureStorage _defaultSecureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
     wOptions: WindowsOptions(),
   );
 

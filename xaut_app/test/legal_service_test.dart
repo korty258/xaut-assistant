@@ -347,5 +347,68 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, null);
     });
+
+    test('revokeAndClearAll() handles TargetPlatform.iOS native clearWebViewData channel and Cookie fallback', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      AppCryptoService.debugStorageDeleter = (key) async {};
+      SharedPreferences.setMockInitialValues({'foo': 'bar'});
+
+      const channel = MethodChannel('io.github.korty258.jinhua_assistant/platform');
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+
+      // 场景 A：原生 WKWebsiteDataStore.removeData 返回 true
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'clearWebViewData') return true;
+        return null;
+      });
+      final resSuccess = await LegalService.revokeAndClearAll();
+      expect(resSuccess.prefsCleared, isTrue);
+      expect(resSuccess.masterKeyDestroyed, isTrue);
+      expect(resSuccess.webviewCleaned, isTrue);
+      expect(resSuccess.webviewCookiesClearedOnly, isFalse);
+      expect(resSuccess.hasUnqueuedFailures, isFalse);
+      expect(resSuccess.isFullyCleaned, isTrue);
+
+      // 场景 B：原生返回 false，且 Cookie 降级也失败
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'clearWebViewData') return false;
+        return null;
+      });
+      LegalService.debugIosCookieClearAction = () async => false;
+      final resFailBoth = await LegalService.revokeAndClearAll();
+      expect(resFailBoth.webviewCleaned, isFalse);
+      expect(resFailBoth.webviewCookiesClearedOnly, isFalse);
+      expect(resFailBoth.hasUnqueuedFailures, isTrue);
+      expect(resFailBoth.isFullyCleaned, isFalse);
+
+      // 场景 C：原生返回 false，Cookie 降级成功 -> 诚实标记 webviewCookiesClearedOnly
+      LegalService.debugIosCookieClearAction = () async => true;
+      final resCookiesOnly = await LegalService.revokeAndClearAll();
+      expect(resCookiesOnly.webviewCleaned, isFalse);
+      expect(resCookiesOnly.webviewCookiesClearedOnly, isTrue);
+      expect(resCookiesOnly.hasUnqueuedFailures, isTrue);
+      expect(resCookiesOnly.isFullyCleaned, isFalse);
+
+      // 场景 D：原生通道抛异常，Cookie 降级成功
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        throw PlatformException(code: 'WK_ERROR', message: 'removeData failed');
+      });
+      final resThrows = await LegalService.revokeAndClearAll();
+      expect(resThrows.webviewCleaned, isFalse);
+      expect(resThrows.webviewCookiesClearedOnly, isTrue);
+      expect(resThrows.hasUnqueuedFailures, isTrue);
+      expect(resThrows.isFullyCleaned, isFalse);
+
+      final items = resThrows.describeItems(isWindows: false);
+      final webviewItem = items.firstWhere((i) => i.label.contains('WebView'));
+      expect(webviewItem.isFailedUnqueued, isTrue);
+      expect(webviewItem.status, contains('仅清除了 Cookie'));
+    });
   });
 }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Rect;
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -197,22 +198,36 @@ class CalendarExportService {
     return buffer.toString();
   }
 
+  @visibleForTesting
+  static Future<ShareResult> Function(ShareParams params)? debugShareAction;
+
+  @visibleForTesting
+  static Future<Directory> Function()? debugTempDirProvider;
+
   /// 唤起系统分享面板或日历应用直接导入
   static Future<ShareResult> shareCalendar({
     required String icsContent,
     String fileName = 'xaut_schedule.ics',
     String subject = '西安理工大学日程日历导出',
+    Rect? sharePositionOrigin,
   }) async {
-    final tempDir = await getTemporaryDirectory();
+    final tempDir = debugTempDirProvider != null
+        ? await debugTempDirProvider!()
+        : await getTemporaryDirectory();
     final file = File('${tempDir.path}${Platform.pathSeparator}$fileName');
     await file.writeAsString(icsContent, flush: true);
 
-    return SharePlus.instance.share(
-      ShareParams(
-        files: [XFile(file.path, mimeType: 'text/calendar', name: fileName)],
-        subject: subject,
-      ),
+    final params = ShareParams(
+      files: [XFile(file.path, mimeType: 'text/calendar', name: fileName)],
+      subject: subject,
+      sharePositionOrigin: sharePositionOrigin,
     );
+
+    if (debugShareAction != null) {
+      return debugShareAction!(params);
+    }
+
+    return SharePlus.instance.share(params);
   }
 
   /// 保存 .ics 文件至本地存储 (Windows 端优先 Downloads，Android 端写入文档目录)

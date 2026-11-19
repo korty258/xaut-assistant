@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show Platform, exit;
+import 'dart:io' show exit;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -149,7 +149,16 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
   Future<void> _onDisagree() async {
     final confirmed = await LegalRevokeDialogs.confirmDisagree(context);
     if (confirmed == true) {
-      if (!kIsWeb && Platform.isAndroid) {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('您未同意服务协议与隐私政策，无法继续使用，请手动上滑关闭应用'),
+            duration: Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
         await SystemNavigator.pop();
       } else {
         exit(0);

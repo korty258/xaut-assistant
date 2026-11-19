@@ -1,0 +1,119 @@
+name: iOS Experimental Build (Unsigned IPA)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'exp/ios-*'
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.47.8'
+
+jobs:
+  build_ios_unsigned:
+    name: Build iOS Unsigned IPA (Experimental)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Install Flutter Dependencies
+        working-directory: xaut_app
+        run: flutter pub get
+
+      - name: Verify iOS Plugin Resolution (SwiftPM / CocoaPods)
+        working-directory: xaut_app
+        run: |
+          python3 -c '
+          import json, sys
+          with open(".flutter-plugins-dependencies", "r", encoding="utf-8") as f:
+              data = json.load(f)
+          ios_plugins = [p["name"] for p in data.get("plugins", {}).get("ios", [])]
+          print("Resolved iOS plugins:", ios_plugins)
+          if "webview_windows" in ios_plugins:
+              print("::error::webview_windows leaked into iOS plugins!", file=sys.stderr)
+              sys.exit(1)
+          '
+          if [ -f ios/Podfile ]; then
+            flutter precache --ios
+            cd ios && pod install --repo-update
+          else
+            echo "No ios/Podfile detected; Flutter 3.47.8 Swift Package Manager handles all iOS plugins natively."
+          fi
+
+      - name: Build iOS Release App (No Codesign)
+        working-directory: xaut_app
+        run: flutter build ios --release --no-codesign
+
+      - name: Package Unsigned IPA & Verify Metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="xaut_app/build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::Expected Runner.app not found at $APP_PATH"
+            exit 1
+          fi
+
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Info.plist")
+          DISPLAY_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$APP_PATH/Info.plist")
+          MIN_OS=$(/usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APP_PATH/Info.plist")
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "Display Name: $DISPLAY_NAME"
+          echo "MinimumOSVersion: $MIN_OS"
+
+          if [ "$BUNDLE_ID" != "io.github.korty258.jinhua-assistant" ]; then
+            echo "::error::Unexpected CFBundleIdentifier: $BUNDLE_ID"
+            exit 1
+          fi
+          if [ "$DISPLAY_NAME" != "金花助手" ]; then
+            echo "::error::Unexpected CFBundleDisplayName: $DISPLAY_NAME"
+            exit 1
+          fi
+
+          rm -rf Payload jinhua_assistant-ios-unsigned.ipa IOS_SHA256SUMS.txt
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/Runner.app
+          zip -r -y jinhua_assistant-ios-unsigned.ipa Payload >/dev/null
+
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum jinhua_assistant-ios-unsigned.ipa > IOS_SHA256SUMS.txt
+          else
+            shasum -a 256 jinhua_assistant-ios-unsigned.ipa > IOS_SHA256SUMS.txt
+          fi
+
+          IPA_SIZE=$(stat -f%z jinhua_assistant-ios-unsigned.ipa)
+          echo "Built jinhua_assistant-ios-unsigned.ipa (${IPA_SIZE} bytes)"
+          cat IOS_SHA256SUMS.txt
+
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              echo "### iOS Experimental Unsigned IPA"
+              echo "- Artifact: \`jinhua_assistant-ios-unsigned.ipa\`"
+              echo "- Size: **${IPA_SIZE} bytes**"
+              echo "- Bundle ID: \`${BUNDLE_ID}\`"
+              echo "- Display Name: \`${DISPLAY_NAME}\`"
+              echo "- MinimumOSVersion: \`${MIN_OS}\`"
+              echo "- SHA-256: \`$(awk '{print $1}' IOS_SHA256SUMS.txt)\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload Unsigned IPA Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-unsigned-ipa
+          path: |
+            jinhua_assistant-ios-unsigned.ipa
+            IOS_SHA256SUMS.txt
+          retention-days: 7

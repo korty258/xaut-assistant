@@ -56,9 +56,30 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
     );
   }
 
-  Future<void> _handleShare(BuildContext context, ScheduleProvider schedule, ExamsProvider exams) async {
-    final navigator = Navigator.of(context);
-    final messenger = ScaffoldMessenger.of(context);
+  Rect _resolveSharePositionOrigin(BuildContext originContext) {
+    final renderObject = originContext.findRenderObject();
+    if (renderObject is RenderBox &&
+        renderObject.hasSize &&
+        renderObject.size.width > 0 &&
+        renderObject.size.height > 0) {
+      final origin = renderObject.localToGlobal(Offset.zero);
+      return origin & renderObject.size;
+    }
+    final screenSize = MediaQuery.maybeSizeOf(originContext);
+    if (screenSize != null && screenSize.width > 0 && screenSize.height > 0) {
+      return Rect.fromCenter(
+        center: Offset(screenSize.width / 2, screenSize.height / 2),
+        width: 1,
+        height: 1,
+      );
+    }
+    return const Rect.fromLTWH(0, 0, 1, 1);
+  }
+
+  Future<void> _handleShare(BuildContext originContext, ScheduleProvider schedule, ExamsProvider exams) async {
+    final navigator = Navigator.of(originContext);
+    final messenger = ScaffoldMessenger.of(originContext);
+    final shareOrigin = _resolveSharePositionOrigin(originContext);
     setState(() => _isExporting = true);
     try {
       final ics = _buildIcs(schedule, exams);
@@ -66,6 +87,7 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
         icsContent: ics,
         fileName: 'xaut_schedule.ics',
         subject: '西安理工大学日程 (.ics)',
+        sharePositionOrigin: shareOrigin,
       );
       if (mounted) {
         navigator.pop();
@@ -404,16 +426,20 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
               label: const Text('保存文件'),
               onPressed: canExport ? () => _handleSave(context, schedule, exams) : null,
             ),
-            FilledButton.icon(
-              icon: _isExporting
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.share_rounded, size: 16),
-              label: const Text('系统分享 / 导入日历'),
-              onPressed: canExport ? () => _handleShare(context, schedule, exams) : null,
+            Builder(
+              builder: (shareButtonContext) => FilledButton.icon(
+                icon: _isExporting
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.share_rounded, size: 16),
+                label: const Text('系统分享 / 导入日历'),
+                onPressed: canExport
+                    ? () => _handleShare(shareButtonContext, schedule, exams)
+                    : null,
+              ),
             ),
           ],
         ),
