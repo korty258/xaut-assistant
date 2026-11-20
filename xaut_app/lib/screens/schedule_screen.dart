@@ -164,7 +164,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             const SizedBox(width: 8),
             Flexible(
               child: Text(
-                '金花课表',
+                '课表',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
