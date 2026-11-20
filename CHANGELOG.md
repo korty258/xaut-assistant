@@ -6,6 +6,19 @@
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-11-20
+
+金花助手 `v2.4.2`（课表顶栏视觉精简补丁版）发布！本版本精简课表页左上角导航标题文案，在窄屏与大字号场景下为周次胶囊及快捷按钮留出更充裕的操作空间。
+
+### Changed
+- **课表顶栏标题精简 (`ScheduleScreen`)**：
+  - 将课表页左上角 `AppBar` 标题由「金花课表」精简为「课表」，视觉更清爽并优化窄屏顶栏空间分配。
+
+### Tests
+- **标题回归断言更新**：
+  - 在 `v240_pre3_regression_test.dart` 补充 `ScheduleScreen` AppBar 标题为「课表」的断言，并将 `shell_and_banner_widgets_test.dart` 中底部 `NavigationBar` 的「课表」匹配收窄至导航栏作用域；
+  - Flutter 全量单元与组件测试保持 **195 项** 全部通过（行覆盖率 **81.12%**），Node 24 解析器回归测试保持 **31 项** 全通。
+
 ## [2.4.1] - 2026-11-19
 
 金花助手 `v2.4.1`（工程质量加固、解析脚本模块化瘦身与开源社区协作规范维护版）发布！本版本在不改变任何既有用户行为的前提下，完成强智注入脚本构建器职责拆分、补齐界面壳层与横幅组件自动化测试、升级 JS 解析测试依赖并完善开源社区协作指引。
@@ -779,7 +792,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.2...HEAD
+[2.4.2]: https://github.com/korty258/xaut-assistant/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/korty258/xaut-assistant/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/korty258/xaut-assistant/compare/v2.3.8...v2.4.0
 [2.4.0-rc1]: https://github.com/korty258/xaut-assistant/compare/v2.4.0-pre3...v2.4.0-rc1
