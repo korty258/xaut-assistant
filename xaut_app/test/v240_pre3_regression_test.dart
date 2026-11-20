@@ -388,6 +388,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(find.text('课表'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
