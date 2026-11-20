@@ -163,7 +163,10 @@ void main() {
       );
 
       expect(find.byType(NavigationBar), findsOneWidget);
-      expect(find.text('课表'), findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(NavigationBar), matching: find.text('课表')),
+        findsOneWidget,
+      );
       expect(find.text('成绩'), findsOneWidget);
       expect(find.text('考试'), findsOneWidget);
 
