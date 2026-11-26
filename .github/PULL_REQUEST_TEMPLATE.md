@@ -22,6 +22,6 @@
 
 - [ ] `node --test parser_test/parser.test.js` 通过
 - [ ] `dart analyze --fatal-infos xaut_app` 零告警通过
-- [ ] `cd xaut_app && flutter test --coverage` 全部通过（行覆盖率 `>= 65.00%`）
+- [ ] `cd xaut_app && flutter test --coverage` 全部通过（行覆盖率 `>= 75.00%`）
 
 <!-- 如有 UI 改动或窄屏/暗黑模式适配，可附截图或说明 -->
