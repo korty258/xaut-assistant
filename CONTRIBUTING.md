@@ -51,7 +51,7 @@ node --test parser_test/parser.test.js
 # 2. Dart 严格静态分析（零 info / warning / error）
 dart analyze --fatal-infos xaut_app
 
-# 3. Flutter 全量单测与覆盖率（行覆盖率门禁 >= 65.00%）
+# 3. Flutter 全量单测与覆盖率（行覆盖率门禁 >= 75.00%）
 cd xaut_app && flutter test --coverage
 ```
 

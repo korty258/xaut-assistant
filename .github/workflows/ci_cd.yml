@@ -102,14 +102,14 @@ jobs:
                   elif line.startswith("LH:"):
                       lh += int(line[3:].strip())
           pct = (lh / lf * 100.0) if lf else 0.0
-          summary = f"### Flutter Line Coverage\n- Covered lines: **{lh} / {lf}** (**{pct:.2f}%**)\n- Minimum gate: **65.00%**\n"
+          summary = f"### Flutter Line Coverage\n- Covered lines: **{lh} / {lf}** (**{pct:.2f}%**)\n- Minimum gate: **75.00%**\n"
           print(summary)
           gh_summary = os.environ.get("GITHUB_STEP_SUMMARY")
           if gh_summary:
               with open(gh_summary, "a", encoding="utf-8") as out:
                   out.write(summary)
-          if pct < 65.0:
-              print(f"::error::Line coverage {pct:.2f}% is below 65.00% gate!", file=sys.stderr)
+          if pct < 75.0:
+              print(f"::error::Line coverage {pct:.2f}% is below 75.00% gate!", file=sys.stderr)
               sys.exit(1)
           '
 

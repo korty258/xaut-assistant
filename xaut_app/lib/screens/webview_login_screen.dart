@@ -11,7 +11,29 @@ import 'webview/webview_bottom_bar.dart';
 
 /// 强智教务系统 WebView 认证与跨模块同步页面
 class WebViewLoginScreen extends StatefulWidget {
-  const WebViewLoginScreen({super.key});
+  @visibleForTesting
+  final WebViewPlatformAdapter Function({
+    required void Function(String url) onBlockedUrl,
+    required VoidCallback onPageLoadFinished,
+  })? adapterBuilder;
+
+  @visibleForTesting
+  final WebViewSyncCoordinator Function({
+    required BuildContext Function() getContext,
+    required WebViewPlatformAdapter adapter,
+    required void Function(bool syncing, String? message) onStateChanged,
+  })? coordinatorBuilder;
+
+  @visibleForTesting
+  final Widget Function(BuildContext context, WebViewPlatformAdapter adapter)?
+      webViewBodyBuilder;
+
+  const WebViewLoginScreen({
+    super.key,
+    this.adapterBuilder,
+    this.coordinatorBuilder,
+    this.webViewBodyBuilder,
+  });
 
   /// 校验目标域名是否属于西安理工大学校内合法域名且强制全链路 HTTPS 加密（防钓鱼、防窃听与防明文降级）
   static bool isAllowedUrl(String url) => WebViewPlatformAdapter.isAllowedUrl(url);
@@ -29,24 +51,37 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
   @override
   void initState() {
     super.initState();
-    _adapter = WebViewPlatformAdapter(
-      onBlockedUrl: _showBlockedUrlDialog,
-      onPageLoadFinished: () {
-        unawaited(_coordinator.tryCaptureWeekInfoSilently());
-      },
-    );
+    void handlePageLoadFinished() {
+      unawaited(_coordinator.tryCaptureWeekInfoSilently());
+    }
 
-    _coordinator = WebViewSyncCoordinator(
-      getContext: () => context,
-      adapter: _adapter,
-      onStateChanged: (syncing, message) {
-        if (mounted) {
-          setState(() {
-            _syncStatusMessage = message;
-          });
-        }
-      },
-    );
+    _adapter = widget.adapterBuilder?.call(
+          onBlockedUrl: _showBlockedUrlDialog,
+          onPageLoadFinished: handlePageLoadFinished,
+        ) ??
+        WebViewPlatformAdapter(
+          onBlockedUrl: _showBlockedUrlDialog,
+          onPageLoadFinished: handlePageLoadFinished,
+        );
+
+    void handleStateChanged(bool syncing, String? message) {
+      if (mounted) {
+        setState(() {
+          _syncStatusMessage = message;
+        });
+      }
+    }
+
+    _coordinator = widget.coordinatorBuilder?.call(
+          getContext: () => context,
+          adapter: _adapter,
+          onStateChanged: handleStateChanged,
+        ) ??
+        WebViewSyncCoordinator(
+          getContext: () => context,
+          adapter: _adapter,
+          onStateChanged: handleStateChanged,
+        );
 
     unawaited(_initAdapter());
   }
@@ -363,9 +398,11 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                         ? _buildInitErrorView(initError)
                         : !_adapter.isInitialized
                             ? const Center(child: CircularProgressIndicator())
-                            : _adapter.isWindows
-                                ? win.Webview(_adapter.winController)
-                                : af.WebViewWidget(controller: _adapter.mobileController),
+                            : widget.webViewBodyBuilder != null
+                                ? widget.webViewBodyBuilder!(context, _adapter)
+                                : _adapter.isWindows
+                                    ? win.Webview(_adapter.winController)
+                                    : af.WebViewWidget(controller: _adapter.mobileController),
                   ),
 
                   // 3. 底部全异步同步操作条 (状态独立解耦)
