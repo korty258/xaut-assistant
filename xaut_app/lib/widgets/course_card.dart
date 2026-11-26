@@ -34,14 +34,18 @@ class CourseCard extends StatelessWidget {
             .withSaturation(hsl.saturation.clamp(0.55, 0.92))
             .toColor();
 
-    // 非本周课程采用柔和低饱和度风格
+    // 非本周课程采用柔和低饱和度风格，本周课程结合高光描边融入液态玻璃环境光背景
     final cardBgColor = isCurrent
-        ? baseColor.withValues(alpha: isDark ? 0.26 : 0.18)
-        : Colors.grey.withValues(alpha: 0.12);
+        ? baseColor.withValues(alpha: isDark ? 0.28 : 0.20)
+        : (isDark
+            ? Colors.white.withValues(alpha: 0.06)
+            : Colors.white.withValues(alpha: 0.56));
 
     final borderColor = isCurrent
-        ? baseColor.withValues(alpha: 0.55)
-        : Colors.grey.withValues(alpha: 0.25);
+        ? baseColor.withValues(alpha: isDark ? 0.62 : 0.52)
+        : (isDark
+            ? Colors.white.withValues(alpha: 0.14)
+            : Colors.grey.withValues(alpha: 0.28));
 
     final textColor = isCurrent
         ? highContrastBrandColor
@@ -58,21 +62,31 @@ class CourseCard extends StatelessWidget {
         currentWeek,
         allCourses: allClusterCourses.isNotEmpty ? allClusterCourses : [course],
       ),
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(10),
       child: Container(
         margin: EdgeInsets.all(isSubColumn ? 1.0 : 2.0),
         decoration: BoxDecoration(
           color: cardBgColor,
-          borderRadius: BorderRadius.circular(8),
+          gradient: isCurrent
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    baseColor.withValues(alpha: isDark ? 0.34 : 0.24),
+                    baseColor.withValues(alpha: isDark ? 0.20 : 0.13),
+                  ],
+                )
+              : null,
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: borderColor,
-            width: isCurrent ? 1.2 : 0.8,
+            width: isCurrent ? 1.15 : 0.8,
           ),
           boxShadow: isCurrent
               ? [
                   BoxShadow(
-                    color: baseColor.withValues(alpha: 0.10),
-                    blurRadius: 4,
+                    color: baseColor.withValues(alpha: isDark ? 0.16 : 0.11),
+                    blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
                 ]

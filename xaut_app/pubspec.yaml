@@ -43,6 +43,7 @@ dependencies:
   flutter_secure_storage: ^11.2.0
   path_provider: ^2.1.6
   share_plus: ^13.3.1
+  liquid_glass_widgets: ^1.21.0
 
 dev_dependencies:
   flutter_test:
