@@ -5,17 +5,20 @@ import '../providers/grades_provider.dart';
 import '../providers/schedule_provider.dart';
 import '../screens/webview_login_screen.dart';
 import '../services/storage_service.dart';
+import 'glass/liquid_glass_chrome.dart';
 
 class DecryptionErrorView extends StatelessWidget {
   final String moduleName;
   final bool isFormatError;
   final VoidCallback onReset;
+  final EdgeInsetsGeometry? contentPadding;
 
   const DecryptionErrorView({
     super.key,
     required this.moduleName,
     this.isFormatError = false,
     required this.onReset,
+    this.contentPadding,
   });
 
   @override
@@ -30,10 +33,17 @@ class DecryptionErrorView extends StatelessWidget {
 
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+        padding: contentPadding ??
+            const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: LiquidGlassSurfaceCard(
+            borderRadius: 28,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
             Container(
               padding: const EdgeInsets.all(28),
               decoration: BoxDecoration(
@@ -84,7 +94,7 @@ class DecryptionErrorView extends StatelessWidget {
               onPressed: () async {
                 final confirm = await showDialog<bool>(
                   context: context,
-                  builder: (ctx) => AlertDialog(
+                  builder: (ctx) => LiquidGlassDialog(
                     title: const Text('重置损坏的本地数据'),
                     content: const Text(
                       '确定要重置本地密文缓存吗？\n\n'
@@ -147,6 +157,8 @@ class DecryptionErrorView extends StatelessWidget {
               label: const Text('重置并清空损坏数据'),
             ),
           ],
+        ),
+          ),
         ),
       ),
     );

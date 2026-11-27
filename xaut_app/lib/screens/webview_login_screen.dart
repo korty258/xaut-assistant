@@ -8,6 +8,7 @@ import 'webview/webview_platform_adapter.dart';
 import 'webview/webview_sync_coordinator.dart';
 import 'webview/webview_nav_bar.dart';
 import 'webview/webview_bottom_bar.dart';
+import '../widgets/glass/liquid_glass_chrome.dart';
 
 /// 强智教务系统 WebView 认证与跨模块同步页面
 class WebViewLoginScreen extends StatefulWidget {
@@ -103,29 +104,31 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     if (!mounted) return;
     unawaited(
       showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        icon: const Icon(Icons.security_rounded, color: Colors.red, size: 36),
-        title: const Text('非校内域名或非 HTTPS 请求已拦截'),
-        content: Text(
-          '金花助手已阻止非安全或非校内请求：\n\n$url\n\n'
-          '为了保障您的学号、密码与隐私安全，本软件强制要求全链路 HTTPS 加密通信并内置防钓鱼白名单，严格禁止在内嵌浏览器中跳转至非 HTTPS 协议或西安理工大学以外的校外网站。',
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('我知道了'),
+        context: context,
+        builder: (ctx) => LiquidGlassDialog(
+          useSolidSurface: true,
+          icon: const Icon(Icons.security_rounded, color: Colors.red, size: 36),
+          title: const Text('非校内域名或非 HTTPS 请求已拦截'),
+          content: Text(
+            '金花助手已阻止非安全或非校内请求：\n\n$url\n\n'
+            '为了保障您的学号、密码与隐私安全，本软件强制要求全链路 HTTPS 加密通信并内置防钓鱼白名单，严格禁止在内嵌浏览器中跳转至非 HTTPS 协议或西安理工大学以外的校外网站。',
           ),
-        ],
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('我知道了'),
+            ),
+          ],
+        ),
       ),
-    ),
     );
   }
 
   Future<void> _handleClearCookies() async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => LiquidGlassDialog(
+        useSolidSurface: true,
         icon: const Icon(Icons.cleaning_services_rounded, color: Colors.orange, size: 36),
         title: const Text('清理登录 Cookie'),
         content: const Text(
@@ -333,14 +336,26 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
         _coordinator.isSyncingNotifier,
       ]),
       builder: (context, _) {
+        final theme = Theme.of(context);
+        final isDark = theme.brightness == Brightness.dark;
         final isBusy = _adapter.isLoading || _coordinator.isSyncing;
         final initError = _adapter.initErrorNotifier.value;
         return ValueListenableBuilder<String>(
           valueListenable: _adapter.currentUrlNotifier,
           builder: (context, currentUrl, _) {
             return Scaffold(
+              backgroundColor: LiquidGlassBackdrop.baseColorFor(theme.brightness),
               appBar: AppBar(
-                title: const Text('强智教务登录与同步', style: TextStyle(fontSize: 16)),
+                backgroundColor: isDark
+                    ? const Color(0xFF0E162B)
+                    : const Color(0xFFF3F7FD),
+                surfaceTintColor: Colors.transparent,
+                elevation: 0,
+                scrolledUnderElevation: 0,
+                title: const Text(
+                  '强智教务登录与同步',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
                 bottom: PreferredSize(
                   preferredSize: const Size.fromHeight(4.0),
                   child: isBusy

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../models/course.dart';
+import 'glass/liquid_glass_chrome.dart';
 
 class CourseDetailDialog extends StatefulWidget {
   final Course initialCourse;
@@ -51,33 +51,12 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
     final color = course.themeColor;
     final hasMultiple = widget.allCourses.length > 1;
 
-    final isDark = theme.brightness == Brightness.dark;
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: GlassContainer.card(
-          padding: EdgeInsets.zero,
-          useOwnLayer: true,
-          clipBehavior: Clip.antiAlias,
-          shape: const LiquidRoundedSuperellipse(borderRadius: 24),
-          color: isDark
-              ? const Color(0xFF141C2E).withValues(alpha: 0.72)
-              : Colors.white.withValues(alpha: 0.78),
-          child: InheritedGlassSurfaceStyle(
-            surfaceStyle: GlassSurfaceStyle.solid,
-            child: Material(
-              type: MaterialType.transparency,
-              child: Padding(
-                padding: const EdgeInsets.all(22),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+    return LiquidGlassDialog(
+      maxWidth: 420,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
               // 顶栏：色块与状态标签与关闭按钮
               Row(
                 children: [
@@ -308,13 +287,7 @@ class _CourseDetailDialogState extends State<CourseDetailDialog> {
                   child: const Text('我知道了'),
                 ),
               ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
+        ],
       ),
     );
   }

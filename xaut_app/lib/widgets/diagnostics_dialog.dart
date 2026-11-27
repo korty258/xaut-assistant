@@ -6,6 +6,7 @@ import '../screens/legal_gate_screen.dart';
 import '../services/diagnostics_service.dart';
 import '../services/parser_service.dart';
 import '../services/storage_service.dart';
+import 'glass/liquid_glass_chrome.dart';
 
 /// 客户端脱敏诊断摘要弹窗与支持菜单共享入口
 class DiagnosticsDialog {
@@ -81,7 +82,8 @@ class DiagnosticsDialog {
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
+        builder: (ctx, setDialogState) => LiquidGlassDialog(
+          maxWidth: 540,
           title: Row(
             children: [
               Icon(Icons.monitor_heart_outlined, color: theme.colorScheme.primary),
@@ -94,13 +96,10 @@ class DiagnosticsDialog {
               ),
             ],
           ),
-          content: SizedBox(
-            width: 520,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
                   _buildPrivacyBanner(theme),
                   const SizedBox(height: 12),
                   _buildSectionCard(
@@ -259,8 +258,6 @@ class DiagnosticsDialog {
                 ),
               ],
             ),
-          ),
-        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),

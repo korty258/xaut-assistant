@@ -84,7 +84,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     unawaited(
       showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => LiquidGlassDialog(
           icon: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error, size: 36),
           title: const Text('确认清空课表数据？'),
           content: const Text('此操作将清空本地已保存的全部课程表。清空后可随时点击同步按钮重新登录强智教务一键导入。'),
@@ -329,26 +329,26 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         ],
       ),
       body: provider.hasStorageError
-          ? Padding(
-              padding: EdgeInsets.only(top: topClearance, bottom: bottomClearance),
-              child: DecryptionErrorView(
-                moduleName: '课表',
-                isFormatError: provider.hasDataFormatError,
-                onReset: () {
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context)
-                    ..hideCurrentSnackBar()
-                    ..showSnackBar(
-                      const SnackBar(content: Text('已重置损坏缓存与主密钥，请重新同步教务数据')),
-                    );
-                },
+          ? DecryptionErrorView(
+              moduleName: '课表',
+              isFormatError: provider.hasDataFormatError,
+              contentPadding: EdgeInsets.fromLTRB(
+                24,
+                topClearance + 16,
+                24,
+                bottomClearance,
               ),
+              onReset: () {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context)
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(
+                    const SnackBar(content: Text('已重置损坏缓存与主密钥，请重新同步教务数据')),
+                  );
+              },
             )
           : provider.courses.isEmpty
-              ? Padding(
-                  padding: EdgeInsets.only(top: topClearance),
-                  child: const ScheduleEmptyGuide(),
-                )
+              ? const ScheduleEmptyGuide()
               : Column(
                   children: [
                     SizedBox(height: topClearance),

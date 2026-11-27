@@ -5,12 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../providers/appearance_provider.dart';
 import '../providers/exams_provider.dart';
 import '../providers/grades_provider.dart';
 import '../providers/schedule_provider.dart';
 import '../services/legal_service.dart';
 import '../utils/date_time_utils.dart';
 import '../widgets/diagnostics_dialog.dart';
+import '../widgets/glass/liquid_glass_chrome.dart';
 import '../widgets/legal/legal_markdown_reader.dart';
 import '../widgets/legal/legal_revoke_dialogs.dart';
 import 'home_screen.dart';
@@ -176,12 +178,14 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
       ScheduleProvider? sp;
       GradesProvider? gp;
       ExamsProvider? ep;
+      final appearance = AppearanceProvider.maybeRead(context);
       try { sp = context.read<ScheduleProvider>(); } on Object catch (_) {}
       try { gp = context.read<GradesProvider>(); } on Object catch (_) {}
       try { ep = context.read<ExamsProvider>(); } on Object catch (_) {}
       try { await sp?.clearAll(); } on Object catch (_) {}
       try { await gp?.clearAll(); } on Object catch (_) {}
       try { await ep?.clearAll(); } on Object catch (_) {}
+      appearance?.resetToDefault();
     }
 
     final cleanupResult = await LegalService.revokeAndClearAll();
@@ -240,12 +244,20 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final isWide = MediaQuery.of(context).size.width >= 720;
 
     return Scaffold(
+      backgroundColor: LiquidGlassBackdrop.baseColorFor(theme.brightness),
       appBar: widget.isGate
           ? null
           : AppBar(
+              backgroundColor: isDark
+                  ? const Color(0xFF0E162B).withValues(alpha: 0.92)
+                  : const Color(0xFFF3F7FD).withValues(alpha: 0.92),
+              surfaceTintColor: Colors.transparent,
+              elevation: 0,
+              scrolledUnderElevation: 0,
               titleSpacing: 12,
               title: const Text(
                 '法律条款与合规声明',
@@ -288,11 +300,14 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
                 const SizedBox(width: 4),
               ],
             ),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: isWide ? 840 : double.infinity),
-            child: LayoutBuilder(
+      body: Stack(
+        children: [
+          const Positioned.fill(child: LiquidGlassBackdrop()),
+          SafeArea(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: isWide ? 840 : double.infinity),
+                child: LayoutBuilder(
               builder: (context, constraints) {
                 final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
                 final bool useCompactScrollableLayout =
@@ -353,6 +368,8 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
             ),
           ),
         ),
+      ),
+        ],
       ),
     );
   }
@@ -423,15 +440,9 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-              ),
-            ),
+          LiquidGlassSurfaceCard(
+            padding: const EdgeInsets.all(11),
+            borderRadius: 16,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -508,16 +519,10 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
   }
 
   Widget _buildGateConsentBar(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border(
-          top: BorderSide(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-          ),
-        ),
-      ),
+    return LiquidGlassSurfaceCard(
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+      borderRadius: 18,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -641,16 +646,10 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
         ? DateTimeUtils.formatFullDateTime(_acceptedAt).substring(0, 16)
         : '未记录';
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border(
-          top: BorderSide(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-          ),
-        ),
-      ),
+    return LiquidGlassSurfaceCard(
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+      borderRadius: 18,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,

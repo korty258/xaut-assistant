@@ -1,11 +1,55 @@
+import 'dart:async' show unawaited;
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+import '../../providers/appearance_provider.dart';
 import '../diagnostics_dialog.dart';
 
 /// 供三大主页面 `GlassPullDownButton` 复用的支持与合规菜单项。
 List<Widget> buildGlassSupportMenuItems(BuildContext context) {
+  final appearance = AppearanceProvider.maybeWatch(context);
+  final theme = Theme.of(context);
   return [
     const GlassMenuDivider(),
+    if (appearance != null)
+      GlassMenuItem(
+        title: '减弱透明与动态模糊',
+        icon: Icon(
+          appearance.reduceTransparency
+              ? Icons.blur_off_rounded
+              : Icons.blur_on_rounded,
+          size: 18,
+        ),
+        trailing: Icon(
+          appearance.reduceTransparency
+              ? Icons.check_circle_rounded
+              : Icons.circle_outlined,
+          size: 16,
+          color: appearance.reduceTransparency
+              ? theme.colorScheme.primary
+              : theme.colorScheme.onSurfaceVariant,
+        ),
+        semanticsChecked: appearance.reduceTransparency,
+        onTap: () {
+          final next = !appearance.reduceTransparency;
+          unawaited(appearance.setReduceTransparency(next));
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  next
+                      ? '已开启「减弱透明与动态模糊」（高对比实心表面模式）'
+                      : '已恢复标准液态玻璃透明效果',
+                ),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+                margin: LiquidGlassChromeScope.hasBottomTabBarOf(context)
+                    ? const EdgeInsets.fromLTRB(16, 0, 16, 92)
+                    : null,
+              ),
+            );
+        },
+      ),
     GlassMenuItem(
       title: '查看诊断摘要',
       icon: const Icon(Icons.bug_report_outlined, size: 18),
@@ -65,7 +109,7 @@ class LiquidGlassMoreButton extends StatelessWidget {
     super.key,
     required this.items,
     this.size = 38.0,
-    this.menuWidth = 228.0,
+    this.menuWidth = 240.0,
   });
 
   @override
@@ -154,7 +198,14 @@ class LiquidGlassBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final brightness = Theme.of(context).brightness;
+    final isDark = brightness == Brightness.dark;
+    final reduceTransparency =
+        GlassAccessibilityData.of(context).reduceTransparency;
+
+    if (reduceTransparency) {
+      return ColoredBox(color: baseColorFor(brightness));
+    }
 
     return RepaintBoundary(
       child: DecoratedBox(
@@ -276,18 +327,24 @@ class LiquidGlassSurfaceCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final reduceTransparency =
+        GlassAccessibilityData.of(context).reduceTransparency;
 
-    final fillColor = isDark
-        ? Color.alphaBlend(
-            Colors.white.withValues(alpha: 0.04),
-            const Color(0xFF151E32).withValues(alpha: 0.84),
-          )
-        : Colors.white.withValues(alpha: 0.84);
+    final fillColor = reduceTransparency
+        ? (isDark ? const Color(0xFF151E32) : const Color(0xFFFFFFFF))
+        : (isDark
+            ? Color.alphaBlend(
+                Colors.white.withValues(alpha: 0.04),
+                const Color(0xFF151E32).withValues(alpha: 0.84),
+              )
+            : Colors.white.withValues(alpha: 0.84));
 
     final effectiveBorderColor = borderColor ??
         (isDark
-            ? Colors.white.withValues(alpha: 0.12)
-            : Colors.white.withValues(alpha: 0.90));
+            ? Colors.white.withValues(alpha: reduceTransparency ? 0.16 : 0.12)
+            : (reduceTransparency
+                ? theme.colorScheme.outlineVariant.withValues(alpha: 0.75)
+                : Colors.white.withValues(alpha: 0.90)));
 
     return Container(
       margin: margin,
@@ -309,6 +366,181 @@ class LiquidGlassSurfaceCard extends StatelessWidget {
         ],
       ),
       child: child,
+    );
+  }
+}
+
+/// 通用液态玻璃弹窗容器。
+///
+/// - 默认使用 `GlassContainer.card(useOwnLayer: true)` + `InheritedGlassSurfaceStyle.solid`
+///   提供与全站 Liquid Glass 一致的通透圆角超椭圆视觉；
+/// - 当弹窗位于原生 WebView `PlatformView` 上方时，传 `useSolidSurface: true` 启用零背景采样的
+///   高对比实心超椭圆表面，避免 Windows WebView2 HWND 空洞或 Android Impeller 纹理闪烁；
+/// - 支持标准 `icon / title / content / actions` 布局以及全自定义 `child` 模式，内置滚动与
+///   右对齐 `Wrap` 操作区，兼容 `300dp` 窄屏与 `1.5x` 字体缩放。
+class LiquidGlassDialog extends StatelessWidget {
+  final Widget? icon;
+  final Widget? title;
+  final Widget? content;
+  final List<Widget>? actions;
+  final WrapAlignment actionsAlignment;
+  final Widget? child;
+  final double maxWidth;
+  final EdgeInsetsGeometry contentPadding;
+  final bool scrollableContent;
+  final bool useSolidSurface;
+
+  const LiquidGlassDialog({
+    super.key,
+    this.icon,
+    this.title,
+    this.content,
+    this.actions,
+    this.actionsAlignment = WrapAlignment.end,
+    this.child,
+    this.maxWidth = 440.0,
+    this.contentPadding = const EdgeInsets.all(22),
+    this.scrollableContent = true,
+    this.useSolidSurface = false,
+  });
+
+  Widget _buildStandardBody(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasCenteredHeader = icon != null;
+    final hasActions = actions != null && actions!.isNotEmpty;
+
+    return Padding(
+      padding: contentPadding,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: hasCenteredHeader
+            ? CrossAxisAlignment.center
+            : CrossAxisAlignment.stretch,
+        children: [
+          if (icon != null) ...[
+            icon!,
+            const SizedBox(height: 12),
+          ],
+          if (title != null)
+            DefaultTextStyle.merge(
+              textAlign: hasCenteredHeader ? TextAlign.center : TextAlign.start,
+              style: (theme.textTheme.titleLarge ?? const TextStyle()).copyWith(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
+              ),
+              child: title!,
+            ),
+          if (content != null) ...[
+            if (icon != null || title != null) const SizedBox(height: 14),
+            Flexible(
+              child: SizedBox(
+                width: double.infinity,
+                child: DefaultTextStyle.merge(
+                  style: (theme.textTheme.bodyMedium ?? const TextStyle())
+                      .copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    height: 1.45,
+                  ),
+                  child: scrollableContent
+                      ? SingleChildScrollView(child: content!)
+                      : content!,
+                ),
+              ),
+            ),
+          ],
+          if (hasActions) ...[
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                alignment: actionsAlignment,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: actions!,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final innerContent = Material(
+      type: MaterialType.transparency,
+      child: child != null
+          ? Padding(
+              padding: contentPadding,
+              child: scrollableContent
+                  ? SingleChildScrollView(child: child!)
+                  : child!,
+            )
+          : _buildStandardBody(context),
+    );
+
+    final reduceTransparency =
+        GlassAccessibilityData.of(context).reduceTransparency;
+    final Widget surface;
+    if (useSolidSurface || reduceTransparency) {
+      surface = DecoratedBox(
+        decoration: ShapeDecoration(
+          color: isDark ? const Color(0xFF151E32) : const Color(0xFFF8FBFF),
+          shape: ContinuousRectangleBorder(
+            borderRadius: BorderRadius.circular(48),
+            side: BorderSide(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.14)
+                  : theme.colorScheme.outlineVariant.withValues(alpha: 0.65),
+            ),
+          ),
+          shadows: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.42 : 0.16),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: ClipPath(
+          clipper: ShapeBorderClipper(
+            shape: ContinuousRectangleBorder(
+              borderRadius: BorderRadius.circular(48),
+            ),
+          ),
+          child: innerContent,
+        ),
+      );
+    } else {
+      surface = GlassContainer.card(
+        padding: EdgeInsets.zero,
+        useOwnLayer: true,
+        clipBehavior: Clip.antiAlias,
+        shape: const LiquidRoundedSuperellipse(borderRadius: 24),
+        color: isDark
+            ? const Color(0xFF141C2E).withValues(alpha: 0.78)
+            : Colors.white.withValues(alpha: 0.84),
+        child: InheritedGlassSurfaceStyle(
+          surfaceStyle: GlassSurfaceStyle.solid,
+          child: innerContent,
+        ),
+      );
+    }
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: surface,
+      ),
     );
   }
 }

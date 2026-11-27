@@ -23,6 +23,7 @@ class WebViewNavBar extends StatelessWidget {
     required NavDestination activeNav,
   }) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final isSelected = destination == activeNav;
 
     return ActionChip(
@@ -34,19 +35,27 @@ class WebViewNavBar extends StatelessWidget {
             : theme.colorScheme.onSurfaceVariant,
       ),
       label: Text(label),
-      backgroundColor:
-          isSelected ? theme.colorScheme.primaryContainer : theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      backgroundColor: isSelected
+          ? theme.colorScheme.primaryContainer
+          : (isDark
+              ? const Color(0xFF151E32)
+              : Colors.white.withValues(alpha: 0.90)),
       side: BorderSide(
         color: isSelected
-            ? theme.colorScheme.primary.withValues(alpha: 0.6)
-            : Colors.grey.withValues(alpha: 0.25),
-        width: isSelected ? 1.5 : 1.0,
+            ? theme.colorScheme.primary.withValues(alpha: 0.65)
+            : (isDark
+                ? Colors.white.withValues(alpha: 0.12)
+                : theme.colorScheme.outlineVariant.withValues(alpha: 0.55)),
+        width: isSelected ? 1.4 : 1.0,
       ),
       labelStyle: TextStyle(
         color: isSelected
             ? theme.colorScheme.onPrimaryContainer
             : theme.colorScheme.onSurface,
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
       ),
       onPressed: isInitialized ? () => onNavigate(targetUrl) : null,
     );
@@ -55,6 +64,7 @@ class WebViewNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final activeNav = NavDestination.fromUrl(currentUrl);
 
     return Column(
@@ -63,7 +73,16 @@ class WebViewNavBar extends StatelessWidget {
         // 快捷模块导航条 (根据当前页面动态自适应高亮)
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF111A2E) : const Color(0xFFEAF2FC),
+            border: Border(
+              top: BorderSide(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+              ),
+            ),
+          ),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -113,8 +132,17 @@ class WebViewNavBar extends StatelessWidget {
 
         // 当前地址提示
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          color: theme.colorScheme.surfaceContainerLow,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0D1526) : const Color(0xFFF6F9FE),
+            border: Border(
+              bottom: BorderSide(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+              ),
+            ),
+          ),
           child: Row(
             children: [
               Icon(Icons.link, size: 14, color: theme.colorScheme.onSurfaceVariant),

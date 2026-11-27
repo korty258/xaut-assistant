@@ -24,6 +24,7 @@ class WebViewBottomBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final activeNav = NavDestination.fromUrl(currentUrl);
     final pageSyncInfo = activeNav.syncInfo;
     final disableButtons = !isInitialized || isSyncing;
@@ -32,11 +33,18 @@ class WebViewBottomBar extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
+          color: isDark ? const Color(0xFF0E162B) : const Color(0xFFF3F7FD),
+          border: Border(
+            top: BorderSide(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.10)
+                  : theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
+            ),
+          ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 8,
+              color: Colors.black.withValues(alpha: isDark ? 0.24 : 0.05),
+              blurRadius: 10,
               offset: const Offset(0, -2),
             ),
           ],
@@ -87,7 +95,7 @@ class WebViewBottomBar extends StatelessWidget {
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 13),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(16),
                       ),
                     ),
                   ),
@@ -107,7 +115,7 @@ class WebViewBottomBar extends StatelessWidget {
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 13),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(16),
                       ),
                     ),
                   ),
