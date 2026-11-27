@@ -174,21 +174,24 @@ class _LegalGateScreenState extends State<LegalGateScreen> {
   }
 
   Future<void> _executeRevokeCleanup() async {
+    AppearanceProvider? appearance;
     if (mounted) {
       ScheduleProvider? sp;
       GradesProvider? gp;
       ExamsProvider? ep;
-      final appearance = AppearanceProvider.maybeRead(context);
+      appearance = AppearanceProvider.maybeRead(context);
       try { sp = context.read<ScheduleProvider>(); } on Object catch (_) {}
       try { gp = context.read<GradesProvider>(); } on Object catch (_) {}
       try { ep = context.read<ExamsProvider>(); } on Object catch (_) {}
       try { await sp?.clearAll(); } on Object catch (_) {}
       try { await gp?.clearAll(); } on Object catch (_) {}
       try { await ep?.clearAll(); } on Object catch (_) {}
-      appearance?.resetToDefault();
     }
 
     final cleanupResult = await LegalService.revokeAndClearAll();
+    if (cleanupResult.prefsCleared) {
+      appearance?.resetToDefault();
+    }
     if (!mounted) return;
 
     final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;

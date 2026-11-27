@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
@@ -10,21 +11,37 @@ import 'screens/home_screen.dart';
 import 'screens/legal_gate_screen.dart';
 import 'services/legal_service.dart';
 
+/// Windows / Linux 桌面端走 Skia + ANGLE，跳过重型 GLSL->HLSL 片段着色器编译，
+/// 直接采用零着色器的硬件 `BackdropFilter` 磨砂玻璃（`GlassThemeData.minimal()`）以保证秒级冷启动。
+bool get _isDesktopShaderFreePlatform =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux);
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await LiquidGlassWidgets.initialize();
-  } on Object catch (e) {
-    debugPrint('LiquidGlassWidgets.initialize error: $e');
-  }
   try {
     await LegalService.runPendingWipeIfNeeded();
   } on Object catch (e) {
     debugPrint('LegalService.runPendingWipeIfNeeded error: $e');
   }
   LegalService.registerCustomLicenses();
-  final isLegalAccepted = await LegalService.isAccepted();
-  final reduceTransparency = await AppearanceProvider.loadReduceTransparency();
+  final startupState = await Future.wait<bool>([
+    LegalService.isAccepted(),
+    AppearanceProvider.loadReduceTransparency(),
+  ]);
+  final isLegalAccepted = startupState[0];
+  final reduceTransparency = startupState[1];
+
+  // 仅在非桌面端且未开启减弱透明时异步预热着色器，绝不在 runApp() 前阻塞首帧出窗。
+  if (!_isDesktopShaderFreePlatform && !reduceTransparency) {
+    unawaited(
+      LiquidGlassWidgets.initialize().catchError((Object e) {
+        debugPrint('LiquidGlassWidgets.initialize error: $e');
+      }),
+    );
+  }
+
   runApp(
     XautApp(
       isLegalAccepted: isLegalAccepted,
@@ -91,11 +108,13 @@ class XautApp extends StatelessWidget {
       child: Consumer<AppearanceProvider>(
         builder: (context, appearance, _) {
           final reduceTransparency = appearance.reduceTransparency;
+          final useMinimalTheme =
+              reduceTransparency || _isDesktopShaderFreePlatform;
           return LiquidGlassWidgets.wrap(
-            adaptiveQuality: !reduceTransparency,
+            adaptiveQuality: !useMinimalTheme,
             respectSystemAccessibility: true,
             brightnessResolver: Theme.maybeBrightnessOf,
-            theme: reduceTransparency
+            theme: useMinimalTheme
                 ? const GlassThemeData.minimal()
                 : const GlassThemeData(),
             child: MaterialApp(
