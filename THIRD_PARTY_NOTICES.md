@@ -153,6 +153,7 @@ SOFTWARE.
 | **path_provider** | BSD-3-Clause | 跨平台本地目录与日历文件路径解析 |
 | **share_plus** | BSD-3-Clause | 跨平台系统原生分享面板直达系统日历 |
 | **flutter_markdown_plus** | BSD-3-Clause | 客户端离线法律合规文档富文本排版渲染 |
+| **liquid_glass_widgets** | MIT License | 跨平台 Liquid Glass 液态玻璃质感界面组件 |
 | **cupertino_icons** | MIT License | 高清矢量图标资源底座 |
 
 各组件的完整许可证文本与版权声明均内置于应用内「关于与法律条款」-「全量开源组件许可证 (LicensePage)」中，可随时离线查阅。

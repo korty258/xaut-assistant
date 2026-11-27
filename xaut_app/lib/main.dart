@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:provider/provider.dart';
 import 'providers/schedule_provider.dart';
 import 'providers/grades_provider.dart';
@@ -10,6 +11,11 @@ import 'services/legal_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await LiquidGlassWidgets.initialize();
+  } on Object catch (e) {
+    debugPrint('LiquidGlassWidgets.initialize error: $e');
+  }
   try {
     await LegalService.runPendingWipeIfNeeded();
   } on Object catch (e) {
@@ -59,19 +65,29 @@ class XautApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => ScheduleProvider()),
-        ChangeNotifierProvider(create: (_) => GradesProvider()),
-        ChangeNotifierProvider(create: (_) => ExamsProvider()),
-      ],
-      child: MaterialApp(
-        title: '金花助手',
-        debugShowCheckedModeBanner: false,
-        theme: _buildTheme(Brightness.light),
-        darkTheme: _buildTheme(Brightness.dark),
-        themeMode: ThemeMode.system,
-        home: isLegalAccepted ? const HomeScreen() : const LegalGateScreen(),
+    return LiquidGlassWidgets.wrap(
+      adaptiveQuality: true,
+      respectSystemAccessibility: true,
+      brightnessResolver: Theme.maybeBrightnessOf,
+      theme: const GlassThemeData(),
+      child: MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => ScheduleProvider()),
+          ChangeNotifierProvider(create: (_) => GradesProvider()),
+          ChangeNotifierProvider(create: (_) => ExamsProvider()),
+        ],
+        child: MaterialApp(
+          title: '金花助手',
+          debugShowCheckedModeBanner: false,
+          theme: _buildTheme(Brightness.light),
+          darkTheme: _buildTheme(Brightness.dark),
+          themeMode: ThemeMode.system,
+          builder: (context, child) => Material(
+            type: MaterialType.transparency,
+            child: child ?? const SizedBox.shrink(),
+          ),
+          home: isLegalAccepted ? const HomeScreen() : const LegalGateScreen(),
+        ),
       ),
     );
   }

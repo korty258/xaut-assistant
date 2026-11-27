@@ -44,37 +44,44 @@ class SectionTimeline extends StatelessWidget {
                 ),
               ),
             ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '$sectionNum',
-                  style: TextStyle(
-                    fontSize: isWide ? 13 : 12,
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onSurface,
-                    height: 1.15,
-                  ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      '$sectionNum',
+                      style: TextStyle(
+                        fontSize: isWide ? 13 : 12,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurface,
+                        height: 1.15,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      startTime,
+                      style: TextStyle(
+                        fontSize: isWide ? 10.0 : 9.0,
+                        fontWeight: FontWeight.w500,
+                        color: theme.colorScheme.onSurfaceVariant,
+                        height: 1.15,
+                      ),
+                    ),
+                    Text(
+                      endTime,
+                      style: TextStyle(
+                        fontSize: isWide ? 9.5 : 8.5,
+                        color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.72),
+                        height: 1.15,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 1),
-                Text(
-                  startTime,
-                  style: TextStyle(
-                    fontSize: isWide ? 10.0 : 9.0,
-                    fontWeight: FontWeight.w500,
-                    color: theme.colorScheme.onSurfaceVariant,
-                    height: 1.15,
-                  ),
-                ),
-                Text(
-                  endTime,
-                  style: TextStyle(
-                    fontSize: isWide ? 9.5 : 8.5,
-                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.72),
-                    height: 1.15,
-                  ),
-                ),
-              ],
+              ),
             ),
           );
         }),

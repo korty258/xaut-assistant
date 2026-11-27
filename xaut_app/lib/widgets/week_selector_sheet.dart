@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../providers/schedule_provider.dart';
 
 class WeekSelectorSheet extends StatelessWidget {
@@ -32,23 +33,27 @@ class WeekSelectorSheet extends StatelessWidget {
     required VoidCallback onCalibrateRequested,
   }) {
     unawaited(
-      showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetCtx) => WeekSelectorSheet(
-        currentWeek: provider.currentWeek,
-        actualCurrentWeek: provider.actualCurrentWeek,
-        hasSemesterStart: provider.hasSemesterStart,
-        semesterStartDate: provider.semesterStartDate,
-        semesterName: provider.semesterName,
-        totalWeeks: provider.maxWeeks,
-        onWeekSelected: (w) => provider.setCurrentWeek(w),
-        onResetToActualWeek: () => provider.resetToActualCurrentWeek(),
-        onCalibratePressed: onCalibrateRequested,
-      ),
+      GlassModalSheet.show<void>(
+        context: context,
+        detents: const {GlassSheetDetent.fitted},
+        topBorderRadius: 30,
+        builder: (sheetCtx) => InheritedGlassSurfaceStyle(
+          surfaceStyle: GlassSurfaceStyle.solid,
+          child: Material(
+            type: MaterialType.transparency,
+            child: WeekSelectorSheet(
+              currentWeek: provider.currentWeek,
+              actualCurrentWeek: provider.actualCurrentWeek,
+              hasSemesterStart: provider.hasSemesterStart,
+              semesterStartDate: provider.semesterStartDate,
+              semesterName: provider.semesterName,
+              totalWeeks: provider.maxWeeks,
+              onWeekSelected: (w) => provider.setCurrentWeek(w),
+              onResetToActualWeek: () => provider.resetToActualCurrentWeek(),
+              onCalibratePressed: onCalibrateRequested,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -71,7 +76,7 @@ class WeekSelectorSheet extends StatelessWidget {
           maxHeight: MediaQuery.sizeOf(context).height * 0.72,
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,

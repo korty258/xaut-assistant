@@ -6,6 +6,26 @@
 
 ## [Unreleased]
 
+## [3.0.0-pre1] - 2026-11-27
+
+金花助手 `v3.0.0-pre1`（开发预览版 · Liquid Glass 液态玻璃全新视觉体系重构、`WebViewLoginScreen` 可测性注入与覆盖率门禁上调至 `75%`）！本预览版开启 `v3.0` 视觉大版本演进，全面引入 `liquid_glass_widgets` 液态玻璃设计语言，重构三大主页面顶栏、悬浮导航栏、胶囊切周组件与核心弹窗浮层。
+
+### Added & Changed (Liquid Glass UI Overhaul)
+- **Liquid Glass 视觉设计体系落地 (`liquid_glass_widgets` & `liquid_glass_chrome.dart`)**：
+  - 引入 `liquid_glass_widgets: ^1.21.0`（MIT 许可），新增统一玻璃拟态组件封装 [`liquid_glass_chrome.dart`](xaut_app/lib/widgets/glass/liquid_glass_chrome.dart)，在浅色与深色模式下保持高对比度清晰可读；
+  - **主框架与底部悬浮导航 (`HomeScreen` & `main.dart`)**：将三 Tab 切换升级为液态玻璃悬浮导航容器，适配全局渐变画布与通透层次；
+  - **三大核心业务页全面换装 (`ScheduleScreen`、`GradesScreen` & `ExamsScreen`)**：重构顶部操作栏、学业统计总览卡片、考试状态卡片与空态引导页（`ScheduleEmptyGuide`），在玻璃通透感与窄屏/大字号防溢出之间保持平衡；
+  - **课表交互组件与核心浮层升级**：同步重构 `WeekSwitcherCapsule`、`WeekStatusBanner`、`SectionTimeline`、`WeekdayHeader`、`CourseCard`、`CourseDetailDialog` 与 `WeekSelectorSheet`。
+
+### Tests & Quality Gates
+- **Liquid Glass UI 自动化测试 (`liquid_glass_ui_test.dart`)**：
+  - 新增液态玻璃主框架、课表/成绩/考试核心页面及浮层在浅/深色模式、窄屏高缩放（`300dp` + `1.5x` / `320dp` + `1.4x`）与宽屏桌面下的渲染与交互回归测试，并同步更新 `shell_and_banner_widgets_test.dart`；
+  - Flutter 单元与组件测试扩充至 **202 项** 全部通过（行覆盖率 **`85.46%`**），Node 24 JSDOM 解析器回归测试保持 **31 项** 全通。
+- **消除最后单点覆盖率洼地与门禁升级 (`WebViewLoginScreen` & CI)**：
+  - 为 `WebViewLoginScreen` 新增 `@visibleForTesting` 构造注入钩子与 `webview_login_screen_test.dart`，将 CI 与本地最低行覆盖率门禁由 `65.00%` 上调至 **`75.00%`**；
+- **第三方开源致谢更新**：
+  - 在 `THIRD_PARTY_NOTICES.md` 与内置 `third_party_notices.md` 中补充 `liquid_glass_widgets`（MIT License）致谢条目（不构成合规条款权利义务变更，`LegalService.currentVersion` 保持不变）。
+
 ## [2.4.2] - 2026-11-20
 
 金花助手 `v2.4.2`（课表顶栏视觉精简补丁版）发布！本版本精简课表页左上角导航标题文案，在窄屏与大字号场景下为周次胶囊及快捷按钮留出更充裕的操作空间。
@@ -792,7 +812,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v2.4.2...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v3.0.0-pre1...HEAD
+[3.0.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.4.2...v3.0.0-pre1
 [2.4.2]: https://github.com/korty258/xaut-assistant/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/korty258/xaut-assistant/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/korty258/xaut-assistant/compare/v2.3.8...v2.4.0

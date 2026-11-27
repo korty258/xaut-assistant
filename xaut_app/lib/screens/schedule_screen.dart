@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:ui' show PointerDeviceKind;
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:provider/provider.dart';
 import '../providers/schedule_provider.dart';
 import '../widgets/calendar_export_dialog.dart';
 import '../widgets/decryption_error_view.dart';
+import '../widgets/glass/liquid_glass_chrome.dart';
 import '../widgets/week_selector_sheet.dart';
 import '../widgets/schedule/week_switcher_capsule.dart';
 import '../widgets/schedule/schedule_empty_guide.dart';
@@ -13,7 +15,6 @@ import '../widgets/schedule/weekday_header.dart';
 import '../widgets/schedule/section_timeline.dart';
 import '../widgets/schedule/schedule_day_column.dart';
 import 'webview_login_screen.dart';
-import '../widgets/diagnostics_dialog.dart';
 
 /// 金花课表主页面 (支持多周左右翻页、动态双周/单双周并列分栏展示)
 class ScheduleScreen extends StatefulWidget {
@@ -122,13 +123,67 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
+  Widget _buildWeekModeChip(
+    BuildContext context,
+    ThemeData theme,
+    ScheduleProvider provider, {
+    required bool isDark,
+  }) {
+    final isOnlyCurrent = provider.onlyCurrentWeek;
+    final tintColor = isOnlyCurrent
+        ? theme.colorScheme.primary.withValues(alpha: isDark ? 0.30 : 0.16)
+        : (isDark
+            ? Colors.white.withValues(alpha: 0.08)
+            : Colors.white.withValues(alpha: 0.45));
+    final fgColor = isOnlyCurrent
+        ? (isDark ? theme.colorScheme.onSurface : theme.colorScheme.primary)
+        : theme.colorScheme.onSurfaceVariant;
+
+    return GlassButton.custom(
+      onTap: () => unawaited(provider.toggleOnlyCurrentWeek()),
+      label: isOnlyCurrent ? '当前仅本周，点击切换所有周' : '当前所有周，点击切换仅本周',
+      width: 82,
+      height: 34,
+      shape: const LiquidRoundedSuperellipse(borderRadius: 20),
+      tintColor: tintColor,
+      stretch: 0.18,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isOnlyCurrent ? Icons.filter_alt_rounded : Icons.date_range_rounded,
+                size: 13.5,
+                color: fgColor,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                isOnlyCurrent ? '仅本周' : '所有周',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: fgColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final provider = context.watch<ScheduleProvider>();
 
     if (provider.isLoading) {
       return const Scaffold(
+        backgroundColor: Colors.transparent,
         body: Center(
           child: CircularProgressIndicator(),
         ),
@@ -139,31 +194,56 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
     final todayWeekday = provider.todayDate.weekday; // 1: Mon, 7: Sun
     final isViewingActual = provider.isViewingActualWeek;
-    final isWide = MediaQuery.sizeOf(context).width >= 720;
+    final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+    final hasHostBackdrop = LiquidGlassChromeScope.hasHostBackdropOf(context);
+    const toolbarHeight = 52.0;
+    final topClearance = LiquidGlassChromeScope.topBarClearanceOf(
+      context,
+      toolbarHeight: toolbarHeight,
+      extra: 2.0,
+    );
+    final bottomClearance = LiquidGlassChromeScope.bottomBarClearanceOf(context);
 
-    return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
-      appBar: AppBar(
-        titleSpacing: 12,
-        elevation: 0.5,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(5),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                shape: BoxShape.circle,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
+        final isWide = availableWidth >= 720 && textScale <= 1.25;
+        final isCompactTopBar = availableWidth < 380 || textScale > 1.25;
+        final btnSize = isCompactTopBar ? 34.0 : 38.0;
+
+        final scaffold = GlassScaffold(
+      background: hasHostBackdrop ? const SizedBox.shrink() : const LiquidGlassBackdrop(),
+      backgroundColor: LiquidGlassBackdrop.baseColorFor(theme.brightness),
+      statusBarStyle: hasHostBackdrop ? GlassStatusBarStyle.none : GlassStatusBarStyle.auto,
+      bottomEdgeFade: false,
+      appBar: GlassAppBar(
+        centerTitle: false,
+        toolbarHeight: toolbarHeight,
+        padding: EdgeInsets.symmetric(horizontal: isCompactTopBar ? 8 : 12),
+        title: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer.withValues(
+                    alpha: isDark ? 0.72 : 0.85,
+                  ),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.calendar_month_rounded,
+                  size: 16,
+                  color: theme.colorScheme.onPrimaryContainer,
+                ),
               ),
-              child: Icon(
-                Icons.calendar_month_rounded,
-                size: 17,
-                color: theme.colorScheme.onPrimaryContainer,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
+              const SizedBox(width: 7),
+              Text(
                 '课表',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -173,178 +253,122 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   color: theme.colorScheme.onSurface,
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
-          // 周次切换胶囊组件
+          // 周次切换液态玻璃胶囊组件
           WeekSwitcherCapsule(
             provider: provider,
             isViewingActual: isViewingActual,
             isWide: isWide,
           ),
-          SizedBox(width: isWide ? 6 : 2),
 
-          // 核心切换按钮: 仅本周 / 所有周
-          InkWell(
-            onTap: () => provider.toggleOnlyCurrentWeek(),
-            borderRadius: BorderRadius.circular(20),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-              decoration: BoxDecoration(
-                color: provider.onlyCurrentWeek
-                    ? theme.colorScheme.primaryContainer
-                    : theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: provider.onlyCurrentWeek
-                      ? theme.colorScheme.primary.withValues(alpha: 0.6)
-                      : theme.colorScheme.outlineVariant,
-                  width: 1.2,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    provider.onlyCurrentWeek
-                        ? Icons.filter_alt_rounded
-                        : Icons.date_range_rounded,
-                    size: 13,
-                    color: provider.onlyCurrentWeek
-                        ? theme.colorScheme.onPrimaryContainer
-                        : theme.colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    provider.onlyCurrentWeek ? '仅本周' : '所有周',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: provider.onlyCurrentWeek
-                          ? theme.colorScheme.onPrimaryContainer
-                          : theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
+          // 常规宽度下直接置于顶栏；窄屏/高缩放时自动移至顶栏下方紧凑条避免挤压溢出
+          if (!isCompactTopBar)
+            _buildWeekModeChip(
+              context,
+              theme,
+              provider,
+              isDark: isDark,
             ),
-          ),
-          SizedBox(width: isWide ? 4 : 0),
 
           // 导入/同步按钮
-          IconButton(
-            icon: const Icon(Icons.sync_rounded),
+          LiquidGlassSyncButton(
+            size: btnSize,
             tooltip: '强智教务登录与一键同步',
-            visualDensity: isWide ? null : VisualDensity.compact,
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (context) => const WebViewLoginScreen()),
+              unawaited(
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const WebViewLoginScreen()),
+                ),
               );
             },
           ),
 
-          // 更多菜单
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            tooltip: '更多操作',
-            padding: isWide ? const EdgeInsets.all(8.0) : EdgeInsets.zero,
-            onSelected: (val) {
-              if (val == 'calibrate') {
-                unawaited(SemesterCalibrateDialog.show(context, provider));
-              } else if (val == 'export_calendar') {
-                unawaited(CalendarExportDialog.show(context));
-              } else if (val == 'back_to_current') {
-                unawaited(provider.resetToActualCurrentWeek());
-              } else if (val == 'toggle_mode') {
-                unawaited(provider.toggleOnlyCurrentWeek());
-              } else if (val == 'clear') {
-                _showClearScheduleDialog(context, provider);
-              } else {
-                DiagnosticsDialog.handleSupportMenuSelection(context, val);
-              }
-            },
-            itemBuilder: (context) => [
+          // 更多菜单（液态玻璃下拉菜单，保留 Icons.more_vert 与 更多操作 Tooltip）
+          LiquidGlassMoreButton(
+            size: btnSize,
+            items: [
               if (!isViewingActual)
-                PopupMenuItem(
-                  value: 'back_to_current',
-                  child: Row(
-                    children: [
-                      Icon(Icons.today_rounded, size: 18, color: theme.colorScheme.primary),
-                      const SizedBox(width: 8),
-                      Text('回到本周 (第 ${provider.actualCurrentWeek} 周)'),
-                    ],
-                  ),
+                GlassMenuItem(
+                  title: '回到本周 (第 ${provider.actualCurrentWeek} 周)',
+                  icon: Icon(Icons.today_rounded, size: 18, color: theme.colorScheme.primary),
+                  onTap: () => unawaited(provider.resetToActualCurrentWeek()),
                 ),
-              const PopupMenuItem(
-                value: 'calibrate',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit_calendar_rounded, size: 18),
-                    SizedBox(width: 8),
-                    Text('校准开学日期 / 当前周'),
-                  ],
-                ),
+              GlassMenuItem(
+                title: '校准开学日期 / 当前周',
+                icon: const Icon(Icons.edit_calendar_rounded, size: 18),
+                onTap: () => unawaited(SemesterCalibrateDialog.show(context, provider)),
               ),
-              const PopupMenuItem(
-                value: 'export_calendar',
-                child: Row(
-                  children: [
-                    Icon(Icons.calendar_month_rounded, size: 18),
-                    SizedBox(width: 8),
-                    Text('导出至系统日历 (.ics)'),
-                  ],
-                ),
+              GlassMenuItem(
+                title: '导出至系统日历 (.ics)',
+                icon: const Icon(Icons.calendar_month_rounded, size: 18),
+                onTap: () => unawaited(CalendarExportDialog.show(context)),
               ),
-              PopupMenuItem(
-                value: 'toggle_mode',
-                child: Row(
-                  children: [
-                    Icon(
-                      provider.onlyCurrentWeek
-                          ? Icons.date_range_rounded
-                          : Icons.filter_alt_rounded,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(provider.onlyCurrentWeek ? '切换至所有周' : '切换至仅本周'),
-                  ],
+              GlassMenuItem(
+                title: provider.onlyCurrentWeek ? '切换至所有周' : '切换至仅本周',
+                icon: Icon(
+                  provider.onlyCurrentWeek
+                      ? Icons.date_range_rounded
+                      : Icons.filter_alt_rounded,
+                  size: 18,
                 ),
+                onTap: () => unawaited(provider.toggleOnlyCurrentWeek()),
               ),
-              const PopupMenuDivider(),
-              PopupMenuItem(
-                value: 'clear',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_outline, size: 18, color: theme.colorScheme.error),
-                    const SizedBox(width: 8),
-                    Text('清空课表数据', style: TextStyle(color: theme.colorScheme.error)),
-                  ],
-                ),
+              const GlassMenuDivider(),
+              GlassMenuItem(
+                title: '清空课表数据',
+                icon: const Icon(Icons.delete_outline, size: 18),
+                isDestructive: true,
+                onTap: () => _showClearScheduleDialog(context, provider),
               ),
-              ...DiagnosticsDialog.buildSupportMenuEntries(),
+              ...buildGlassSupportMenuItems(context),
             ],
           ),
-          const SizedBox(width: 4),
         ],
       ),
       body: provider.hasStorageError
-          ? DecryptionErrorView(
-              moduleName: '课表',
-              isFormatError: provider.hasDataFormatError,
-              onReset: () {
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context)
-                  ..hideCurrentSnackBar()
-                  ..showSnackBar(
-                    const SnackBar(content: Text('已重置损坏缓存与主密钥，请重新同步教务数据')),
-                  );
-              },
+          ? Padding(
+              padding: EdgeInsets.only(top: topClearance, bottom: bottomClearance),
+              child: DecryptionErrorView(
+                moduleName: '课表',
+                isFormatError: provider.hasDataFormatError,
+                onReset: () {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context)
+                    ..hideCurrentSnackBar()
+                    ..showSnackBar(
+                      const SnackBar(content: Text('已重置损坏缓存与主密钥，请重新同步教务数据')),
+                    );
+                },
+              ),
             )
           : provider.courses.isEmpty
-              ? const ScheduleEmptyGuide()
+              ? Padding(
+                  padding: EdgeInsets.only(top: topClearance),
+                  child: const ScheduleEmptyGuide(),
+                )
               : Column(
                   children: [
+                    SizedBox(height: topClearance),
+                    // 窄屏或大字号缩放下，在顶栏下方提供独立紧凑筛选条
+                    if (isCompactTopBar)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 2, 10, 4),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            _buildWeekModeChip(
+                              context,
+                              theme,
+                              provider,
+                              isDark: isDark,
+                            ),
+                          ],
+                        ),
+                      ),
+
                     // 非本周一键「回到本周」或未校准提示条
                     WeekStatusBanner(provider: provider),
 
@@ -379,13 +403,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                 Divider(
                                   height: 1,
                                   thickness: 0.8,
-                                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
                                 ),
 
-                                // 课表格子主体
+                                // 课表格子主体（底部留出悬浮导航栏安全空间，滑动时自然透过底栏折射）
                                 Expanded(
                                   child: SingleChildScrollView(
                                     physics: const BouncingScrollPhysics(),
+                                    padding: EdgeInsets.only(bottom: bottomClearance),
                                     child: SizedBox(
                                       height: SectionTimeline.sectionHeight *
                                           SectionTimeline.totalSections,
@@ -399,7 +424,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                           ...List.generate(7, (dIndex) {
                                             final dayOfWeek = dIndex + 1;
                                             final cellDate = provider.getDateForWeekAndDay(
-                                                pageWeek, dayOfWeek);
+                                              pageWeek,
+                                              dayOfWeek,
+                                            );
                                             final isColToday = provider.hasSemesterStart
                                                 ? provider.isDateToday(cellDate)
                                                 : (dayOfWeek == todayWeekday);
@@ -429,6 +456,13 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     ),
                   ],
                 ),
+    );
+
+        if (Scaffold.maybeOf(context) != null) {
+          return scaffold;
+        }
+        return Scaffold(backgroundColor: Colors.transparent, body: scaffold);
+      },
     );
   }
 }

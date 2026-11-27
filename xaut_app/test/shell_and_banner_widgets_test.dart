@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/models/course.dart';
@@ -162,16 +163,18 @@ void main() {
         const Duration(seconds: 5),
       );
 
-      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(find.byType(GlassTabBar), findsOneWidget);
       expect(
-        find.descendant(of: find.byType(NavigationBar), matching: find.text('课表')),
-        findsOneWidget,
+        find.descendant(of: find.byType(GlassTabBar), matching: find.text('课表')),
+        findsAtLeastNWidgets(1),
       );
-      expect(find.text('成绩'), findsOneWidget);
-      expect(find.text('考试'), findsOneWidget);
+      expect(find.text('成绩'), findsAtLeastNWidgets(1));
+      expect(find.text('考试'), findsAtLeastNWidgets(1));
 
       // 切换底部导航栏 Tab
-      await tester.tap(find.text('成绩'));
+      await tester.tap(
+        find.descendant(of: find.byType(GlassTabBar), matching: find.text('成绩')).first,
+      );
       await tester.pumpAndSettle(
         const Duration(milliseconds: 50),
         EnginePhase.sendSemanticsUpdate,
@@ -179,7 +182,9 @@ void main() {
       );
       expect(find.text('学业成绩与绩点'), findsOneWidget);
 
-      await tester.tap(find.text('考试'));
+      await tester.tap(
+        find.descendant(of: find.byType(GlassTabBar), matching: find.text('考试')).first,
+      );
       await tester.pumpAndSettle(
         const Duration(milliseconds: 50),
         EnginePhase.sendSemanticsUpdate,

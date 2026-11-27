@@ -19,6 +19,7 @@ class WeekdayHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final isWide = MediaQuery.sizeOf(context).width >= 720;
     final timelineWidth = isWide ? 56.0 : 46.0;
 
@@ -26,7 +27,19 @@ class WeekdayHeader extends StatelessWidget {
     final headerMonth = weekMonday?.month ?? provider.todayDate.month;
 
     return Container(
-      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.05)
+            : Colors.white.withValues(alpha: 0.52),
+        border: Border(
+          top: BorderSide(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.white.withValues(alpha: 0.72),
+            width: 0.7,
+          ),
+        ),
+      ),
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
