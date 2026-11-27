@@ -5,17 +5,54 @@ import 'package:provider/provider.dart';
 import '../providers/exams_provider.dart';
 import '../providers/schedule_provider.dart';
 import '../services/calendar_export_service.dart';
+import 'glass/liquid_glass_chrome.dart';
 import 'week_selector_sheet.dart';
 
 class CalendarExportDialog extends StatefulWidget {
   final bool preferExams;
 
-  const CalendarExportDialog({super.key, this.preferExams = false});
+  @visibleForTesting
+  final Future<String> Function({
+    required String icsContent,
+    String fileName,
+  })? onSaveIcsFile;
 
-  static Future<void> show(BuildContext context, {bool preferExams = false}) {
+  @visibleForTesting
+  final Future<void> Function({
+    required String icsContent,
+    String fileName,
+    String subject,
+  })? onShareCalendar;
+
+  const CalendarExportDialog({
+    super.key,
+    this.preferExams = false,
+    this.onSaveIcsFile,
+    this.onShareCalendar,
+  });
+
+  static Future<void> show(
+    BuildContext context, {
+    bool preferExams = false,
+    @visibleForTesting
+    Future<String> Function({
+      required String icsContent,
+      String fileName,
+    })? onSaveIcsFile,
+    @visibleForTesting
+    Future<void> Function({
+      required String icsContent,
+      String fileName,
+      String subject,
+    })? onShareCalendar,
+  }) {
     return showDialog(
       context: context,
-      builder: (_) => CalendarExportDialog(preferExams: preferExams),
+      builder: (_) => CalendarExportDialog(
+        preferExams: preferExams,
+        onSaveIcsFile: onSaveIcsFile,
+        onShareCalendar: onShareCalendar,
+      ),
     );
   }
 
@@ -62,11 +99,19 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
     setState(() => _isExporting = true);
     try {
       final ics = _buildIcs(schedule, exams);
-      await CalendarExportService.shareCalendar(
-        icsContent: ics,
-        fileName: 'xaut_schedule.ics',
-        subject: '西安理工大学日程 (.ics)',
-      );
+      if (widget.onShareCalendar != null) {
+        await widget.onShareCalendar!(
+          icsContent: ics,
+          fileName: 'xaut_schedule.ics',
+          subject: '西安理工大学日程 (.ics)',
+        );
+      } else {
+        await CalendarExportService.shareCalendar(
+          icsContent: ics,
+          fileName: 'xaut_schedule.ics',
+          subject: '西安理工大学日程 (.ics)',
+        );
+      }
       if (mounted) {
         navigator.pop();
       }
@@ -89,10 +134,15 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
     setState(() => _isExporting = true);
     try {
       final ics = _buildIcs(schedule, exams);
-      final savedPath = await CalendarExportService.saveIcsFile(
-        icsContent: ics,
-        fileName: 'xaut_schedule.ics',
-      );
+      final savedPath = widget.onSaveIcsFile != null
+          ? await widget.onSaveIcsFile!(
+              icsContent: ics,
+              fileName: 'xaut_schedule.ics',
+            )
+          : await CalendarExportService.saveIcsFile(
+              icsContent: ics,
+              fileName: 'xaut_schedule.ics',
+            );
       if (mounted) {
         navigator.pop();
         messenger.showSnackBar(
@@ -190,7 +240,8 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
     final needSemesterCalibrate = _exportCourses && !schedule.hasSemesterStart;
     final canExport = (_exportCourses || _exportExams) && !needSemesterCalibrate && !_isExporting;
 
-    return AlertDialog(
+    return LiquidGlassDialog(
+      maxWidth: 500,
       title: Row(
         children: [
           Container(
@@ -216,13 +267,10 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
           ),
         ],
       ),
-      content: SingleChildScrollView(
-        child: SizedBox(
-          width: 480,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
               Text(
                 '生成遵循 RFC 5545 标准的 .ics 日历文件，当前支持导出课表与期末考试安排，成绩暂不支持导出。\n文件包含课程名称、任课教师、教室、考场等信息；导出后请妥善保管，分享或导入第三方日历时请注意接收方的隐私政策。',
                 style: TextStyle(
@@ -386,36 +434,28 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
               ),
             ],
           ),
-        ),
-      ),
-      actionsAlignment: MainAxisAlignment.spaceBetween,
+      actionsAlignment: WrapAlignment.end,
       actions: [
         TextButton.icon(
           icon: const Icon(Icons.copy_rounded, size: 16),
           label: const Text('复制内容'),
           onPressed: canExport ? () => _handleCopy(context, schedule, exams) : null,
         ),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            OutlinedButton.icon(
-              icon: const Icon(Icons.save_alt_rounded, size: 16),
-              label: const Text('保存文件'),
-              onPressed: canExport ? () => _handleSave(context, schedule, exams) : null,
-            ),
-            FilledButton.icon(
-              icon: _isExporting
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.share_rounded, size: 16),
-              label: const Text('系统分享 / 导入日历'),
-              onPressed: canExport ? () => _handleShare(context, schedule, exams) : null,
-            ),
-          ],
+        OutlinedButton.icon(
+          icon: const Icon(Icons.save_alt_rounded, size: 16),
+          label: const Text('保存文件'),
+          onPressed: canExport ? () => _handleSave(context, schedule, exams) : null,
+        ),
+        FilledButton.icon(
+          icon: _isExporting
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Icon(Icons.share_rounded, size: 16),
+          label: const Text('系统分享 / 导入日历'),
+          onPressed: canExport ? () => _handleShare(context, schedule, exams) : null,
         ),
       ],
     );

@@ -16,7 +16,7 @@ class ScheduleEmptyGuide extends StatelessWidget {
       child: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(
           24,
-          20,
+          LiquidGlassChromeScope.topBarClearanceOf(context) + 16,
           24,
           LiquidGlassChromeScope.bottomBarClearanceOf(context),
         ),

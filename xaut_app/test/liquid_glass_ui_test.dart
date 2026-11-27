@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xaut_app/models/course.dart';
 import 'package:xaut_app/models/exam.dart';
 import 'package:xaut_app/models/grade.dart';
+import 'package:xaut_app/providers/appearance_provider.dart';
 import 'package:xaut_app/providers/exams_provider.dart';
 import 'package:xaut_app/providers/grades_provider.dart';
 import 'package:xaut_app/providers/schedule_provider.dart';
@@ -149,6 +150,7 @@ void main() {
     required ScheduleProvider schedule,
     required GradesProvider grades,
     required ExamsProvider exams,
+    AppearanceProvider? appearance,
     required Brightness brightness,
     double textScale = 1.0,
   }) {
@@ -156,30 +158,42 @@ void main() {
       seedColor: const Color(0xFF1E88E5),
       brightness: brightness,
     );
-    return LiquidGlassWidgets.wrap(
-      adaptiveQuality: false,
-      respectSystemAccessibility: true,
-      brightnessResolver: Theme.maybeBrightnessOf,
-      theme: const GlassThemeData(),
-      child: MultiProvider(
-        providers: [
-          ChangeNotifierProvider<ScheduleProvider>.value(value: schedule),
-          ChangeNotifierProvider<GradesProvider>.value(value: grades),
-          ChangeNotifierProvider<ExamsProvider>.value(value: exams),
-        ],
-        child: MaterialApp(
-          theme: ThemeData(useMaterial3: true, colorScheme: colorScheme),
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context).copyWith(
-              textScaler: TextScaler.linear(textScale),
+    final effectiveAppearance = appearance ?? AppearanceProvider();
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AppearanceProvider>.value(value: effectiveAppearance),
+        ChangeNotifierProvider<ScheduleProvider>.value(value: schedule),
+        ChangeNotifierProvider<GradesProvider>.value(value: grades),
+        ChangeNotifierProvider<ExamsProvider>.value(value: exams),
+      ],
+      child: Consumer<AppearanceProvider>(
+        builder: (context, appAppearance, _) {
+          final reduceTransparency = appAppearance.reduceTransparency;
+          return LiquidGlassWidgets.wrap(
+            adaptiveQuality: false,
+            respectSystemAccessibility: true,
+            brightnessResolver: Theme.maybeBrightnessOf,
+            theme: reduceTransparency
+                ? const GlassThemeData.minimal()
+                : const GlassThemeData(),
+            child: MaterialApp(
+              theme: ThemeData(useMaterial3: true, colorScheme: colorScheme),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: TextScaler.linear(textScale),
+                ),
+                child: GlassAccessibilityScope(
+                  reduceTransparency: reduceTransparency ? true : null,
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: child ?? const SizedBox.shrink(),
+                  ),
+                ),
+              ),
+              home: const HomeScreen(),
             ),
-            child: Material(
-              type: MaterialType.transparency,
-              child: child ?? const SizedBox.shrink(),
-            ),
-          ),
-          home: const HomeScreen(),
-        ),
+          );
+        },
       ),
     );
   }
@@ -307,8 +321,71 @@ void main() {
       // 点击液态玻璃更多菜单打开诊断摘要入口
       await tester.tap(find.byTooltip('更多操作').first);
       await _settleBounded(tester);
+      expect(find.text('减弱透明与动态模糊'), findsOneWidget);
       expect(find.text('查看诊断摘要'), findsOneWidget);
       expect(find.text('关于与法律条款'), findsOneWidget);
+      _expectNoException(tester);
+    });
+
+    testWidgets('reduce transparency toggle persists preference and degrades glass surfaces cleanly',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1024, 768));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final seeded = await seedAllProviders(tester);
+      final appearance = AppearanceProvider();
+
+      await tester.pumpWidget(
+        buildTestApp(
+          schedule: seeded.schedule,
+          grades: seeded.grades,
+          exams: seeded.exams,
+          appearance: appearance,
+          brightness: Brightness.light,
+        ),
+      );
+      await _settleBounded(tester);
+      expect(appearance.reduceTransparency, isFalse);
+
+      // 1. 打开更多菜单并开启「减弱透明与动态模糊」
+      await tester.tap(find.byTooltip('更多操作').first);
+      await _settleBounded(tester);
+      await tester.tap(find.text('减弱透明与动态模糊'));
+      await _settleBounded(tester);
+
+      expect(appearance.reduceTransparency, isTrue);
+      expect(find.text('已开启「减弱透明与动态模糊」（高对比实心表面模式）'), findsOneWidget);
+      final persistedTrue = await tester.runAsync(
+        () => AppearanceProvider.loadReduceTransparency(),
+      );
+      expect(persistedTrue, isTrue);
+
+      // 2. 在减弱透明模式下切换至成绩与考试页，验证无渲染异常
+      await tester.tap(
+        find.descendant(of: find.byType(GlassTabBar), matching: find.text('成绩')).first,
+      );
+      await _settleBounded(tester);
+      expect(find.text('编译原理'), findsOneWidget);
+      _expectNoException(tester);
+
+      // 3. 再次切换恢复标准液态玻璃模式
+      await tester.tap(find.byTooltip('更多操作').first);
+      await _settleBounded(tester);
+      await tester.tap(find.text('减弱透明与动态模糊'));
+      await _settleBounded(tester);
+
+      expect(appearance.reduceTransparency, isFalse);
+      expect(find.text('已恢复标准液态玻璃透明效果'), findsOneWidget);
+      final persistedFalse = await tester.runAsync(
+        () => AppearanceProvider.loadReduceTransparency(),
+      );
+      expect(persistedFalse, isFalse);
+
+      // 4. 验证 toggleReduceTransparency 与 resetToDefault 行为
+      await tester.runAsync(() => appearance.toggleReduceTransparency());
+      expect(appearance.reduceTransparency, isTrue);
+      appearance.resetToDefault();
+      expect(appearance.reduceTransparency, isFalse);
       _expectNoException(tester);
     });
   });

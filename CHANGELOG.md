@@ -6,6 +6,30 @@
 
 ## [Unreleased]
 
+## [3.0.0-pre2] - 2026-11-27
+
+金花助手 `v3.0.0-pre2`（开发预览版 · 全站 Liquid Glass 视觉闭环、无障碍「减弱透明与动态模糊」开关与 `80%` 行覆盖率门禁）！本版本彻底消除 `v3.0.0-pre1` 的半程玻璃割裂与空态滚动截断瑕疵，完成全站弹窗、法律门禁与教务登录控制栏的视觉统一，并内置低配/护眼实心表面切换模式。
+
+### Added & Changed (Full Liquid Glass Visual Closure & Accessibility)
+- **通用液态玻璃弹窗容器 (`LiquidGlassDialog`) 与全站 22 处弹窗统一迁移**：
+  - 在 [`liquid_glass_chrome.dart`](xaut_app/lib/widgets/glass/liquid_glass_chrome.dart) 新增通用 `LiquidGlassDialog`（内置可滚动内容区、自动折行 `Wrap` 操作区与窄屏高字号防溢出保护），并重构 `CourseDetailDialog` 复用该外壳；
+  - 将日历导出（`CalendarExportDialog`）、诊断摘要（`DiagnosticsDialog`）、开学校准（`SemesterCalibrateDialog`）、密文重置（`DecryptionErrorView`）、法律撤回（`LegalRevokeDialogs`）及三大主页清空确认框全部迁移至液态玻璃视觉风格；
+  - 针对挂在原生 WebView `PlatformView` 上方的 11 处教务同步与安全拦截弹窗（`WebViewLoginScreen`、`WebViewSyncDialogs`），提供 `useSolidSurface: true` 零背景采样高对比超椭圆表面，规避 Windows WebView2 空洞与 Android Impeller 纹理闪烁风险。
+- **可选无障碍 / 低配机开关「减弱透明与动态模糊」 (`AppearanceProvider`)**：
+  - 新增 [`appearance_provider.dart`](xaut_app/lib/providers/appearance_provider.dart) 持久化本地偏好（撤回法律授权时同步重置），在三大主页右上角「更多操作」菜单中提供一键切换入口；
+  - 开启后全局切换至 `GlassThemeData.minimal()`（零自定义片段着色器）与 `GlassAccessibilityScope(reduceTransparency: true)`，同时将环境光幕、卡片与弹窗降级为高对比度实心表面，兼顾老旧核显 Windows 电脑与护眼需求。
+- **空状态与错误页毛玻璃滚动穿透修复 (Scroll-Under Clearance)**：
+  - 将 `ScheduleEmptyGuide` 与 `DecryptionErrorView` 的顶/底栏留白下沉至内部 `SingleChildScrollView.padding`，并升级错误页为 `LiquidGlassSurfaceCard`，移除三大主页外层硬裁剪 `Padding`，矮屏滚动时可平滑穿过顶底玻璃栏。
+- **法律门禁与教务登录页视觉对齐 (`LegalGateScreen` & `WebViewLoginScreen`)**：
+  - `LegalGateScreen` 与 `LegalMarkdownReader` 接入 `LiquidGlassBackdrop` 与 `LiquidGlassSurfaceCard` 表面，完整保留 `IndexedStack`、`Checkbox` 与矮屏/大字号滚动降级逻辑；
+  - `WebViewLoginScreen`、`WebViewNavBar` 与 `WebViewBottomBar` 严格维持非重叠纵向布局（WebView 视口绝不被玻璃层遮挡），统一顶底控制栏底色、边框与按钮圆角风格。
+
+### Tests & Quality Gates
+- **日历导出弹窗与无障碍模式测试补强**：
+  - 扩充 `calendar_export_dialog_test.dart`（覆盖 `preferExams` 回退、校准跳转、剪贴板复制、保存/分享成功与异常分支及 `useSolidSurface` 窄屏大字号渲染），将 `calendar_export_dialog.dart` 行覆盖率提升至 **`98%+`**；
+  - 在 `liquid_glass_ui_test.dart` 新增「减弱透明与动态模糊」菜单切换、持久化与多页无异常渲染回归用例；
+  - CI 与本地最低行覆盖率门禁由 `75.00%` 稳步上调至 **`80.00%`**（同步更新 `ci_cd.yml`、`CONTRIBUTING.md` 与 PR 模板）。
+
 ## [3.0.0-pre1] - 2026-11-27
 
 金花助手 `v3.0.0-pre1`（开发预览版 · Liquid Glass 液态玻璃全新视觉体系重构、`WebViewLoginScreen` 可测性注入与覆盖率门禁上调至 `75%`）！本预览版开启 `v3.0` 视觉大版本演进，全面引入 `liquid_glass_widgets` 液态玻璃设计语言，重构三大主页面顶栏、悬浮导航栏、胶囊切周组件与核心弹窗浮层。
@@ -812,7 +836,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v3.0.0-pre1...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v3.0.0-pre2...HEAD
+[3.0.0-pre2]: https://github.com/korty258/xaut-assistant/compare/v3.0.0-pre1...v3.0.0-pre2
 [3.0.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.4.2...v3.0.0-pre1
 [2.4.2]: https://github.com/korty258/xaut-assistant/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/korty258/xaut-assistant/compare/v2.4.0...v2.4.1

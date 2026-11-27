@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:provider/provider.dart';
+import 'providers/appearance_provider.dart';
 import 'providers/schedule_provider.dart';
 import 'providers/grades_provider.dart';
 import 'providers/exams_provider.dart';
@@ -23,13 +24,24 @@ void main() async {
   }
   LegalService.registerCustomLicenses();
   final isLegalAccepted = await LegalService.isAccepted();
-  runApp(XautApp(isLegalAccepted: isLegalAccepted));
+  final reduceTransparency = await AppearanceProvider.loadReduceTransparency();
+  runApp(
+    XautApp(
+      isLegalAccepted: isLegalAccepted,
+      initialReduceTransparency: reduceTransparency,
+    ),
+  );
 }
 
 class XautApp extends StatelessWidget {
   final bool isLegalAccepted;
+  final bool initialReduceTransparency;
 
-  const XautApp({super.key, this.isLegalAccepted = false});
+  const XautApp({
+    super.key,
+    this.isLegalAccepted = false,
+    this.initialReduceTransparency = false,
+  });
 
   static ThemeData _buildTheme(Brightness brightness) {
     final isWindows = defaultTargetPlatform == TargetPlatform.windows;
@@ -65,29 +77,46 @@ class XautApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LiquidGlassWidgets.wrap(
-      adaptiveQuality: true,
-      respectSystemAccessibility: true,
-      brightnessResolver: Theme.maybeBrightnessOf,
-      theme: const GlassThemeData(),
-      child: MultiProvider(
-        providers: [
-          ChangeNotifierProvider(create: (_) => ScheduleProvider()),
-          ChangeNotifierProvider(create: (_) => GradesProvider()),
-          ChangeNotifierProvider(create: (_) => ExamsProvider()),
-        ],
-        child: MaterialApp(
-          title: '金花助手',
-          debugShowCheckedModeBanner: false,
-          theme: _buildTheme(Brightness.light),
-          darkTheme: _buildTheme(Brightness.dark),
-          themeMode: ThemeMode.system,
-          builder: (context, child) => Material(
-            type: MaterialType.transparency,
-            child: child ?? const SizedBox.shrink(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => AppearanceProvider(
+            initialReduceTransparency: initialReduceTransparency,
           ),
-          home: isLegalAccepted ? const HomeScreen() : const LegalGateScreen(),
         ),
+        ChangeNotifierProvider(create: (_) => ScheduleProvider()),
+        ChangeNotifierProvider(create: (_) => GradesProvider()),
+        ChangeNotifierProvider(create: (_) => ExamsProvider()),
+      ],
+      child: Consumer<AppearanceProvider>(
+        builder: (context, appearance, _) {
+          final reduceTransparency = appearance.reduceTransparency;
+          return LiquidGlassWidgets.wrap(
+            adaptiveQuality: !reduceTransparency,
+            respectSystemAccessibility: true,
+            brightnessResolver: Theme.maybeBrightnessOf,
+            theme: reduceTransparency
+                ? const GlassThemeData.minimal()
+                : const GlassThemeData(),
+            child: MaterialApp(
+              title: '金花助手',
+              debugShowCheckedModeBanner: false,
+              theme: _buildTheme(Brightness.light),
+              darkTheme: _buildTheme(Brightness.dark),
+              themeMode: ThemeMode.system,
+              builder: (context, child) => GlassAccessibilityScope(
+                reduceTransparency: reduceTransparency ? true : null,
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: child ?? const SizedBox.shrink(),
+                ),
+              ),
+              home: isLegalAccepted
+                  ? const HomeScreen()
+                  : const LegalGateScreen(),
+            ),
+          );
+        },
       ),
     );
   }

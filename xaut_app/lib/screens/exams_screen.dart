@@ -178,20 +178,23 @@ class ExamsScreen extends StatelessWidget {
       body: provider.isLoading
           ? const Center(child: CircularProgressIndicator())
           : provider.hasStorageError
-              ? Padding(
-                  padding: EdgeInsets.only(top: topClearance, bottom: bottomClearance),
-                  child: DecryptionErrorView(
-                    moduleName: '考试日程',
-                    isFormatError: provider.hasDataFormatError,
-                    onReset: () {
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context)
-                        ..hideCurrentSnackBar()
-                        ..showSnackBar(
-                          const SnackBar(content: Text('已重置损坏缓存与主密钥，请重新同步教务数据')),
-                        );
-                    },
+              ? DecryptionErrorView(
+                  moduleName: '考试日程',
+                  isFormatError: provider.hasDataFormatError,
+                  contentPadding: EdgeInsets.fromLTRB(
+                    24,
+                    topClearance + 16,
+                    24,
+                    bottomClearance,
                   ),
+                  onReset: () {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context)
+                      ..hideCurrentSnackBar()
+                      ..showSnackBar(
+                        const SnackBar(content: Text('已重置损坏缓存与主密钥，请重新同步教务数据')),
+                      );
+                  },
                 )
               : exams.isEmpty
                   ? Center(
@@ -513,7 +516,7 @@ class ExamsScreen extends StatelessWidget {
     unawaited(
       showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => LiquidGlassDialog(
           icon: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error, size: 36),
           title: const Text('确认清空考试数据？'),
           content: const Text('此操作将清空本地已保存的所有考试日程与考场信息。清空后可随时点击同步按钮重新登录教务系统进行同步。'),

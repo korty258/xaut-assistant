@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import '../../services/legal_service.dart';
+import '../glass/liquid_glass_chrome.dart';
 
 typedef LegalDocItem = ({String title, String assetPath});
 
@@ -213,16 +214,10 @@ class LegalMarkdownReader extends StatelessWidget {
     final theme = Theme.of(context);
     final markdownStyle = _buildStyleSheet(theme);
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+    return LiquidGlassSurfaceCard(
+      margin: const EdgeInsets.fromLTRB(12, 6, 12, 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
-        ),
-      ),
+      borderRadius: 18,
       child: IndexedStack(
         index: selectedDoc,
         children: [

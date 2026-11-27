@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../providers/schedule_provider.dart';
+import 'glass/liquid_glass_chrome.dart';
 
 class WeekSelectorSheet extends StatelessWidget {
   final int currentWeek;
@@ -344,15 +345,14 @@ class _SemesterCalibrateDialogState extends State<SemesterCalibrateDialog> {
       statusDesc = '今天处于第 $rawW 周（本周日期 ${_fmtMd(thisWeekMon)} ~ ${_fmtMd(thisWeekSun)}）';
     }
 
-    return AlertDialog(
+    return LiquidGlassDialog(
+      maxWidth: 420,
       icon: Icon(Icons.edit_calendar_rounded, color: theme.colorScheme.primary, size: 32),
       title: const Text('校准开学日期与当前周'),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 380),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
             Text(
               '设置后，App 每次打开都会根据系统日期自动递增教学周，并在表头展示每日日期。',
               style: TextStyle(fontSize: 12.5, color: theme.colorScheme.onSurfaceVariant, height: 1.4),
@@ -480,7 +480,6 @@ class _SemesterCalibrateDialogState extends State<SemesterCalibrateDialog> {
             ),
           ],
         ),
-      ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),

@@ -4,6 +4,7 @@ import '../../providers/exams_provider.dart';
 import '../../providers/grades_provider.dart';
 import '../../providers/schedule_provider.dart';
 import '../../services/parser_service.dart';
+import '../../widgets/glass/liquid_glass_chrome.dart';
 import 'webview_constants.dart';
 
 /// 本地持久化结果与局部状态（支持“数据已存盘但同步时间失败”与回滚文案覆盖）
@@ -43,7 +44,8 @@ abstract final class WebViewSyncDialogs {
     return await showDialog<bool>(
           context: context,
           barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
+          builder: (ctx) => LiquidGlassDialog(
+            useSolidSurface: true,
             icon: const Icon(
               Icons.warning_amber_rounded,
               color: Colors.orange,
@@ -84,7 +86,8 @@ abstract final class WebViewSyncDialogs {
         showDialog<void>(
           context: context,
           builder: (ctx) => StatefulBuilder(
-            builder: (ctx, setDialogState) => AlertDialog(
+            builder: (ctx, setDialogState) => LiquidGlassDialog(
+              useSolidSurface: true,
               icon: const Icon(
                 Icons.warning_amber_rounded,
                 color: Colors.orange,
@@ -143,7 +146,8 @@ abstract final class WebViewSyncDialogs {
     unawaited(
       showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => LiquidGlassDialog(
+          useSolidSurface: true,
           icon: Icon(
             hasMismatchWarning
                 ? Icons.warning_amber_rounded
@@ -216,7 +220,8 @@ abstract final class WebViewSyncDialogs {
     unawaited(
       showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => LiquidGlassDialog(
+          useSolidSurface: true,
           title: Row(
             children: [
               Icon(icon, color: iconColor),
@@ -246,7 +251,8 @@ abstract final class WebViewSyncDialogs {
     unawaited(
       showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => LiquidGlassDialog(
+          useSolidSurface: true,
           icon: const Icon(
             Icons.lock_clock_rounded,
             color: Colors.orange,
@@ -278,7 +284,8 @@ abstract final class WebViewSyncDialogs {
     unawaited(
       showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => LiquidGlassDialog(
+          useSolidSurface: true,
           title: const Row(
             children: [
               Icon(Icons.auto_awesome, color: Colors.blue),
@@ -320,7 +327,8 @@ abstract final class WebViewSyncDialogs {
     unawaited(
       showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => LiquidGlassDialog(
+          useSolidSurface: true,
           title: Row(
             children: [
               const Icon(Icons.check_circle, color: Colors.green),
@@ -355,7 +363,8 @@ abstract final class WebViewSyncDialogs {
     unawaited(
       showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => LiquidGlassDialog(
+          useSolidSurface: true,
           title: Row(
             children: [
               const Icon(Icons.info_outline, color: Colors.orange),
@@ -454,7 +463,8 @@ abstract final class WebViewSyncDialogs {
                 gradesOutcome.dataSavedOnly ||
                 examsOutcome.dataSavedOnly;
 
-            return AlertDialog(
+            return LiquidGlassDialog(
+              useSolidSurface: true,
               icon: Icon(
                 allPersistOk
                     ? Icons.cloud_done_rounded
