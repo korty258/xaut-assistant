@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xaut_app/main.dart';
 import 'package:xaut_app/models/course.dart';
 import 'package:xaut_app/models/exam.dart';
 import 'package:xaut_app/models/grade.dart';
@@ -10,7 +11,10 @@ import 'package:xaut_app/providers/appearance_provider.dart';
 import 'package:xaut_app/providers/exams_provider.dart';
 import 'package:xaut_app/providers/grades_provider.dart';
 import 'package:xaut_app/providers/schedule_provider.dart';
+import 'package:xaut_app/screens/exams_screen.dart';
+import 'package:xaut_app/screens/grades_screen.dart';
 import 'package:xaut_app/screens/home_screen.dart';
+import 'package:xaut_app/screens/schedule_screen.dart';
 import 'package:xaut_app/services/app_crypto_service.dart';
 import 'package:xaut_app/widgets/glass/liquid_glass_chrome.dart';
 
@@ -386,6 +390,45 @@ void main() {
       expect(appearance.reduceTransparency, isTrue);
       appearance.resetToDefault();
       expect(appearance.reduceTransparency, isFalse);
+      _expectNoException(tester);
+    });
+
+    testWidgets(
+      'HomeScreen lazily mounts tabs on first frame and XautApp uses shader-free minimal theme on Windows',
+      variant: TargetPlatformVariant.only(TargetPlatform.windows),
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1024, 768));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(const XautApp(isLegalAccepted: true));
+      await _settleBounded(tester);
+
+      // 首帧仅挂载 Tab 0（课表页），不提前构建成绩页与考试页（含 offstage 检查）
+      expect(find.byType(ScheduleScreen, skipOffstage: false), findsOneWidget);
+      expect(find.byType(GradesScreen, skipOffstage: false), findsNothing);
+      expect(find.byType(ExamsScreen, skipOffstage: false), findsNothing);
+
+      // Windows 端默认锁定 GlassQuality.minimal（零自定义片段着色器），保障冷启动秒开
+      final scheduleCtx = tester.element(find.byType(ScheduleScreen));
+      expect(GlassTheme.of(scheduleCtx).data.light.quality, GlassQuality.minimal);
+      expect(GlassTheme.of(scheduleCtx).data.dark.quality, GlassQuality.minimal);
+
+      // 点击「成绩」后按需挂载并驻留
+      await tester.tap(
+        find.descendant(of: find.byType(GlassTabBar), matching: find.text('成绩')).first,
+      );
+      await _settleBounded(tester);
+      expect(find.byType(GradesScreen, skipOffstage: false), findsOneWidget);
+      expect(find.byType(ExamsScreen, skipOffstage: false), findsNothing);
+
+      // 点击「考试」后按需挂载并保留前两页在 IndexedStack 中
+      await tester.tap(
+        find.descendant(of: find.byType(GlassTabBar), matching: find.text('考试')).first,
+      );
+      await _settleBounded(tester);
+      expect(find.byType(ScheduleScreen, skipOffstage: false), findsOneWidget);
+      expect(find.byType(GradesScreen, skipOffstage: false), findsOneWidget);
+      expect(find.byType(ExamsScreen, skipOffstage: false), findsOneWidget);
       _expectNoException(tester);
     });
   });

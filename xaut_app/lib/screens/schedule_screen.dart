@@ -216,6 +216,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         final scaffold = GlassScaffold(
       background: hasHostBackdrop ? const SizedBox.shrink() : const LiquidGlassBackdrop(),
       backgroundColor: LiquidGlassBackdrop.baseColorFor(theme.brightness),
+      enableBackgroundSampling: false,
       statusBarStyle: hasHostBackdrop ? GlassStatusBarStyle.none : GlassStatusBarStyle.auto,
       bottomEdgeFade: false,
       appBar: GlassAppBar(

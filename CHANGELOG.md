@@ -6,6 +6,21 @@
 
 ## [Unreleased]
 
+## [3.0.0-pre3] - 2026-11-27
+
+金花助手 `v3.0.0-pre3`（开发预览版 · Windows 冷启动极速优化与撤回授权外观状态一致性修复）！本版本精准修复 `v3.0.0-pre1/pre2` 在 Windows 桌面端冷启动明显变慢的问题，消除启动阻塞着色器编译与多余的离屏采样开销，使 Windows 端恢复秒级出窗体验。
+
+### Performance & Fixed
+- **Windows 端冷启动极速优化 (`main.dart`、`HomeScreen` & 三大主页)**：
+  - **解除启动前阻塞式 GLSL 着色器预编译**：Windows / Linux 桌面端（及已开启「减弱透明与动态模糊」时）跳过 `LiquidGlassWidgets.initialize()`，并默认切换至零自定义片段着色器的硬件磨砂玻璃主题 `GlassThemeData.minimal()`（保留通透磨砂观感，彻底消除 ANGLE/Direct3D 11 首次 HLSL 编译卡顿；开启「减弱透明与动态模糊」时仍可进一步切至高对比实心表面）；Android 移动端改为首帧外非阻塞异步预热，并并行读取启动偏好；
+  - **关闭全屏离屏背景采样**：在 `HomeScreen` 与 `ScheduleScreen`、`GradesScreen`、`ExamsScreen` 的 `GlassScaffold` 中显式设置 `enableBackgroundSampling: false`，消除冷启动首帧 4 处冗余全屏 `RepaintBoundary` + `toImage()` GPU 离屏回读；
+  - **首页 Tab 按需懒挂载**：`HomeScreen` 的 `IndexedStack` 首帧仅构建当前选中的课表页（Tab 0），点击成绩/考试页后再按需挂载并常驻保留滚动状态，显著缩减 Windows 第一帧出窗耗时。
+- **撤回授权外观偏好状态一致性修复 (`LegalGateScreen`)**：
+  - 将 `appearance?.resetToDefault()` 移至 `await LegalService.revokeAndClearAll()` 返回之后，仅在 `cleanupResult.prefsCleared == true`（磁盘偏好确认清空）后重置内存态，保持磁盘优先状态一致性。
+
+### Tests
+- 在 `liquid_glass_ui_test.dart` 新增 Windows 平台启动优化与 Tab 首帧懒挂载回归测试（Flutter 全量单测扩充至 **209 项** 全通，Node 24 解析器测试保持 **31 项** 全通）。
+
 ## [3.0.0-pre2] - 2026-11-27
 
 金花助手 `v3.0.0-pre2`（开发预览版 · 全站 Liquid Glass 视觉闭环、无障碍「减弱透明与动态模糊」开关与 `80%` 行覆盖率门禁）！本版本彻底消除 `v3.0.0-pre1` 的半程玻璃割裂与空态滚动截断瑕疵，完成全站弹窗、法律门禁与教务登录控制栏的视觉统一，并内置低配/护眼实心表面切换模式。
@@ -836,7 +851,8 @@
 - 实现分学期 / 累计动态加权平均分与 GPA 演算（兼容五级制与二级制成绩）及考试倒计时智能排序。
 - 内置离线《用户服务协议》《隐私政策》《免责声明》与首次启动强制阅读知情同意门禁（`LegalGateScreen`）。
 
-[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v3.0.0-pre2...HEAD
+[Unreleased]: https://github.com/korty258/xaut-assistant/compare/v3.0.0-pre3...HEAD
+[3.0.0-pre3]: https://github.com/korty258/xaut-assistant/compare/v3.0.0-pre2...v3.0.0-pre3
 [3.0.0-pre2]: https://github.com/korty258/xaut-assistant/compare/v3.0.0-pre1...v3.0.0-pre2
 [3.0.0-pre1]: https://github.com/korty258/xaut-assistant/compare/v2.4.2...v3.0.0-pre1
 [2.4.2]: https://github.com/korty258/xaut-assistant/compare/v2.4.1...v2.4.2

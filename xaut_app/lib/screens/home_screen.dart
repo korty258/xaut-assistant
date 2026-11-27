@@ -18,7 +18,10 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
 
-  final List<Widget> _pages = const [
+  /// 按需懒挂载 Tab 页，避免冷启动首帧同时构建 3 个完整 `GlassScaffold` 拖慢 Windows 出窗速度。
+  final Set<int> _mountedTabs = {0};
+
+  static const List<Widget> _pages = [
     ScheduleScreen(),
     GradesScreen(),
     ExamsScreen(),
@@ -59,6 +62,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: GlassScaffold(
           background: const LiquidGlassBackdrop(),
           backgroundColor: LiquidGlassBackdrop.baseColorFor(theme.brightness),
+          enableBackgroundSampling: false,
           statusBarStyle: GlassStatusBarStyle.auto,
           topEdgeFade: false,
           bottomEdgeFade: true,
@@ -67,6 +71,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             onTabSelected: (index) {
               setState(() {
                 _currentIndex = index;
+                _mountedTabs.add(index);
               });
             },
             horizontalPadding: isNarrow ? 12 : 20,
@@ -103,7 +108,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           body: IndexedStack(
             index: _currentIndex,
-            children: _pages,
+            children: [
+              for (int i = 0; i < _pages.length; i++)
+                _mountedTabs.contains(i) ? _pages[i] : const SizedBox.shrink(),
+            ],
           ),
         ),
       ),
